@@ -1,0 +1,193 @@
+<!DOCTYPE HTML PUBLIC "-//W3C//DTD HTML 4.01 Transitional//EN">
+<HTML>
+ <HEAD>
+   <TITLE> [Libpkg-svn] r264 - in trunk/tests: . fbsd_contents
+   </TITLE>
+   <LINK REL="Index" HREF="http://lists.berlios.de/pipermail/libpkg-svn/2007-February/index.html" >
+   <LINK REL="made" HREF="mailto:libpkg-svn%40lists.berlios.de?Subject=Re%3A%20%5BLibpkg-svn%5D%20r264%20-%20in%20trunk/tests%3A%20.%20fbsd_contents&In-Reply-To=%3C200702140853.l1E8r831029239%40sheep.berlios.de%3E">
+   <META NAME="robots" CONTENT="index,nofollow">
+   <style type="text/css">
+       pre {
+           white-space: pre-wrap;       /* css-2.1, curent FF, Opera, Safari */
+           }
+   </style>
+   <META http-equiv="Content-Type" content="text/html; charset=us-ascii">
+   <LINK REL="Previous"  HREF="000247.html">
+   <LINK REL="Next"  HREF="000249.html">
+ </HEAD>
+ <BODY BGCOLOR="#ffffff">
+   <H1>[Libpkg-svn] r264 - in trunk/tests: . fbsd_contents</H1>
+    <B>zxombie at BerliOS</B> 
+    <A HREF="mailto:libpkg-svn%40lists.berlios.de?Subject=Re%3A%20%5BLibpkg-svn%5D%20r264%20-%20in%20trunk/tests%3A%20.%20fbsd_contents&In-Reply-To=%3C200702140853.l1E8r831029239%40sheep.berlios.de%3E"
+       TITLE="[Libpkg-svn] r264 - in trunk/tests: . fbsd_contents">zxombie at mail.berlios.de
+       </A><BR>
+    <I>Wed Feb 14 09:53:08 CET 2007</I>
+    <P><UL>
+        <LI>Previous message: <A HREF="000247.html">[Libpkg-svn] r263 - trunk/tests
+</A></li>
+        <LI>Next message: <A HREF="000249.html">[Libpkg-svn] r265 - trunk/tools/pkg_delete
+</A></li>
+         <LI> <B>Messages sorted by:</B> 
+              <a href="date.html#248">[ date ]</a>
+              <a href="thread.html#248">[ thread ]</a>
+              <a href="subject.html#248">[ subject ]</a>
+              <a href="author.html#248">[ author ]</a>
+         </LI>
+       </UL>
+    <HR>  
+<!--beginarticle-->
+<PRE>Author: zxombie
+Date: 2007-02-14 09:53:08 +0100 (Wed, 14 Feb 2007)
+New Revision: 264
+
+Added:
+   trunk/tests/fbsd_contents/
+   trunk/tests/fbsd_contents/Makefile
+   trunk/tests/fbsd_contents/fbsd_test.c
+Modified:
+   trunk/tests/Makefile
+Log:
+Add a program that tests if the FreeBSD +CONTENTS file parser works on all the currently installed packages
+
+
+Modified: trunk/tests/Makefile
+===================================================================
+--- trunk/tests/Makefile	2007-02-14 06:53:45 UTC (rev 263)
++++ trunk/tests/Makefile	2007-02-14 08:53:08 UTC (rev 264)
+@@ -11,4 +11,6 @@
+ test: all
+ 	cd ${.OBJDIR} &amp;&amp; MALLOC_OPTIONS=AJ ./tests
+ 
++SUBDIR=		fbsd_contents
++
+ .include &lt;bsd.prog.mk&gt;
+
+Added: trunk/tests/fbsd_contents/Makefile
+===================================================================
+--- trunk/tests/fbsd_contents/Makefile	2007-02-14 06:53:45 UTC (rev 263)
++++ trunk/tests/fbsd_contents/Makefile	2007-02-14 08:53:08 UTC (rev 264)
+@@ -0,0 +1,8 @@
++PROG=	fbsd_test
++
++CFLAGS+= -I${.CURDIR}/../../src
++LDADD+= -L${.OBJDIR}/../../src -lpkg -larchive -lmd
++
++MAN=
++
++.include &lt;bsd.prog.mk&gt;
+
+Added: trunk/tests/fbsd_contents/fbsd_test.c
+===================================================================
+--- trunk/tests/fbsd_contents/fbsd_test.c	2007-02-14 06:53:45 UTC (rev 263)
++++ trunk/tests/fbsd_contents/fbsd_test.c	2007-02-14 08:53:08 UTC (rev 264)
+@@ -0,0 +1,86 @@
++/*
++ * Copyright (C) 2007, Andrew Turner, All rights reserved.
++ *
++ * Redistribution and use in source and binary forms, with or without
++ * modification, are permitted provided that the following conditions
++ * are met:
++ * 1. Redistributions of source code must retain the above copyright
++ *    notice, this list of conditions and the following disclaimer
++ *    in this position and unchanged.
++ * 2. Redistributions in binary form must reproduce the above copyright
++ *    notice, this list of conditions and the following disclaimer in the
++ *    documentation and/or other materials provided with the distribution.
++ * 3. The name(s) of the author(s) may not be used to endorse or promote
++ *    products derived from this software without specific prior written
++ *    permission.
++ *
++ * THIS SOFTWARE IS PROVIDED BY THE AUTHOR(S) ``AS IS'' AND ANY EXPRESS OR
++ * IMPLIED WARRANTIES, INCLUDING, BUT NOT LIMITED TO, THE IMPLIED WARRANTIES
++ * OF MERCHANTABILITY AND FITNESS FOR A PARTICULAR PURPOSE ARE DISCLAIMED.
++ * IN NO EVENT SHALL THE AUTHOR(S) BE LIABLE FOR ANY DIRECT, INDIRECT,
++ * INCIDENTAL, SPECIAL, EXEMPLARY, OR CONSEQUENTIAL DAMAGES (INCLUDING, BUT
++ * NOT LIMITED TO, PROCUREMENT OF SUBSTITUTE GOODS OR SERVICES; LOSS OF USE,
++ * DATA, OR PROFITS; OR BUSINESS INTERRUPTION) HOWEVER CAUSED AND ON ANY
++ * THEORY OF LIABILITY, WHETHER IN CONTRACT, STRICT LIABILITY, OR TORT
++ * (INCLUDING NEGLIGENCE OR OTHERWISE) ARISING IN ANY WAY OUT OF THE USE OF
++ * THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
++ *
++ */
++
++#include &lt;sys/types.h&gt;
++
++#include &lt;dirent.h&gt;
++#include &lt;err.h&gt;
++#include &lt;pkg.h&gt;
++#include &lt;pkg_db.h&gt;
++#include &lt;pkg_freebsd.h&gt;
++#include &lt;stdlib.h&gt;
++
++int
++main(int argc __unused, char *argv[] __unused)
++{
++	DIR *d;
++	struct dirent *de;
++
++	d = opendir(&quot;/var/db/pkg&quot;);
++	if (d == NULL) {
++		errx(1, &quot;Could not open /var/db/pkg&quot;);
++	}
++
++	while((de = readdir(d)) != NULL) {
++		char *buf;
++		struct pkg_freebsd_contents *contents;
++		char file[FILENAME_MAX];
++		struct stat sb;
++		FILE *fd;
++
++		if (de-&gt;d_name[0] == '.')
++			continue;
++
++		if (de-&gt;d_type != DT_DIR)
++			continue;
++
++		printf(&quot;%s &quot;, de-&gt;d_name);
++		snprintf(file, FILENAME_MAX, &quot;/var/db/pkg/%s/+CONTENTS&quot;,
++		    de-&gt;d_name);
++
++		stat(file, &amp;sb);
++		buf = malloc(sb.st_size);
++
++		fd = fopen(file, &quot;r&quot;);
++		fread(buf, sb.st_size, 1, fd);
++		fclose(fd);
++
++		contents = pkg_freebsd_contents_new(buf, sb.st_size);
++		if (contents == NULL) {
++			printf(&quot;FAILED\n&quot;);
++		} else {
++			printf(&quot;Ok\n&quot;);
++		}
++		pkg_freebsd_contents_free(contents);
++		free(buf);
++	}
++
++	closedir(d);
++	return 0;
++}
+
+
+</PRE>
+
+<!--endarticle-->
+    <HR>
+    <P><UL>
+        <!--threads-->
+	<LI>Previous message: <A HREF="000247.html">[Libpkg-svn] r263 - trunk/tests
+</A></li>
+	<LI>Next message: <A HREF="000249.html">[Libpkg-svn] r265 - trunk/tools/pkg_delete
+</A></li>
+         <LI> <B>Messages sorted by:</B> 
+              <a href="date.html#248">[ date ]</a>
+              <a href="thread.html#248">[ thread ]</a>
+              <a href="subject.html#248">[ subject ]</a>
+              <a href="author.html#248">[ author ]</a>
+         </LI>
+       </UL>
+
+<hr>
+<a href="https://lists.berlios.de/mailman/listinfo/libpkg-svn">More information about the Libpkg-svn
+mailing list</a><br>
+</body></html>

@@ -1,0 +1,190 @@
+<!DOCTYPE HTML PUBLIC "-//W3C//DTD HTML 4.01 Transitional//EN">
+<HTML>
+ <HEAD>
+   <TITLE> [Libpkg-svn] r183 - trunk/src
+   </TITLE>
+   <LINK REL="Index" HREF="http://lists.berlios.de/pipermail/libpkg-svn/2006-September/index.html" >
+   <LINK REL="made" HREF="mailto:libpkg-svn%40lists.berlios.de?Subject=Re%3A%20%5BLibpkg-svn%5D%20r183%20-%20trunk/src&In-Reply-To=%3C200609010238.k812c534006421%40sheep.berlios.de%3E">
+   <META NAME="robots" CONTENT="index,nofollow">
+   <style type="text/css">
+       pre {
+           white-space: pre-wrap;       /* css-2.1, curent FF, Opera, Safari */
+           }
+   </style>
+   <META http-equiv="Content-Type" content="text/html; charset=us-ascii">
+   
+   <LINK REL="Next"  HREF="000168.html">
+ </HEAD>
+ <BODY BGCOLOR="#ffffff">
+   <H1>[Libpkg-svn] r183 - trunk/src</H1>
+    <B>zxombie at BerliOS</B> 
+    <A HREF="mailto:libpkg-svn%40lists.berlios.de?Subject=Re%3A%20%5BLibpkg-svn%5D%20r183%20-%20trunk/src&In-Reply-To=%3C200609010238.k812c534006421%40sheep.berlios.de%3E"
+       TITLE="[Libpkg-svn] r183 - trunk/src">zxombie at mail.berlios.de
+       </A><BR>
+    <I>Fri Sep  1 04:38:05 CEST 2006</I>
+    <P><UL>
+        
+        <LI>Next message: <A HREF="000168.html">[Libpkg-svn] r184 - trunk/tests
+</A></li>
+         <LI> <B>Messages sorted by:</B> 
+              <a href="date.html#167">[ date ]</a>
+              <a href="thread.html#167">[ thread ]</a>
+              <a href="subject.html#167">[ subject ]</a>
+              <a href="author.html#167">[ author ]</a>
+         </LI>
+       </UL>
+    <HR>  
+<!--beginarticle-->
+<PRE>Author: zxombie
+Date: 2006-09-01 04:37:54 +0200 (Fri, 01 Sep 2006)
+New Revision: 183
+
+Modified:
+   trunk/src/pkgfile.c
+Log:
+Set the file length on more file types
+Return the length of a directory's name in pkgfile_get_size
+Return the directory's name in pkgfie_get_data
+Fix a bug where if a file's parent directories needed to be created checks against the file would not be taken. This removes a race between creating the directories and creating the file.
+Create a directory in pkgfile_write
+
+
+Modified: trunk/src/pkgfile.c
+===================================================================
+--- trunk/src/pkgfile.c	2006-08-31 06:19:11 UTC (rev 182)
++++ trunk/src/pkgfile.c	2006-09-01 02:37:54 UTC (rev 183)
+@@ -233,6 +233,7 @@
+ 	if (pkgfile == NULL)
+ 		return NULL;
+ 
++	pkgfile-&gt;length = strlen(data);
+ 	pkgfile-&gt;data = strdup(data);
+ 	if (pkgfile-&gt;data == NULL) {
+ 		pkgfile_free(pkgfile);
+@@ -258,6 +259,7 @@
+ 	if (pkgfile == NULL)
+ 		return NULL;
+ 
++	pkgfile-&gt;length = strlen(other_file);
+ 	pkgfile-&gt;data = strdup(other_file);
+ 	if (pkgfile-&gt;data == NULL) {
+ 		pkgfile_free(pkgfile);
+@@ -283,12 +285,6 @@
+ 	if (file == NULL)
+ 		return NULL;
+ 
+-	file-&gt;data = strdup(dir);
+-	if (file-&gt;data == NULL) {
+-		pkgfile_free(file);
+-		return NULL;
+-	}
+-
+ 	return file;
+ }
+ 
+@@ -318,11 +314,14 @@
+ 		pkgfile_open_fd(file);
+ 
+ 	assert(file-&gt;type != pkgfile_none);
+-	assert(file-&gt;type != pkgfile_dir);
+ 
+ 	switch (file-&gt;type) {
+ 		case pkgfile_none:
++			break;
+ 		case pkgfile_dir:
++			if (file-&gt;length == 0)
++				file-&gt;length = strlen(file-&gt;name);
++			return file-&gt;length;
+ 			break;
+ 		case pkgfile_hardlink:
+ 			assert(file-&gt;loc == pkgfile_loc_mem);
+@@ -365,12 +364,12 @@
+ 		pkgfile_open_fd(file);
+ 
+ 	assert(file-&gt;type != pkgfile_none);
+-	assert(file-&gt;type != pkgfile_dir);
+ 
+ 	switch (file-&gt;type) {
+ 	case pkgfile_none:
++		break;
+ 	case pkgfile_dir:
+-		break;
++		return file-&gt;name;
+ 	case pkgfile_hardlink:
+ 		assert(file-&gt;loc == pkgfile_loc_mem);
+ 		if (file-&gt;loc == pkgfile_loc_mem) {
+@@ -409,7 +408,7 @@
+ int
+ pkgfile_set_checksum_md5(struct pkgfile *file, const char *md5)
+ {
+-	if (file == NULL || md5 == NULL)
++	if (file == NULL || md5 == NULL || strlen(md5) != 32)
+ 		return -1;
+ 
+ 	strlcpy(file-&gt;md5, md5, 33);
+@@ -600,7 +599,6 @@
+ 		pkgfile_open_fd(file);
+ 
+ 	assert(file-&gt;type != pkgfile_none);
+-	assert(file-&gt;type != pkgfile_dir);
+ 
+ 	switch (file-&gt;type) {
+ 	case pkgfile_none:
+@@ -629,7 +627,8 @@
+ 					return -1;
+ 				}
+ 				/* We created the file */
+-			} else if (fstat(fileno(fd), &amp;sb) != 0) {
++			}
++			if (fstat(fileno(fd), &amp;sb) != 0) {
+ 				/* And fstat can find it */
+ 				fclose(fd);
+ 				return -1;
+@@ -646,8 +645,7 @@
+ 				fclose(fd);
+ 				return -1;
+ 			}
+-			if (file-&gt;data == NULL) {
+-			} else {
++			if (file-&gt;data != NULL) {
+ 				/* We can now write to the file */
+ 				buf = file-&gt;data;
+ 
+@@ -678,7 +676,13 @@
+ 			return -1;
+ 		break;
+ 	case pkgfile_dir:
+-		return -1;
++#define DEF_MODE (S_IRWXU|S_IRGRP|S_IXGRP|S_IROTH|S_IXOTH)
++		if (mkdir(file-&gt;name,
++		    (file-&gt;mode == 0 ? DEF_MODE : file-&gt;mode)) != 0) {
++			return -1;
++		}
++#undef DEF_MODE
++		break;
+ 	}
+ 
+ 	return 0;
+
+
+</PRE>
+
+<!--endarticle-->
+    <HR>
+    <P><UL>
+        <!--threads-->
+	
+	<LI>Next message: <A HREF="000168.html">[Libpkg-svn] r184 - trunk/tests
+</A></li>
+         <LI> <B>Messages sorted by:</B> 
+              <a href="date.html#167">[ date ]</a>
+              <a href="thread.html#167">[ thread ]</a>
+              <a href="subject.html#167">[ subject ]</a>
+              <a href="author.html#167">[ author ]</a>
+         </LI>
+       </UL>
+
+<hr>
+<a href="https://lists.berlios.de/mailman/listinfo/libpkg-svn">More information about the Libpkg-svn
+mailing list</a><br>
+</body></html>

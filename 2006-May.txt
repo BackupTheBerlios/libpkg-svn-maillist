@@ -1,0 +1,491 @@
+From zxombie at berlios.de  Mon May  1 13:17:11 2006
+From: zxombie at berlios.de (zxombie at BerliOS)
+Date: Mon, 1 May 2006 13:17:11 +0200
+Subject: [Libpkg-svn] r117 - trunk/src
+Message-ID: <200605011117.k41BHBBP010562@sheep.berlios.de>
+
+Author: zxombie
+Date: 2006-05-01 13:17:09 +0200 (Mon, 01 May 2006)
+New Revision: 117
+
+Modified:
+   trunk/src/pkg_util.c
+Log:
+Add a FILE object creator to cache the output of another FILE object
+
+
+Modified: trunk/src/pkg_util.c
+===================================================================
+--- trunk/src/pkg_util.c	2006-04-29 07:16:19 UTC (rev 116)
++++ trunk/src/pkg_util.c	2006-05-01 11:17:09 UTC (rev 117)
+@@ -36,12 +36,17 @@
+ #include <errno.h>
+ #include <md5.h>
+ #include <stdarg.h>
++#include <stdio.h>
+ #include <stdlib.h>
+ #include <string.h>
+ 
+ #include "pkg.h"
+ #include "pkg_private.h"
+ 
++static int	 pkg_cached_readfn(void *, char *, int);
++static int	 pkg_cached_closefn(void *);
++
++FILE		*pkg_cached_file(FILE *, const char *);
+ /**
+  * @defgroup PackageUtil Miscellaneous utilities
+  *
+@@ -150,6 +155,66 @@
+ 	return ret;
+ }
+ 
++struct cached_read {
++	FILE *fd;
++	FILE *cache;
++};
++
++static int
++pkg_cached_readfn(void *c, char *buf, int len)
++{
++	struct cached_read *cr;
++	int ret, left, count;
++	char *b;
++
++	cr = c;
++
++	/* Check we are not at the end of the input file */
++	if (feof(cr->fd))
++		return 0;
++
++	ret = fread(buf, 1, len, cr->fd);
++
++	if (ret == -1)
++		return ret;
++
++	/* Write the entire buffer to the file */
++	left = ret;
++	b = buf;
++	while (left > 0) {
++		count = fwrite(b, 1, left, cr->cache);
++		b += count;
++		left -= count;
++	}
++	return ret;
++}
++
++static int
++pkg_cached_closefn(void *c)
++{
++	struct cached_read *cr;
++
++	cr  = c;
++	fclose(cr->cache);
++	free(cr);
++	return 0;
++}
++
++FILE *
++pkg_cached_file(FILE *fd, const char *file)
++{
++	struct cached_read *cr;
++	
++	cr = malloc(sizeof(struct cached_read));
++	if (cr == NULL)
++		return NULL;
++
++	cr->fd = fd;
++	/* Create the file and write to it when caching */
++	cr->cache = fopen(file, "w");
++	return funopen(cr, pkg_cached_readfn, NULL, NULL, pkg_cached_closefn);
++}
++
+ /**
+  * @}
+  */
+
+
+
+From zxombie at berlios.de  Mon May  1 14:04:05 2006
+From: zxombie at berlios.de (zxombie at BerliOS)
+Date: Mon, 1 May 2006 14:04:05 +0200
+Subject: [Libpkg-svn] r118 - trunk/src
+Message-ID: <200605011204.k41C45o6001031@sheep.berlios.de>
+
+Author: zxombie
+Date: 2006-05-01 14:04:03 +0200 (Mon, 01 May 2006)
+New Revision: 118
+
+Modified:
+   trunk/src/pkg_freebsd.c
+Log:
+Fix memory leaks in pkg_freebsd objects
+
+
+Modified: trunk/src/pkg_freebsd.c
+===================================================================
+--- trunk/src/pkg_freebsd.c	2006-05-01 11:17:09 UTC (rev 117)
++++ trunk/src/pkg_freebsd.c	2006-05-01 12:04:03 UTC (rev 118)
+@@ -758,9 +758,14 @@
+ 			}
+ 			free(fpkg->control);
+ 		}
++		if (fpkg->fd != NULL)
++			fclose(fpkg->fd);
+ 		if (fpkg->archive != NULL)
+ 			archive_read_finish(fpkg->archive);
++		if (fpkg->contents != NULL)
++			pkg_freebsd_contents_free(fpkg->contents);
+ 
++
+ 		free(fpkg);
+ 	}
+ 
+
+
+
+From zxombie at berlios.de  Mon May  1 14:07:51 2006
+From: zxombie at berlios.de (zxombie at BerliOS)
+Date: Mon, 1 May 2006 14:07:51 +0200
+Subject: [Libpkg-svn] r119 - trunk/src
+Message-ID: <200605011207.k41C7p8e003107@sheep.berlios.de>
+
+Author: zxombie
+Date: 2006-05-01 14:07:40 +0200 (Mon, 01 May 2006)
+New Revision: 119
+
+Modified:
+   trunk/src/pkg_util.c
+Log:
+Close the file we are reading from when we close
+Remove the function definition for pkg_cached_file from pkg_util.c as it is also in pkg_private.h
+
+
+Modified: trunk/src/pkg_util.c
+===================================================================
+--- trunk/src/pkg_util.c	2006-05-01 12:04:03 UTC (rev 118)
++++ trunk/src/pkg_util.c	2006-05-01 12:07:40 UTC (rev 119)
+@@ -46,7 +46,6 @@
+ static int	 pkg_cached_readfn(void *, char *, int);
+ static int	 pkg_cached_closefn(void *);
+ 
+-FILE		*pkg_cached_file(FILE *, const char *);
+ /**
+  * @defgroup PackageUtil Miscellaneous utilities
+  *
+@@ -195,6 +194,7 @@
+ 	struct cached_read *cr;
+ 
+ 	cr  = c;
++	fclose(cr->fd);
+ 	fclose(cr->cache);
+ 	free(cr);
+ 	return 0;
+
+
+
+From zxombie at berlios.de  Mon May  1 14:17:20 2006
+From: zxombie at berlios.de (zxombie at BerliOS)
+Date: Mon, 1 May 2006 14:17:20 +0200
+Subject: [Libpkg-svn] r120 - trunk/src
+Message-ID: <200605011217.k41CHKAg009641@sheep.berlios.de>
+
+Author: zxombie
+Date: 2006-05-01 14:17:18 +0200 (Mon, 01 May 2006)
+New Revision: 120
+
+Modified:
+   trunk/src/pkg_private.h
+Log:
+Add pkg_cached_file defintion to pkg_private.h
+
+
+Modified: trunk/src/pkg_private.h
+===================================================================
+--- trunk/src/pkg_private.h	2006-05-01 12:07:40 UTC (rev 119)
++++ trunk/src/pkg_private.h	2006-05-01 12:17:18 UTC (rev 120)
+@@ -127,6 +127,7 @@
+ int pkg_dir_build(const char *);
+ int pkg_checksum_md5(struct pkg_file *, char *);
+ int pkg_exec(const char *, ...);
++FILE *pkg_cached_file(FILE *, const char *);
+ 
+ 
+ #endif /* __LIBPKG_PKG_PRIVATE_H__ */
+
+
+
+From zxombie at berlios.de  Mon May  1 14:18:42 2006
+From: zxombie at berlios.de (zxombie at BerliOS)
+Date: Mon, 1 May 2006 14:18:42 +0200
+Subject: [Libpkg-svn] r121 - trunk/src
+Message-ID: <200605011218.k41CIgWL010647@sheep.berlios.de>
+
+Author: zxombie
+Date: 2006-05-01 14:18:41 +0200 (Mon, 01 May 2006)
+New Revision: 121
+
+Modified:
+   trunk/src/pkg_repo.h
+   trunk/src/pkg_repo_ftp.c
+Log:
+Add support to save the file fetched to a given directory
+
+
+Modified: trunk/src/pkg_repo.h
+===================================================================
+--- trunk/src/pkg_repo.h	2006-05-01 12:17:18 UTC (rev 120)
++++ trunk/src/pkg_repo.h	2006-05-01 12:18:41 UTC (rev 121)
+@@ -37,7 +37,7 @@
+ struct pkg_repo;
+ 
+ struct pkg_repo	*pkg_repo_new_files(void);
+-struct pkg_repo	*pkg_repo_new_ftp(const char *, const char *);
++struct pkg_repo	*pkg_repo_new_ftp(const char *, const char *, const char *);
+ struct pkg_repo	*pkg_repo_new_local_freebsd(void);
+ struct pkg	*pkg_repo_get_pkg(struct pkg_repo *, const char *);
+ int		 pkg_repo_free(struct pkg_repo *);
+
+Modified: trunk/src/pkg_repo_ftp.c
+===================================================================
+--- trunk/src/pkg_repo_ftp.c	2006-05-01 12:17:18 UTC (rev 120)
++++ trunk/src/pkg_repo_ftp.c	2006-05-01 12:18:41 UTC (rev 121)
+@@ -45,7 +45,7 @@
+ #include "pkg_repo_private.h"
+ 
+ #define MAX_VERSION 9999999
+-static struct {
++static const struct {
+         int lowver;     /* Lowest version number to match */
+         int hiver;      /* Highest version number to match */
+         const char *directory;  /* Directory it lives in */
+@@ -82,7 +82,8 @@
+ struct ftp_repo {
+ 	char	*site;
+ 	char	*path;
+-	FILE	*fd;
++	int	 cache;
++	char	 cache_dir[MAXPATHLEN];
+ };
+ 
+ int getosreldate(void);
+@@ -92,7 +93,8 @@
+ pkg_static int		 ftp_free(struct pkg_repo *);
+ /* Internal */
+ pkg_static FILE		*ftp_get_fd(const char *, struct ftp_repo *);
+-pkg_static struct ftp_repo	*ftp_create_repo(const char *, const char *);
++pkg_static struct ftp_repo	*ftp_create_repo(const char *, const char *,
++					const char *);
+ /*pkg_static int		 pkg_in_All(const char *); */
+ pkg_static int		 pkg_name_has_extension(const char *);
+ 
+@@ -106,12 +108,13 @@
+ /**
+  * @brief Creates a pkg_repo with the given sie and path
+  * @param site The ftp site to use. If NULL will use ftp.freebsd.org
+- * @param path The path to the top level of the packages.
++ * @param path The path to the top level of the packages
++ * @param cached_dir The directory to save a copy of each package file in or NULL
+  *     If NULL will use the default path
+  * @return A pkg_repo object or NULL
+  */
+ struct pkg_repo *
+-pkg_repo_new_ftp(const char *site, const char *path)
++pkg_repo_new_ftp(const char *site, const char *path, const char *cache_dir)
+ {
+ 	struct pkg_repo *repo;
+ 
+@@ -120,7 +123,7 @@
+ 		return NULL;
+ 	}
+ 	
+-	repo->data = ftp_create_repo(site, path);
++	repo->data = ftp_create_repo(site, path, cache_dir);
+ 	if (!repo->data) {
+ 		ftp_free(repo);
+ 		return NULL;
+@@ -147,7 +150,7 @@
+ static struct pkg *
+ ftp_get_pkg(struct pkg_repo *repo, const char *pkg_name)
+ {
+-	FILE *fd;
++	FILE *fd, *fd2;
+ 	struct pkg *pkg;
+ 	struct ftp_repo *f_repo;
+ 
+@@ -160,7 +163,15 @@
+ 	fd = ftp_get_fd(pkg_name, f_repo);
+ 	if (fd == NULL)
+ 		return NULL;
+-	
++
++	if (f_repo->cache) {
++		char cache_file[FILENAME_MAX];
++
++		fd2 = fd;
++		snprintf(cache_file, FILENAME_MAX, "%s/%s.tbz",
++		    f_repo->cache_dir, pkg_name);
++		fd = pkg_cached_file(fd2, cache_file);
++	}	
+ 	pkg = pkg_new_freebsd_from_file(fd);
+ 	if (!pkg) {
+ 		fclose(fd);
+@@ -273,7 +284,7 @@
+  * @return A ftp_repo object or NULL
+  */
+ static struct ftp_repo *
+-ftp_create_repo(const char *site, const char *path)
++ftp_create_repo(const char *site, const char *path, const char *cache_dir)
+ {
+ 	struct ftp_repo *f_repo;
+ 
+@@ -322,6 +333,12 @@
+ 		return NULL;
+ 	}
+ 
++	f_repo->cache = 0;
++	if (cache_dir != NULL) {
++		f_repo->cache = 1;
++		snprintf(f_repo->cache_dir, MAXPATHLEN, "%s", cache_dir);
++	}
++
+ 	return f_repo;
+ }
+ 
+
+
+
+From zxombie at berlios.de  Mon May  1 14:20:52 2006
+From: zxombie at berlios.de (zxombie at BerliOS)
+Date: Mon, 1 May 2006 14:20:52 +0200
+Subject: [Libpkg-svn] r122 - trunk/tools/pkg_add
+Message-ID: <200605011220.k41CKqGt011687@sheep.berlios.de>
+
+Author: zxombie
+Date: 2006-05-01 14:20:45 +0200 (Mon, 01 May 2006)
+New Revision: 122
+
+Modified:
+   trunk/tools/pkg_add/main.c
+Log:
+Fix memory leaks in pkg_add
+Have pkg_add use the new pkg_repo_ftp syntax to keep the file when -K is used
+
+
+Modified: trunk/tools/pkg_add/main.c
+===================================================================
+--- trunk/tools/pkg_add/main.c	2006-05-01 12:18:41 UTC (rev 121)
++++ trunk/tools/pkg_add/main.c	2006-05-01 12:20:45 UTC (rev 122)
+@@ -66,6 +66,7 @@
+ 	char ch;
+ 	struct pkg_add add;
+ 	int ret, i;
++	int remote = 0;
+ 
+ 	add.db = NULL;
+ 	add.repo = NULL;
+@@ -87,7 +88,6 @@
+ 		case 'K':
+ 			/* Save the package file in . or ${PKGDIR} */
+ 			add.flags |= keep_file_flag;
+-			errx(1, "Unsupported argument");
+ 			break;
+ 		case 'M':
+ 			errx(1, "Unsupported argument");
+@@ -106,7 +106,7 @@
+ 			break;
+ 		case 'r':
+ 			pkg_repo_free(add.repo);
+-			add.repo = pkg_repo_new_ftp(NULL, NULL);
++			remote = 1;
+ 			break;
+ 		case 'S':
+ 			errx(1, "Unsupported argument");
+@@ -127,6 +127,12 @@
+ 	argc -= optind;
+ 	argv += optind;
+ 
++	if (remote != 0) {
++		if ((add.flags & keep_file_flag) == keep_file_flag)
++			add.repo = pkg_repo_new_ftp(NULL, NULL, NULL);
++		else
++			add.repo = pkg_repo_new_ftp(NULL, NULL, ".");
++	}
+ 	/* There are no packages to install. just quit now */
+ 	if (argc == 0) {
+ 		pkg_repo_free(add.repo);
+@@ -155,6 +161,9 @@
+ 
+ 	/* Perform the installation */
+ 	ret = pkg_add(add);
++	for (i=0; add.pkgs[i] != NULL; i++) {
++		pkg_free(add.pkgs[i]);
++	}
+ 	free(add.pkgs);
+ 	pkg_db_free(add.db);
+ 	pkg_repo_free(add.repo);
+@@ -250,7 +259,8 @@
+ 		if (new_pkg == NULL) {
+ 			warnx("could not find package %s",
+ 			    pkg_get_name(deps[i]));
+-			continue;
++			pkg_list_free(deps);
++			return -1;
+ 		}
+ 		pkg_free(deps[i]);
+ 		deps[i] = new_pkg;
+@@ -258,11 +268,13 @@
+ 		/* Install the dependency */
+ 		if (install_package(deps[i], repo, db, flags) != 0 &&
+ 		    (flags & force_flag) != force_flag) {
++			pkg_list_free(deps);
+ 			return -1;
+ 		}
+ 	}
+ 	pkg_list_free(deps);
+ 
++	ret = -1;
+ 	if ((flags & verbosity_flag) == verbosity_flag) {
+ 		printf("extract: Package name is %s\n", pkg_get_name(pkg));
+ 		ret = pkg_db_install_pkg_action(db, pkg,
+
+
+
+From zxombie at berlios.de  Wed May  3 07:42:42 2006
+From: zxombie at berlios.de (zxombie at BerliOS)
+Date: Wed, 3 May 2006 07:42:42 +0200
+Subject: [Libpkg-svn] r123 - trunk/tools/pkg_add
+Message-ID: <200605030542.k435ggXP005914@sheep.berlios.de>
+
+Author: zxombie
+Date: 2006-05-03 07:42:38 +0200 (Wed, 03 May 2006)
+New Revision: 123
+
+Modified:
+   trunk/tools/pkg_add/Makefile
+Log:
+When building a profiling pkg_add pull in the profiling system libraries
+
+Modified: trunk/tools/pkg_add/Makefile
+===================================================================
+--- trunk/tools/pkg_add/Makefile	2006-05-01 12:20:45 UTC (rev 122)
++++ trunk/tools/pkg_add/Makefile	2006-05-03 05:42:38 UTC (rev 123)
+@@ -6,10 +6,13 @@
+ .if defined(WITH_PROFILE)
+ CFLAGS	+= -ggdb -pg -lc
+ LDADD	 = ${.CURDIR}/../../src/libpkg_p.a
++LDADD	+= /usr/lib/libmd_p.a /usr/lib/libarchive_p.a /usr/lib/libbz2_p.a
++LDADD	+= /usr/lib/libz_p.a /usr/lib/libfetch_p.a /usr/lib/libssl_p.a
++LDADD	+= /usr/lib/libcrypto_p.a
+ .else
+-LDADD	 = ${.CURDIR}/../../src/libpkg.a
++LDADD	 = ${.CURDIR}/../../src/libpkg.a 
++LDADD	+= -lmd -larchive -lbz2 -lz -lfetch
+ .endif
+-LDADD	+= -lmd -larchive -lbz2 -lz -lfetch
+ NOMAN	 = 1
+ NO_MAN	 = 1
+ 
+
+
+

@@ -1,0 +1,515 @@
+<!DOCTYPE HTML PUBLIC "-//W3C//DTD HTML 4.01 Transitional//EN">
+<HTML>
+ <HEAD>
+   <TITLE> [Libpkg-svn] r46 - trunk/src
+   </TITLE>
+   <LINK REL="Index" HREF="http://lists.berlios.de/pipermail/libpkg-svn/2006-January/index.html" >
+   <LINK REL="made" HREF="mailto:libpkg-svn%40lists.berlios.de?Subject=Re%3A%20%5BLibpkg-svn%5D%20r46%20-%20trunk/src&In-Reply-To=%3C200601090117.k091HYn1000822%40sheep.berlios.de%3E">
+   <META NAME="robots" CONTENT="index,nofollow">
+   <style type="text/css">
+       pre {
+           white-space: pre-wrap;       /* css-2.1, curent FF, Opera, Safari */
+           }
+   </style>
+   <META http-equiv="Content-Type" content="text/html; charset=us-ascii">
+   <LINK REL="Previous"  HREF="000030.html">
+   <LINK REL="Next"  HREF="000032.html">
+ </HEAD>
+ <BODY BGCOLOR="#ffffff">
+   <H1>[Libpkg-svn] r46 - trunk/src</H1>
+    <B>zxombie at BerliOS</B> 
+    <A HREF="mailto:libpkg-svn%40lists.berlios.de?Subject=Re%3A%20%5BLibpkg-svn%5D%20r46%20-%20trunk/src&In-Reply-To=%3C200601090117.k091HYn1000822%40sheep.berlios.de%3E"
+       TITLE="[Libpkg-svn] r46 - trunk/src">zxombie at berlios.de
+       </A><BR>
+    <I>Mon Jan  9 02:17:34 CET 2006</I>
+    <P><UL>
+        <LI>Previous message: <A HREF="000030.html">[Libpkg-svn] r45 - trunk/src
+</A></li>
+        <LI>Next message: <A HREF="000032.html">[Libpkg-svn] r47 - in trunk: demo src
+</A></li>
+         <LI> <B>Messages sorted by:</B> 
+              <a href="date.html#31">[ date ]</a>
+              <a href="thread.html#31">[ thread ]</a>
+              <a href="subject.html#31">[ subject ]</a>
+              <a href="author.html#31">[ author ]</a>
+         </LI>
+       </UL>
+    <HR>  
+<!--beginarticle-->
+<PRE>Author: zxombie
+Date: 2006-01-09 02:17:04 +0100 (Mon, 09 Jan 2006)
+New Revision: 46
+
+Modified:
+   trunk/src/pkg_db.c
+   trunk/src/pkg_db_freebsd.c
+   trunk/src/pkg_file.c
+   trunk/src/pkg_freebsd.c
+   trunk/src/pkg_freebsd_contents.c
+   trunk/src/pkg_repo.c
+   trunk/src/pkg_repo_files.c
+   trunk/src/pkg_repo_ftp.c
+   trunk/src/pkg_util.c
+Log:
+Add comments describing all functions that were undocumented
+
+
+Modified: trunk/src/pkg_db.c
+===================================================================
+--- trunk/src/pkg_db.c	2006-01-08 23:53:30 UTC (rev 45)
++++ trunk/src/pkg_db.c	2006-01-09 01:17:04 UTC (rev 46)
+@@ -36,7 +36,7 @@
+ #include &quot;pkg_db_private.h&quot;
+ 
+ /*
+- * Opens the FreeBSD Package Database
++ * Opens a Package Database
+  */
+ struct pkg_db*
+ pkg_db_open(const char *base, pkg_db_install_pkg_callback *install_pkg,
+@@ -68,16 +68,18 @@
+ 	if (!db-&gt;db_base) {
+ 		free(db);
+ 		return NULL;
+-	} else if (stat(db-&gt;db_base, &amp;sb) == -1) {
+-		free(db-&gt;db_base);
+-		free(db);
++	}
++
++	/* Check the directory exists and is a directory */
++	if (stat(db-&gt;db_base, &amp;sb) == -1) {
++		pkg_db_free(db);
+ 		return NULL;
+ 	} else if (!S_ISDIR(sb.st_mode)) {
+-		free(db-&gt;db_base);
+-		free(db);
++		pkg_db_free(db);
+ 		return NULL;
+ 	}
+-	
++
++	/* Add the callbacks */
+ 	db-&gt;pkg_install = install_pkg;
+ 	db-&gt;pkg_is_installed = is_installed;
+ 	db-&gt;pkg_get_installed = get_installed;
+@@ -88,6 +90,9 @@
+ 	return db;
+ }
+ 
++/*
++ * Install a given package to the database
++ */
+ int
+ pkg_db_install_pkg(struct pkg_db *db, struct pkg *pkg)
+ {
+@@ -106,6 +111,9 @@
+ 	return db-&gt;pkg_install(db, pkg);
+ }
+ 
++/*
++ * Check to se if a package is installed
++ */
+ int
+ pkg_db_is_installed(struct pkg_db *db, const char *package)
+ {
+@@ -120,6 +128,9 @@
+ 	return db-&gt;pkg_is_installed(db, package);
+ }
+ 
++/*
++ * Get a NULL terminated array of installed packages
++ */
+ struct pkg **
+ pkg_db_get_installed(struct pkg_db *db)
+ {
+@@ -132,6 +143,9 @@
+ 	return db-&gt;pkg_get_installed(db);
+ }
+ 
++/*
++ * Gets the package with the given name
++ */
+ struct pkg *
+ pkg_db_get_package(struct pkg_db *db, const char *name)
+ {
+@@ -144,6 +158,9 @@
+ 	return NULL;
+ }
+ 
++/*
++ * Frees the database
++ */
+ int
+ pkg_db_free(struct pkg_db *db)
+ {
+
+Modified: trunk/src/pkg_db_freebsd.c
+===================================================================
+--- trunk/src/pkg_db_freebsd.c	2006-01-08 23:53:30 UTC (rev 45)
++++ trunk/src/pkg_db_freebsd.c	2006-01-09 01:17:04 UTC (rev 46)
+@@ -314,6 +314,9 @@
+ 	return 0;
+ }
+ 
++/*
++ * Gets all installed packages
++ */
+ static struct pkg **
+ freebsd_get_installed(struct pkg_db *db)
+ {
+@@ -360,6 +363,9 @@
+ 	return packages;
+ }
+ 
++/*
++ * Finds a package with the name from pkg_name
++ */
+ static struct pkg *
+ freebsd_get_package(struct pkg_db *db, const char *pkg_name)
+ {
+@@ -369,6 +375,9 @@
+ 	return pkg_new_freebsd_installed(pkg_name, dir);
+ }
+ 
++/*
++ * Internal function to to the correct thing for an @cwd line
++ */
+ static int
+ freebsd_do_cwd(struct pkg_db *db, struct pkg *pkg, char *ndir) {
+ 	char *dir;
+@@ -483,7 +492,8 @@
+ 	return pkg_file_new_from_buffer(&quot;+CONTENTS&quot;, used, buffer, NULL);
+ }
+ 
+-/* Unlike most functions this return -1 on error.
++/*
++ * Unlike most functions this return -1 on error.
+  * It will return the number of lines to
+  * skip to get to the first file.
+  */
+
+Modified: trunk/src/pkg_file.c
+===================================================================
+--- trunk/src/pkg_file.c	2006-01-08 23:53:30 UTC (rev 45)
++++ trunk/src/pkg_file.c	2006-01-09 01:17:04 UTC (rev 46)
+@@ -134,7 +134,9 @@
+ 	return 0;
+ }
+ 
+-/* Writes a file to the filesystem */
++/*
++ * Writes a file to the filesystem
++ */
+ int
+ pkg_file_write(struct pkg_file *file)
+ {
+@@ -193,6 +195,9 @@
+ 	return 0;
+ }
+ 
++/*
++ * Gets to contents of file
++ */
+ char *
+ pkg_file_get(struct pkg_file *file)
+ {
+@@ -207,7 +212,7 @@
+ 
+ 		/* 
+ 		 * XXX fread can only handle up to SIZE_T_MAX so fail
+-		 * if the file is bigger until a better file reader
++		 * if the file is bigger until a better file reader is written
+ 		 */
+ 		assert(file-&gt;len &lt;= SIZE_T_MAX);
+ 		fread(file-&gt;contents, 1, file-&gt;len, file-&gt;fd);
+
+Modified: trunk/src/pkg_freebsd.c
+===================================================================
+--- trunk/src/pkg_freebsd.c	2006-01-08 23:53:30 UTC (rev 45)
++++ trunk/src/pkg_freebsd.c	2006-01-09 01:17:04 UTC (rev 46)
+@@ -80,6 +80,9 @@
+ static char 			*freebsd_get_pkg_name(const char *);
+ static int			 freebsd_free_package(struct freebsd_package *);
+ 
++/*
++ * Creates a new FreeBSD package from a FILE pointer
++ */
+ struct pkg *
+ pkg_new_freebsd_from_file(FILE *fd)
+ {
+@@ -108,6 +111,9 @@
+ 	return pkg;
+ }
+ 
++/*
++ * Creates a new FreeBSD package from one installed on a system
++ */
+ /* XXX Make this work through a pkg_db callback */
+ struct pkg *
+ pkg_new_freebsd_installed(const char *pkg_name, const char *pkg_db_dir)
+@@ -209,6 +215,9 @@
+ 	return pkg;
+ }
+ 
++/*
++ * Creates an empty FreeBSD package to add files to
++ */
+ struct pkg *
+ pkg_new_freebsd_empty(const char *pkg_name)
+ {
+@@ -246,6 +255,9 @@
+ 	return pkg;
+ }
+ 
++/*
++ * Returns the origin of a given package
++ */
+ static char *
+ freebsd_get_origin(struct pkg *pkg)
+ {
+@@ -370,12 +382,19 @@
+ 	return f_pkg;
+ }
+ 
++/*
++ * Adds a dependency to a Package
++ */
++/* XXX write */
+ static int
+ freebsd_add_depend(struct pkg *pkg __unused, struct pkg *depend __unused)
+ {
+ 	return -1;
+ }
+ 
++/*
++ * Adds a file to a FreeBSD package
++ */
+ static int
+ freebsd_add_file(struct pkg *pkg, struct pkg_file *file)
+ {
+@@ -401,7 +420,9 @@
+ 	return 0;
+ }
+ 
+-/* Return the array of control files */
++/*
++ * Gets a NULL terminated array of control files
++ */
+ static struct pkg_file **
+ freebsd_get_control_files(struct pkg *pkg)
+ {
+@@ -416,6 +437,9 @@
+ 	return f_pkg-&gt;control;
+ }
+ 
++/*
++ * Gets a given control file
++ */
+ static struct pkg_file *
+ freebsd_get_control_file(struct pkg *pkg, const char *file)
+ {
+@@ -435,7 +459,9 @@
+ 	return NULL;
+ }
+ 
+-/* Get the next file in the package */
++/*
++ * Gets the next file in the package
++ */
+ static struct pkg_file *
+ freebsd_get_next_file(struct pkg *pkg)
+ {
+@@ -498,7 +524,9 @@
+ 	return pkgs;
+ }
+ 
+-/* Free the package */
++/*
++ * Free the package
++ */
+ static int
+ freebsd_free(struct pkg *pkg)
+ {
+@@ -510,7 +538,9 @@
+ 	return 0;
+ }
+ 
+-/* Return a pointer to the next file in the archive `a' */
++/*
++ * Return a pointer to the next file in the archive `a'
++ */
+ static struct pkg_file *
+ freebsd_get_next_entry(struct archive *a)
+ {
+@@ -543,7 +573,9 @@
+ 		length, str, sb);
+ }
+ 
+-/* Returns the package name from a +CONTENTS file */
++/*
++ * Returns the package name from a +CONTENTS file
++ */
+ static char *
+ freebsd_get_pkg_name(const char *buffer)
+ {
+@@ -583,7 +615,9 @@
+ 	return pkg_name;
+ }
+ 
+-/* Free the struct freebsd_package */
++/*
++ * Frees the struct freebsd_package
++ */
+ static int
+ freebsd_free_package(struct freebsd_package *f_pkg)
+ {
+
+Modified: trunk/src/pkg_freebsd_contents.c
+===================================================================
+--- trunk/src/pkg_freebsd_contents.c	2006-01-08 23:53:30 UTC (rev 45)
++++ trunk/src/pkg_freebsd_contents.c	2006-01-09 01:17:04 UTC (rev 46)
+@@ -55,6 +55,9 @@
+ 	NULL
+ };
+ 
++/*
++ * Reads a FreeBSD +CONTENTS file create a struct pkg_freebsd_contents
++ */
+ struct pkg_freebsd_contents *
+ pkg_freebsd_contents_new(const char *contents)
+ {
+@@ -217,6 +220,9 @@
+ 	return 0;
+ }
+ 
++/*
++ * Adds a dependency to a +CONTENTS file
++ */
+ int
+ pkg_freebsd_contents_add_dependency(struct pkg_freebsd_contents *contents,
+ 		struct pkg *pkg)
+@@ -278,6 +284,9 @@
+ 	return 0;
+ }
+ 
++/*
++ * Frees a contents struct
++ */
+ int
+ pkg_freebsd_contents_free(struct pkg_freebsd_contents *contents)
+ {
+
+Modified: trunk/src/pkg_repo.c
+===================================================================
+--- trunk/src/pkg_repo.c	2006-01-08 23:53:30 UTC (rev 45)
++++ trunk/src/pkg_repo.c	2006-01-09 01:17:04 UTC (rev 46)
+@@ -58,6 +58,9 @@
+ 	return repo;
+ }
+ 
++/*
++ * Gets a package from a repo
++ */
+ struct pkg *
+ pkg_repo_get_pkg(struct pkg_repo *repo, const char *pkg_name)
+ {
+
+Modified: trunk/src/pkg_repo_files.c
+===================================================================
+--- trunk/src/pkg_repo_files.c	2006-01-08 23:53:30 UTC (rev 45)
++++ trunk/src/pkg_repo_files.c	2006-01-09 01:17:04 UTC (rev 46)
+@@ -49,6 +49,9 @@
+ 	return pkg_repo_new(file_get_pkg, NULL, NULL);
+ }
+ 
++/*
++ * Gets a given package from the local filesystem
++ */
+ static struct pkg *
+ file_get_pkg(struct pkg_repo *repo, const char *pkg_name)
+ {
+
+Modified: trunk/src/pkg_repo_ftp.c
+===================================================================
+--- trunk/src/pkg_repo_ftp.c	2006-01-08 23:53:30 UTC (rev 45)
++++ trunk/src/pkg_repo_ftp.c	2006-01-09 01:17:04 UTC (rev 46)
+@@ -119,6 +119,9 @@
+ 	return repo;
+ }
+ 
++/*
++ * Gets a package from a FTP site
++ */
+ static struct pkg *
+ ftp_get_pkg(struct pkg_repo *repo, const char *pkg_name)
+ {
+@@ -185,6 +188,9 @@
+ 	return 0;
+ }
+ 
++/*
++ * Gets a FILE pointer for a given package name
++ */
+ static FILE *
+ ftp_get_fd(const char *pkg_name, struct ftp_repo *f_repo)
+ {
+@@ -239,6 +245,9 @@
+ 	return fd;
+ }
+ 
++/*
++ * Creates a struct ftp_repo pointer to go into repo-&gt;data
++ */
+ static struct ftp_repo *
+ ftp_create_repo(const char *site, const char *path)
+ {
+@@ -293,6 +302,9 @@
+ 	return f_repo;
+ }
+ 
++/*
++ * Find if a name has a known extension
++ */
+ static int
+ pkg_name_has_extension(const char *name)
+ {
+
+Modified: trunk/src/pkg_util.c
+===================================================================
+--- trunk/src/pkg_util.c	2006-01-08 23:53:30 UTC (rev 45)
++++ trunk/src/pkg_util.c	2006-01-09 01:17:04 UTC (rev 46)
+@@ -94,7 +94,9 @@
+ 	return (retval);
+ }
+ 
+-/* Checks a file against a given md5 checksum */
++/*
++ * Checks a file against a given md5 checksum
++ */
+ int
+ pkg_checksum_md5(struct pkg_file *file, char *chk_sum)
+ {
+
+
+</PRE>
+
+<!--endarticle-->
+    <HR>
+    <P><UL>
+        <!--threads-->
+	<LI>Previous message: <A HREF="000030.html">[Libpkg-svn] r45 - trunk/src
+</A></li>
+	<LI>Next message: <A HREF="000032.html">[Libpkg-svn] r47 - in trunk: demo src
+</A></li>
+         <LI> <B>Messages sorted by:</B> 
+              <a href="date.html#31">[ date ]</a>
+              <a href="thread.html#31">[ thread ]</a>
+              <a href="subject.html#31">[ subject ]</a>
+              <a href="author.html#31">[ author ]</a>
+         </LI>
+       </UL>
+
+<hr>
+<a href="https://lists.berlios.de/mailman/listinfo/libpkg-svn">More information about the Libpkg-svn
+mailing list</a><br>
+</body></html>

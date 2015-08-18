@@ -1,0 +1,132 @@
+<!DOCTYPE HTML PUBLIC "-//W3C//DTD HTML 4.01 Transitional//EN">
+<HTML>
+ <HEAD>
+   <TITLE> r342 - trunk/tests/fbsd_contents
+   </TITLE>
+   <LINK REL="Index" HREF="http://lists.berlios.de/pipermail/libpkg-svn/2009-January/index.html" >
+   <LINK REL="made" HREF="mailto:libpkg-svn%40lists.berlios.de?Subject=Re%3A%20r342%20-%20trunk/tests/fbsd_contents&In-Reply-To=%3C200901050733.n057XJY5032394%40sheep.berlios.de%3E">
+   <META NAME="robots" CONTENT="index,nofollow">
+   <style type="text/css">
+       pre {
+           white-space: pre-wrap;       /* css-2.1, curent FF, Opera, Safari */
+           }
+   </style>
+   <META http-equiv="Content-Type" content="text/html; charset=us-ascii">
+   <LINK REL="Previous"  HREF="000325.html">
+   <LINK REL="Next"  HREF="000327.html">
+ </HEAD>
+ <BODY BGCOLOR="#ffffff">
+   <H1>r342 - trunk/tests/fbsd_contents</H1>
+    <B>zxombie at users.berlios.de</B> 
+    <A HREF="mailto:libpkg-svn%40lists.berlios.de?Subject=Re%3A%20r342%20-%20trunk/tests/fbsd_contents&In-Reply-To=%3C200901050733.n057XJY5032394%40sheep.berlios.de%3E"
+       TITLE="r342 - trunk/tests/fbsd_contents">zxombie at users.berlios.de
+       </A><BR>
+    <I>Mon Jan  5 08:33:19 CET 2009</I>
+    <P><UL>
+        <LI>Previous message: <A HREF="000325.html">r341 - in trunk/tools: . pkg_add pkg_delete pkg_info
+</A></li>
+        <LI>Next message: <A HREF="000327.html">r343 - trunk/tests
+</A></li>
+         <LI> <B>Messages sorted by:</B> 
+              <a href="date.html#326">[ date ]</a>
+              <a href="thread.html#326">[ thread ]</a>
+              <a href="subject.html#326">[ subject ]</a>
+              <a href="author.html#326">[ author ]</a>
+         </LI>
+       </UL>
+    <HR>  
+<!--beginarticle-->
+<PRE>Author: zxombie
+Date: 2009-01-05 08:33:19 +0100 (Mon, 05 Jan 2009)
+New Revision: 342
+
+Modified:
+   trunk/tests/fbsd_contents/fbsd_test.c
+Log:
+Update to the pkg_manifest interface
+
+Modified: trunk/tests/fbsd_contents/fbsd_test.c
+===================================================================
+--- trunk/tests/fbsd_contents/fbsd_test.c	2009-01-05 07:32:32 UTC (rev 341)
++++ trunk/tests/fbsd_contents/fbsd_test.c	2009-01-05 07:33:19 UTC (rev 342)
+@@ -30,7 +30,6 @@
+ #include &lt;err.h&gt;
+ #include &lt;pkg.h&gt;
+ #include &lt;pkg_db.h&gt;
+-#include &lt;pkg_freebsd.h&gt;
+ #include &lt;stdlib.h&gt;
+ 
+ int
+@@ -45,11 +44,9 @@
+ 	}
+ 
+ 	while((de = readdir(d)) != NULL) {
+-		char *buf;
+-		struct pkg_freebsd_contents *contents;
+ 		char file[FILENAME_MAX];
+-		struct stat sb;
+-		FILE *fd;
++		struct pkg_manifest *manifest;
++		struct pkgfile *pfile;
+ 
+ 		if (de-&gt;d_name[0] == '.')
+ 			continue;
+@@ -57,25 +54,23 @@
+ 		if (de-&gt;d_type != DT_DIR)
+ 			continue;
+ 
+-		printf(&quot;%s &quot;, de-&gt;d_name);
+ 		snprintf(file, FILENAME_MAX, &quot;/var/db/pkg/%s/+CONTENTS&quot;,
+ 		    de-&gt;d_name);
+ 
+-		stat(file, &amp;sb);
+-		buf = malloc(sb.st_size);
++		pfile = pkgfile_new_from_disk(file, 0);
++		if (!pfile)
++			continue;
+ 
+-		fd = fopen(file, &quot;r&quot;);
+-		fread(buf, sb.st_size, 1, fd);
+-		fclose(fd);
+-
+-		contents = pkg_freebsd_contents_new(buf, sb.st_size);
+-		if (contents == NULL) {
++		printf(&quot;%s &quot;, de-&gt;d_name);
++		manifest = pkg_manifest_new_freebsd_pkgfile(pfile);
++		if (manifest == NULL) {
+ 			printf(&quot;FAILED\n&quot;);
+ 		} else {
+ 			printf(&quot;Ok\n&quot;);
+ 		}
+-		pkg_freebsd_contents_free(contents);
+-		free(buf);
++
++		pkg_manifest_free(manifest);
++		pkgfile_free(pfile);
+ 	}
+ 
+ 	closedir(d);
+
+
+</PRE>
+
+<!--endarticle-->
+    <HR>
+    <P><UL>
+        <!--threads-->
+	<LI>Previous message: <A HREF="000325.html">r341 - in trunk/tools: . pkg_add pkg_delete pkg_info
+</A></li>
+	<LI>Next message: <A HREF="000327.html">r343 - trunk/tests
+</A></li>
+         <LI> <B>Messages sorted by:</B> 
+              <a href="date.html#326">[ date ]</a>
+              <a href="thread.html#326">[ thread ]</a>
+              <a href="subject.html#326">[ subject ]</a>
+              <a href="author.html#326">[ author ]</a>
+         </LI>
+       </UL>
+
+<hr>
+<a href="https://lists.berlios.de/mailman/listinfo/libpkg-svn">More information about the Libpkg-svn
+mailing list</a><br>
+</body></html>

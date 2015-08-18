@@ -1,0 +1,294 @@
+<!DOCTYPE HTML PUBLIC "-//W3C//DTD HTML 4.01 Transitional//EN">
+<HTML>
+ <HEAD>
+   <TITLE> [Libpkg-svn] r63 - trunk/src
+   </TITLE>
+   <LINK REL="Index" HREF="http://lists.berlios.de/pipermail/libpkg-svn/2006-February/index.html" >
+   <LINK REL="made" HREF="mailto:libpkg-svn%40lists.berlios.de?Subject=Re%3A%20%5BLibpkg-svn%5D%20r63%20-%20trunk/src&In-Reply-To=%3C200602032050.k13KoGK0021846%40sheep.berlios.de%3E">
+   <META NAME="robots" CONTENT="index,nofollow">
+   <style type="text/css">
+       pre {
+           white-space: pre-wrap;       /* css-2.1, curent FF, Opera, Safari */
+           }
+   </style>
+   <META http-equiv="Content-Type" content="text/html; charset=us-ascii">
+   <LINK REL="Previous"  HREF="000047.html">
+   <LINK REL="Next"  HREF="000049.html">
+ </HEAD>
+ <BODY BGCOLOR="#ffffff">
+   <H1>[Libpkg-svn] r63 - trunk/src</H1>
+    <B>zxombie at BerliOS</B> 
+    <A HREF="mailto:libpkg-svn%40lists.berlios.de?Subject=Re%3A%20%5BLibpkg-svn%5D%20r63%20-%20trunk/src&In-Reply-To=%3C200602032050.k13KoGK0021846%40sheep.berlios.de%3E"
+       TITLE="[Libpkg-svn] r63 - trunk/src">zxombie at berlios.de
+       </A><BR>
+    <I>Fri Feb  3 21:50:16 CET 2006</I>
+    <P><UL>
+        <LI>Previous message: <A HREF="000047.html">[Libpkg-svn] r62 - trunk/tools/pkg_info
+</A></li>
+        <LI>Next message: <A HREF="000049.html">[Libpkg-svn] r64 - in trunk: src tools/pkg_info
+</A></li>
+         <LI> <B>Messages sorted by:</B> 
+              <a href="date.html#48">[ date ]</a>
+              <a href="thread.html#48">[ thread ]</a>
+              <a href="subject.html#48">[ subject ]</a>
+              <a href="author.html#48">[ author ]</a>
+         </LI>
+       </UL>
+    <HR>  
+<!--beginarticle-->
+<PRE>Author: zxombie
+Date: 2006-02-03 21:50:00 +0100 (Fri, 03 Feb 2006)
+New Revision: 63
+
+Modified:
+   trunk/src/pkg_freebsd.c
+Log:
+Add freebsd_open_control_files to open all the packages control files from the filesystem.
+Add more asserts to check the assumptions about the freebsd_package struct are correct
+Move the FREE_CONTENTS macro to before the code
+Improve indentation in the struct freebsd_package definition
+
+
+Modified: trunk/src/pkg_freebsd.c
+===================================================================
+--- trunk/src/pkg_freebsd.c	2006-02-03 02:17:50 UTC (rev 62)
++++ trunk/src/pkg_freebsd.c	2006-02-03 20:50:00 UTC (rev 63)
+@@ -43,8 +43,8 @@
+ #include &quot;pkg_freebsd_private.h&quot;
+ 
+ struct freebsd_package {
+-	struct archive	*archive;
+-	FILE		*fd;
++	struct archive	 *archive;
++	FILE		 *fd;
+ 
+ 	struct pkg_file **control;
+ 	struct pkg_freebsd_contents *contents;
+@@ -52,7 +52,7 @@
+ 
+ 	/* If not null contains the next file in
+ 	 * the archive after the control files */
+-	struct pkg_file	*next;
++	struct pkg_file	 *next;
+ 
+ 	struct pkg_file **all_files;
+ 	unsigned int	  all_files_size;
+@@ -75,12 +75,22 @@
+ static char			 *freebsd_get_origin(struct pkg *);
+ 
+ /* Internal functions */
++struct pkg_file			**freebsd_open_control_files(const char *);
+ static struct freebsd_package	*freebsd_get_package(FILE *,
+ 					struct pkg_file **);
+ static struct pkg_file		*freebsd_get_next_entry(struct archive *);
+ static char 			*freebsd_get_pkg_name(const char *);
+ static int			 freebsd_free_package(struct freebsd_package *);
+ 
++#define FREE_CONTENTS(c) \
++	{ \
++		int i; \
++		for (i=0; c[i] != NULL; i++) { \
++			pkg_file_free(c[i]); \
++		} \
++		free(c); \
++	}
++
+ /*
+  * Creates a new FreeBSD package from a FILE pointer
+  */
+@@ -119,71 +129,21 @@
+ struct pkg *
+ pkg_new_freebsd_installed(const char *pkg_name, const char *pkg_db_dir)
+ {
+-	DIR *d;
+-	struct dirent *de;
+ 	struct pkg *pkg;
+ 	struct freebsd_package *f_pkg;
+ 	struct pkg_file **control;
+-	unsigned int control_size, control_count, line;
++	unsigned int line;
+ 
+-#define FREE_CONTENTS(c) \
+-	{ \
+-		int i; \
+-		for (i=0; c[i] != NULL; i++) { \
+-			pkg_file_free(c[i]); \
+-		} \
+-		free(c); \
+-	}
+ 
+ 	if (!pkg_name || ! pkg_db_dir)
+ 		return NULL;
+ 
+-	control = NULL;
+-
+ 	/*
+ 	 * This section until the closedir takes too long in pkg_info.
+ 	 * It needs to be optimised to just read the required data
+ 	 */
+-	d = opendir(pkg_db_dir);
+-	if (d == NULL)
+-		return NULL;
++	control = freebsd_open_control_files(pkg_db_dir);
+ 
+-	/* Load all the + files into control */
+-	control_size = sizeof(struct pkg_file **);
+-	control = malloc(control_size);
+-	control[0] = NULL;
+-	control_count = 0;
+-	while ((de = readdir(d)) != NULL) {
+-		char *file;
+-	
+-		if (de-&gt;d_name[0] == '.') {
+-			continue;
+-		} else if (de-&gt;d_type != DT_REG) {
+-			closedir(d);
+-			FREE_CONTENTS(control);
+-			return NULL;
+-		} else if (de-&gt;d_name[0] != '+') {
+-			/* All files must begin with + */
+-			closedir(d);
+-			FREE_CONTENTS(control);
+-			return NULL;
+-		}
+-		asprintf(&amp;file, &quot;%s/%s&quot;, pkg_db_dir, de-&gt;d_name);
+-		if (!file) {
+-			closedir(d);
+-			FREE_CONTENTS(control);
+-			return NULL;
+-		}
+-		control_size += sizeof(struct pkg_file **);
+-		control = realloc(control, control_size);
+-		control[control_count] = pkg_file_new(file);
+-		control_count++;
+-		control[control_count] = NULL;
+-		free(file);
+-	}
+-
+-	closedir(d);
+-
+ 	/* Only the get_deps and free callbacks will work */
+ 	pkg = pkg_new(pkg_name, freebsd_get_control_files,
+ 	    freebsd_get_control_file, freebsd_get_deps, freebsd_free);
+@@ -198,7 +158,9 @@
+ 		pkg_free(pkg);
+ 		return NULL;
+ 	}
++	pkg-&gt;data = f_pkg;
+ 
++	assert(f_pkg-&gt;contents != NULL);
+ 	for (line = 0; line &lt; f_pkg-&gt;contents-&gt;line_count; line++) {
+ 		if (f_pkg-&gt;contents-&gt;lines[line].line_type == PKG_LINE_COMMENT)
+ 		    {
+@@ -210,8 +172,6 @@
+ 			}
+ 		}
+ 	}
+-	
+-	pkg-&gt;data = f_pkg;
+ 
+ 	return pkg;
+ }
+@@ -249,6 +209,7 @@
+ 	f_pkg-&gt;all_files[0] = NULL;
+ 
+ 	/* Setup the +CONTENTS file */
++	assert(f_pkg-&gt;contents != NULL);
+ 	pkg_freebsd_contents_add_line(f_pkg-&gt;contents, PKG_LINE_COMMENT,
+ 	    &quot;PKG_FORMAT_REVISION:1.1&quot;);
+ 	pkg_freebsd_contents_add_line(f_pkg-&gt;contents, PKG_LINE_NAME, pkg_name);
+@@ -259,12 +220,69 @@
+ struct pkg_freebsd_contents *
+ pkg_freebsd_get_contents(struct pkg *pkg)
+ {
++	struct freebsd_package *f_pkg;
+ 	if (pkg == NULL)
+ 		return NULL;
+ 
+-	return ((struct freebsd_package *)pkg-&gt;data)-&gt;contents;
++	f_pkg = (struct freebsd_package *)pkg-&gt;data;
++	assert(f_pkg != NULL);
++
++	/* Load the +CONTENTS file if it is NULL */
++	assert(f_pkg-&gt;contents != NULL);
++	return f_pkg-&gt;contents;
+ }
+ 
++struct pkg_file **
++freebsd_open_control_files(const char *pkg_db_dir)
++{
++	struct pkg_file **control;
++	unsigned int control_size, control_count;
++	DIR *d;
++	struct dirent *de;
++	
++
++	d = opendir(pkg_db_dir);
++	if (d == NULL)
++		return NULL;
++
++	/* Load all the + files into control */
++	control_size = sizeof(struct pkg_file **);
++	control = malloc(control_size);
++	control[0] = NULL;
++	control_count = 0;
++	while ((de = readdir(d)) != NULL) {
++		char *file;
++	
++		if (de-&gt;d_name[0] == '.') {
++			continue;
++		} else if (de-&gt;d_type != DT_REG) {
++			closedir(d);
++			FREE_CONTENTS(control);
++			return NULL;
++		} else if (de-&gt;d_name[0] != '+') {
++			/* All files must begin with + */
++			closedir(d);
++			FREE_CONTENTS(control);
++			return NULL;
++		}
++		asprintf(&amp;file, &quot;%s/%s&quot;, pkg_db_dir, de-&gt;d_name);
++		if (!file) {
++			closedir(d);
++			FREE_CONTENTS(control);
++			return NULL;
++		}
++		control_size += sizeof(struct pkg_file **);
++		control = realloc(control, control_size);
++		control[control_count] = pkg_file_new(file);
++		control_count++;
++		control[control_count] = NULL;
++		free(file);
++	}
++	closedir(d);
++
++	return control;
++}
++
+ /*
+  * Returns a string containing the package version
+  */
+
+
+</PRE>
+
+<!--endarticle-->
+    <HR>
+    <P><UL>
+        <!--threads-->
+	<LI>Previous message: <A HREF="000047.html">[Libpkg-svn] r62 - trunk/tools/pkg_info
+</A></li>
+	<LI>Next message: <A HREF="000049.html">[Libpkg-svn] r64 - in trunk: src tools/pkg_info
+</A></li>
+         <LI> <B>Messages sorted by:</B> 
+              <a href="date.html#48">[ date ]</a>
+              <a href="thread.html#48">[ thread ]</a>
+              <a href="subject.html#48">[ subject ]</a>
+              <a href="author.html#48">[ author ]</a>
+         </LI>
+       </UL>
+
+<hr>
+<a href="https://lists.berlios.de/mailman/listinfo/libpkg-svn">More information about the Libpkg-svn
+mailing list</a><br>
+</body></html>

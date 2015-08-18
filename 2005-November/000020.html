@@ -1,0 +1,228 @@
+<!DOCTYPE HTML PUBLIC "-//W3C//DTD HTML 4.01 Transitional//EN">
+<HTML>
+ <HEAD>
+   <TITLE> [Libpkg-svn] r29 - trunk/src
+   </TITLE>
+   <LINK REL="Index" HREF="http://lists.berlios.de/pipermail/libpkg-svn/2005-November/index.html" >
+   <LINK REL="made" HREF="mailto:libpkg-svn%40lists.berlios.de?Subject=Re%3A%20%5BLibpkg-svn%5D%20r29%20-%20trunk/src&In-Reply-To=%3C200511281024.jASAObev022683%40sheep.berlios.de%3E">
+   <META NAME="robots" CONTENT="index,nofollow">
+   <style type="text/css">
+       pre {
+           white-space: pre-wrap;       /* css-2.1, curent FF, Opera, Safari */
+           }
+   </style>
+   <META http-equiv="Content-Type" content="text/html; charset=us-ascii">
+   <LINK REL="Previous"  HREF="000019.html">
+   <LINK REL="Next"  HREF="000021.html">
+ </HEAD>
+ <BODY BGCOLOR="#ffffff">
+   <H1>[Libpkg-svn] r29 - trunk/src</H1>
+    <B>zxombie at BerliOS</B> 
+    <A HREF="mailto:libpkg-svn%40lists.berlios.de?Subject=Re%3A%20%5BLibpkg-svn%5D%20r29%20-%20trunk/src&In-Reply-To=%3C200511281024.jASAObev022683%40sheep.berlios.de%3E"
+       TITLE="[Libpkg-svn] r29 - trunk/src">zxombie at berlios.de
+       </A><BR>
+    <I>Mon Nov 28 11:24:37 CET 2005</I>
+    <P><UL>
+        <LI>Previous message: <A HREF="000019.html">[Libpkg-svn] r28 - trunk/src
+</A></li>
+        <LI>Next message: <A HREF="000021.html">[Libpkg-svn] r30 - www
+</A></li>
+         <LI> <B>Messages sorted by:</B> 
+              <a href="date.html#20">[ date ]</a>
+              <a href="thread.html#20">[ thread ]</a>
+              <a href="subject.html#20">[ subject ]</a>
+              <a href="author.html#20">[ author ]</a>
+         </LI>
+       </UL>
+    <HR>  
+<!--beginarticle-->
+<PRE>Author: zxombie
+Date: 2005-11-28 11:24:33 +0100 (Mon, 28 Nov 2005)
+New Revision: 29
+
+Modified:
+   trunk/src/pkg.c
+   trunk/src/pkg.h
+   trunk/src/pkg_freebsd.c
+   trunk/src/pkg_private.h
+Log:
+Add a pkg_add_file callback to add a file to a package
+Change a use of pkg_new to pkg_new_empty
+
+
+Modified: trunk/src/pkg.c
+===================================================================
+--- trunk/src/pkg.c	2005-11-28 02:35:04 UTC (rev 28)
++++ trunk/src/pkg.c	2005-11-28 10:24:33 UTC (rev 29)
+@@ -34,7 +34,8 @@
+ #include &quot;pkg_private.h&quot;
+ 
+ struct pkg *
+-pkg_new(const char *name, 
++pkg_new(const char *name,
++		pkg_add_file_callback *add_file,
+ 		pkg_get_control_files_callback *control_files,
+ 		pkg_get_next_file_callback *next_file,
+ 		pkg_get_dependencies_callback *get_deps,
+@@ -56,7 +57,8 @@
+ 		return NULL;
+ 	}
+ 
+-	pkg_set_callbacks(pkg, control_files, next_file, get_deps, free_pkg);
++	pkg_set_callbacks(pkg, add_file, control_files, next_file, get_deps,
++	    free_pkg);
+ 
+ 	pkg-&gt;data = NULL;
+ 
+@@ -66,16 +68,18 @@
+ struct pkg*
+ pkg_new_empty(const char *name)
+ {
+-	return pkg_new(name, NULL, NULL, NULL, NULL);
++	return pkg_new(name, NULL, NULL, NULL, NULL, NULL);
+ }
+ 
+ struct pkg *
+-pkg_set_callbacks(struct pkg *pkg, 
++pkg_set_callbacks(struct pkg *pkg,
++		pkg_add_file_callback *add_file,
+ 		pkg_get_control_files_callback *control_files,
+ 		pkg_get_next_file_callback *next_file,
+ 		pkg_get_dependencies_callback *get_deps,
+ 		pkg_free_callback *free_pkg)
+ {
++	pkg-&gt;pkg_add_file = add_file;
+ 	pkg-&gt;pkg_get_control_files = control_files;
+ 	pkg-&gt;pkg_get_next_file = next_file;
+ 	pkg-&gt;pkg_get_deps = get_deps;
+@@ -84,6 +88,18 @@
+ 	return pkg;
+ }
+ 
++int
++pkg_add_file(struct pkg *pkg, struct pkg_file *file)
++{
++	if (!pkg || !file)
++		return -1;
++
++	if (pkg-&gt;pkg_add_file)
++		return pkg-&gt;pkg_add_file(pkg, file);
++
++	return -1;
++}
++
+ struct pkg_file **
+ pkg_get_control_files(struct pkg *pkg)
+ {
+
+Modified: trunk/src/pkg.h
+===================================================================
+--- trunk/src/pkg.h	2005-11-28 02:35:04 UTC (rev 28)
++++ trunk/src/pkg.h	2005-11-28 10:24:33 UTC (rev 29)
+@@ -55,6 +55,7 @@
+ struct pkg		*pkg_new_freebsd_from_file(FILE *);
+ struct pkg		*pkg_new_freebsd_installed(const char *, const char *);
+ struct pkg		*pkg_make_freebsd(struct pkg *, FILE *);
++int			 pkg_add_file(struct pkg *, struct pkg_file *);
+ struct pkg		**pkg_get_dependencies(struct pkg *);
+ /*
+  * Returns all control files from the package
+
+Modified: trunk/src/pkg_freebsd.c
+===================================================================
+--- trunk/src/pkg_freebsd.c	2005-11-28 02:35:04 UTC (rev 28)
++++ trunk/src/pkg_freebsd.c	2005-11-28 10:24:33 UTC (rev 29)
+@@ -82,7 +82,7 @@
+ 	/* Find the package name */
+ 	pkg_name = freebsd_get_pkg_name(f_pkg-&gt;control[0]-&gt;contents);
+ 
+-	pkg = pkg_new(pkg_name, freebsd_get_control_files,
++	pkg = pkg_new(pkg_name, NULL, freebsd_get_control_files,
+ 		freebsd_get_next_file, freebsd_get_deps, freebsd_free);
+ 	free(pkg_name);
+ 
+@@ -155,7 +155,7 @@
+ 	closedir(d);
+ 	
+ 	/* Only the get_deps and free callbacks will work */
+-	pkg = pkg_new(pkg_name, NULL, NULL,
++	pkg = pkg_new(pkg_name, NULL, NULL, NULL,
+ 	    freebsd_get_deps, freebsd_free);
+ 	if (pkg == NULL) {
+ 		FREE_CONTENTS(control);
+@@ -179,7 +179,7 @@
+ {
+ 	struct freebsd_package *f_pkg;
+ 
+-	pkg_set_callbacks(pkg, freebsd_get_control_files,
++	pkg_set_callbacks(pkg, NULL, freebsd_get_control_files,
+ 	    freebsd_get_next_file, freebsd_get_deps, freebsd_free);
+ 	f_pkg = freebsd_get_package(fd, NULL);
+ 	pkg-&gt;data = f_pkg;
+@@ -369,8 +369,8 @@
+ 		if (contents-&gt;lines[line].line_type == PKG_LINE_PKGDEP) {
+ 			pkg_size += sizeof(struct pkg *);
+ 			pkgs = realloc(pkgs, pkg_size);
+-			pkgs[pkg_count] = pkg_new(contents-&gt;lines[line].data,
+-			    NULL, NULL, NULL, NULL);
++			pkgs[pkg_count] = pkg_new_empty
++			    (contents-&gt;lines[line].data);
+ 			pkg_count++;
+ 			pkgs[pkg_count] = NULL;
+ 		}
+
+Modified: trunk/src/pkg_private.h
+===================================================================
+--- trunk/src/pkg_private.h	2005-11-28 02:35:04 UTC (rev 28)
++++ trunk/src/pkg_private.h	2005-11-28 10:24:33 UTC (rev 29)
+@@ -45,14 +45,17 @@
+ typedef struct pkg	**pkg_get_dependencies_callback(struct pkg *);
+ typedef struct pkg_file	**pkg_get_control_files_callback(struct pkg *);
+ typedef struct pkg_file	*pkg_get_next_file_callback(struct pkg *);
++typedef int		 pkg_add_file_callback(struct pkg *, struct pkg_file *);
+ typedef int		 pkg_free_callback(struct pkg *);
+ 
+ struct pkg		*pkg_new(const char *,
++				pkg_add_file_callback *,
+ 				pkg_get_control_files_callback *,
+ 				pkg_get_next_file_callback *,
+ 				pkg_get_dependencies_callback *,
+ 				pkg_free_callback *);
+-struct pkg		*pkg_set_callbacks(struct pkg *pkg, 
++struct pkg		*pkg_set_callbacks(struct pkg *pkg,
++				pkg_add_file_callback *,
+ 				pkg_get_control_files_callback *,
+ 				pkg_get_next_file_callback *,
+ 				pkg_get_dependencies_callback *,
+@@ -62,6 +65,7 @@
+ 	void	*data;
+ 
+ 	char	*pkg_name;
++	pkg_add_file_callback		*pkg_add_file;
+ 	pkg_get_control_files_callback	*pkg_get_control_files;
+ 	pkg_get_next_file_callback	*pkg_get_next_file;
+ 	pkg_free_callback		*pkg_free;
+
+
+</PRE>
+
+<!--endarticle-->
+    <HR>
+    <P><UL>
+        <!--threads-->
+	<LI>Previous message: <A HREF="000019.html">[Libpkg-svn] r28 - trunk/src
+</A></li>
+	<LI>Next message: <A HREF="000021.html">[Libpkg-svn] r30 - www
+</A></li>
+         <LI> <B>Messages sorted by:</B> 
+              <a href="date.html#20">[ date ]</a>
+              <a href="thread.html#20">[ thread ]</a>
+              <a href="subject.html#20">[ subject ]</a>
+              <a href="author.html#20">[ author ]</a>
+         </LI>
+       </UL>
+
+<hr>
+<a href="https://lists.berlios.de/mailman/listinfo/libpkg-svn">More information about the Libpkg-svn
+mailing list</a><br>
+</body></html>

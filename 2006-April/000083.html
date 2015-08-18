@@ -1,0 +1,139 @@
+<!DOCTYPE HTML PUBLIC "-//W3C//DTD HTML 4.01 Transitional//EN">
+<HTML>
+ <HEAD>
+   <TITLE> [Libpkg-svn] r99 - trunk/src
+   </TITLE>
+   <LINK REL="Index" HREF="http://lists.berlios.de/pipermail/libpkg-svn/2006-April/index.html" >
+   <LINK REL="made" HREF="mailto:libpkg-svn%40lists.berlios.de?Subject=Re%3A%20%5BLibpkg-svn%5D%20r99%20-%20trunk/src&In-Reply-To=%3C200604210112.k3L1CLQA026706%40sheep.berlios.de%3E">
+   <META NAME="robots" CONTENT="index,nofollow">
+   <style type="text/css">
+       pre {
+           white-space: pre-wrap;       /* css-2.1, curent FF, Opera, Safari */
+           }
+   </style>
+   <META http-equiv="Content-Type" content="text/html; charset=us-ascii">
+   <LINK REL="Previous"  HREF="000082.html">
+   <LINK REL="Next"  HREF="000084.html">
+ </HEAD>
+ <BODY BGCOLOR="#ffffff">
+   <H1>[Libpkg-svn] r99 - trunk/src</H1>
+    <B>zxombie at BerliOS</B> 
+    <A HREF="mailto:libpkg-svn%40lists.berlios.de?Subject=Re%3A%20%5BLibpkg-svn%5D%20r99%20-%20trunk/src&In-Reply-To=%3C200604210112.k3L1CLQA026706%40sheep.berlios.de%3E"
+       TITLE="[Libpkg-svn] r99 - trunk/src">zxombie at berlios.de
+       </A><BR>
+    <I>Fri Apr 21 03:12:21 CEST 2006</I>
+    <P><UL>
+        <LI>Previous message: <A HREF="000082.html">[Libpkg-svn] r98 - tags
+</A></li>
+        <LI>Next message: <A HREF="000084.html">[Libpkg-svn] r100 - trunk/src
+</A></li>
+         <LI> <B>Messages sorted by:</B> 
+              <a href="date.html#83">[ date ]</a>
+              <a href="thread.html#83">[ thread ]</a>
+              <a href="subject.html#83">[ subject ]</a>
+              <a href="author.html#83">[ author ]</a>
+         </LI>
+       </UL>
+    <HR>  
+<!--beginarticle-->
+<PRE>Author: zxombie
+Date: 2006-04-21 03:12:06 +0200 (Fri, 21 Apr 2006)
+New Revision: 99
+
+Modified:
+   trunk/src/pkg.h
+   trunk/src/pkg_freebsd.c
+Log:
+Add support for executing a script that will check to see if the package can be installed
+
+
+Modified: trunk/src/pkg.h
+===================================================================
+--- trunk/src/pkg.h	2006-04-14 00:26:55 UTC (rev 98)
++++ trunk/src/pkg.h	2006-04-21 01:12:06 UTC (rev 99)
+@@ -64,7 +64,8 @@
+ 	pkg_script_noop,
+ 	pkg_script_pre,
+ 	pkg_script_post,
+-	pkg_script_mtree
++	pkg_script_mtree,
++	pkg_script_require
+ } pkg_script;
+ 
+ struct pkg		 *pkg_new_empty(const char *);
+
+Modified: trunk/src/pkg_freebsd.c
+===================================================================
+--- trunk/src/pkg_freebsd.c	2006-04-14 00:26:55 UTC (rev 98)
++++ trunk/src/pkg_freebsd.c	2006-04-21 01:12:06 UTC (rev 99)
+@@ -515,6 +515,9 @@
+ 	case pkg_script_mtree:
+ 		script_file = pkg_get_control_file(pkg, &quot;+MTREE_DIRS&quot;);
+ 		break;
++	case pkg_script_require:
++		script_file = pkg_get_control_file(pkg, &quot;+REQUIRE&quot;);
++		break;
+ 	default:
+ 		return -1;
+ 	}
+@@ -531,19 +534,32 @@
+ 
+ 	/* Extract the script */
+ 	pkg_file_write(script_file);
+-	if (script == pkg_script_mtree) {
++	switch(script) {
++	case pkg_script_mtree:
++	{
+ 		const char *prefix = pkg_get_prefix(pkg);
+ 		pkg_exec(&quot;mtree -U -f +MTREE_DIRS -d -e -p %s &gt;/dev/null&quot;,
+ 		    (prefix != NULL ? prefix : &quot;/usr/local&quot;));
+-		unlink(&quot;+MTREE_DIRS&quot;);
+-	} else { 
++		break;
++	}
++	case pkg_script_pre:
++	case pkg_script_post:
+ 		pkg_exec(&quot;chmod u+x %s&quot;, pkg_file_get_name(script_file));
+ 
+ 		/* Execute the script */
+ 		ret = pkg_exec(&quot;%s/%s %s %s&quot;, dir1,
+ 		    pkg_file_get_name(script_file), pkg_get_name(pkg), arg);
+-		unlink(pkg_file_get_name(script_file));
++		break;
++	case pkg_script_require:
++		pkg_exec(&quot;chmod u+x %s&quot;, pkg_file_get_name(script_file));
++
++		ret = pkg_exec(&quot;%s/%s %s INSTALL&quot;, dir1,
++		    pkg_file_get_name(script_file), pkg_get_name(pkg));
++		break;
++	case pkg_script_noop:
++		break;
+ 	}
++	unlink(pkg_file_get_name(script_file));
+ 	chdir(cwd);
+ 	free(cwd);
+ 
+
+
+</PRE>
+
+<!--endarticle-->
+    <HR>
+    <P><UL>
+        <!--threads-->
+	<LI>Previous message: <A HREF="000082.html">[Libpkg-svn] r98 - tags
+</A></li>
+	<LI>Next message: <A HREF="000084.html">[Libpkg-svn] r100 - trunk/src
+</A></li>
+         <LI> <B>Messages sorted by:</B> 
+              <a href="date.html#83">[ date ]</a>
+              <a href="thread.html#83">[ thread ]</a>
+              <a href="subject.html#83">[ subject ]</a>
+              <a href="author.html#83">[ author ]</a>
+         </LI>
+       </UL>
+
+<hr>
+<a href="https://lists.berlios.de/mailman/listinfo/libpkg-svn">More information about the Libpkg-svn
+mailing list</a><br>
+</body></html>

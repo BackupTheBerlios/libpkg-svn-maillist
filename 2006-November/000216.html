@@ -1,0 +1,193 @@
+<!DOCTYPE HTML PUBLIC "-//W3C//DTD HTML 4.01 Transitional//EN">
+<HTML>
+ <HEAD>
+   <TITLE> [Libpkg-svn] r232 - in trunk/tools: pkg_add pkg_delete
+   </TITLE>
+   <LINK REL="Index" HREF="http://lists.berlios.de/pipermail/libpkg-svn/2006-November/index.html" >
+   <LINK REL="made" HREF="mailto:libpkg-svn%40lists.berlios.de?Subject=Re%3A%20%5BLibpkg-svn%5D%20r232%20-%20in%20trunk/tools%3A%20pkg_add%20pkg_delete&In-Reply-To=%3C200611151037.kAFAbVt4009794%40sheep.berlios.de%3E">
+   <META NAME="robots" CONTENT="index,nofollow">
+   <style type="text/css">
+       pre {
+           white-space: pre-wrap;       /* css-2.1, curent FF, Opera, Safari */
+           }
+   </style>
+   <META http-equiv="Content-Type" content="text/html; charset=us-ascii">
+   <LINK REL="Previous"  HREF="000215.html">
+   <LINK REL="Next"  HREF="000217.html">
+ </HEAD>
+ <BODY BGCOLOR="#ffffff">
+   <H1>[Libpkg-svn] r232 - in trunk/tools: pkg_add pkg_delete</H1>
+    <B>zxombie at BerliOS</B> 
+    <A HREF="mailto:libpkg-svn%40lists.berlios.de?Subject=Re%3A%20%5BLibpkg-svn%5D%20r232%20-%20in%20trunk/tools%3A%20pkg_add%20pkg_delete&In-Reply-To=%3C200611151037.kAFAbVt4009794%40sheep.berlios.de%3E"
+       TITLE="[Libpkg-svn] r232 - in trunk/tools: pkg_add pkg_delete">zxombie at mail.berlios.de
+       </A><BR>
+    <I>Wed Nov 15 11:37:31 CET 2006</I>
+    <P><UL>
+        <LI>Previous message: <A HREF="000215.html">[Libpkg-svn] r231 - trunk/src
+</A></li>
+        <LI>Next message: <A HREF="000217.html">[Libpkg-svn] r233 - trunk/tools/pkg_delete
+</A></li>
+         <LI> <B>Messages sorted by:</B> 
+              <a href="date.html#216">[ date ]</a>
+              <a href="thread.html#216">[ thread ]</a>
+              <a href="subject.html#216">[ subject ]</a>
+              <a href="author.html#216">[ author ]</a>
+         </LI>
+       </UL>
+    <HR>  
+<!--beginarticle-->
+<PRE>Author: zxombie
+Date: 2006-11-15 11:37:30 +0100 (Wed, 15 Nov 2006)
+New Revision: 232
+
+Modified:
+   trunk/tools/pkg_add/main.c
+   trunk/tools/pkg_delete/main.c
+Log:
+Update pkg_(add|delete) to use the change in pkg_db_action and the removal of pkg_db_(install|delete)_package
+Redice the amount of code in pkg_add predetermining the pkg_db_install_package_action arguments
+
+
+Modified: trunk/tools/pkg_add/main.c
+===================================================================
+--- trunk/tools/pkg_add/main.c	2006-11-15 10:34:43 UTC (rev 231)
++++ trunk/tools/pkg_add/main.c	2006-11-15 10:37:30 UTC (rev 232)
+@@ -231,17 +231,22 @@
+  * Print the message from fmt
+  * Only used when -v is set
+  */
+-static void
+-pkg_action(enum pkg_action_level level, const char *fmt, ...)
++static int
++pkg_action(enum pkg_action_level level, int interactive, const char *fmt, ...)
+ {
+ 	va_list ap;
+ 
++	/* The interactive flag is ignored for now */
++	assert(interactive == 0);
++
+ 	va_start(ap, fmt);
+ 	if (level == PKG_DB_PACKAGE)
+ 		printf(&quot;extract: &quot;);
+ 	vprintf(fmt, ap);
+ 	putchar('\n');
+ 	va_end(ap);
++
++	return 0;
+ }
+ 
+ /*
+@@ -252,7 +257,8 @@
+ 		const char *base_prefix, const char *prefix, int flags)
+ {
+ 	unsigned int i;
+-	int ret;
++	int ret, run, scripts, record, verbose;
++	pkg_db_action *action;
+ 	struct pkg **deps;
+ 	struct pkg_list *cur;
+ 
+@@ -277,6 +283,25 @@
+ 		return 0;
+ 	}
+ 
++	record = ((flags &amp; no_record_install_flag) != no_record_install_flag);
++	scripts = ((flags &amp; no_run_script_flag) == no_run_script_flag);
++	run = ((flags &amp; no_run_flag) != no_run_flag);
++	verbose = (flags &amp; verbosity_flag) == verbosity_flag;
++
++	/*
++	 * Deside which pkg_db_action to use. If neither is
++	 * set then we won't be installing any packages
++	 * (ie. nothing will happen with !verbose and !run)
++	 */
++	action = NULL;
++	if (verbose) {
++		/* Use our pkg_db_action */
++		action = pkg_action;
++	} else if (run) {
++		/* Use the no output pkg_action */
++		action = pkg_action_null;
++	}
++
+ 	/* Get the package's dependencies */
+ 	deps = pkg_get_dependencies(pkg);
+ 	for (i=0; deps[i] != NULL; i++) {
+@@ -304,17 +329,13 @@
+ 
+ 	ret = -1;
+ 	/* Install the package */
+-	if ((flags &amp; verbosity_flag) == verbosity_flag) {
+-		/* Install with a verbose output */
+-		printf(&quot;extract: Package name is %s\n&quot;, pkg_get_name(pkg));
+-		ret = pkg_db_install_pkg_action(db, pkg, base_prefix,
+-		    ((flags &amp; no_record_install_flag)!= no_record_install_flag),
+-		    ((flags &amp; no_run_script_flag) == no_run_script_flag),
+-		    ((flags &amp; no_run_flag) != no_run_flag), pkg_action);
+-	} else if ((flags &amp; no_run_flag) == 0) {
+-		ret = pkg_db_install_pkg(db, pkg, base_prefix,
+-		    ((flags &amp; no_record_install_flag)!=no_record_install_flag),
+-		    ((flags &amp; no_run_script_flag) != no_run_script_flag));
++	if (action != NULL) {
++		if (verbose) {
++			printf(&quot;extract: Package name is %s\n&quot;,
++			    pkg_get_name(pkg));
++		}
++		ret = pkg_db_install_pkg_action(db, pkg, base_prefix, record,
++		    scripts, run, action);
+ 	}
+ 	/*
+ 	 * Insert the installed package in a linked
+
+Modified: trunk/tools/pkg_delete/main.c
+===================================================================
+--- trunk/tools/pkg_delete/main.c	2006-11-15 10:34:43 UTC (rev 231)
++++ trunk/tools/pkg_delete/main.c	2006-11-15 10:37:30 UTC (rev 232)
+@@ -154,15 +154,21 @@
+  * Print the message from fmt
+  * Only used when -v is set
+  */
+-static void
+-pkg_action(enum pkg_action_level level __unused, const char *fmt, ...)
++static int
++pkg_action(enum pkg_action_level level __unused, int interactive,
++	const char *fmt, ...)
+ {
+ 	va_list ap;
+ 
++	/* The interactive flag is ignored for now */
++	assert(interactive == 0);
++
+ 	va_start(ap, fmt);
+ 	vprintf(fmt, ap);
+ 	putchar('\n');
+ 	va_end(ap);
++
++	return 0;
+ }
+ 
+ /*
+
+
+</PRE>
+
+<!--endarticle-->
+    <HR>
+    <P><UL>
+        <!--threads-->
+	<LI>Previous message: <A HREF="000215.html">[Libpkg-svn] r231 - trunk/src
+</A></li>
+	<LI>Next message: <A HREF="000217.html">[Libpkg-svn] r233 - trunk/tools/pkg_delete
+</A></li>
+         <LI> <B>Messages sorted by:</B> 
+              <a href="date.html#216">[ date ]</a>
+              <a href="thread.html#216">[ thread ]</a>
+              <a href="subject.html#216">[ subject ]</a>
+              <a href="author.html#216">[ author ]</a>
+         </LI>
+       </UL>
+
+<hr>
+<a href="https://lists.berlios.de/mailman/listinfo/libpkg-svn">More information about the Libpkg-svn
+mailing list</a><br>
+</body></html>

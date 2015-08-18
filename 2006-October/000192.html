@@ -1,0 +1,137 @@
+<!DOCTYPE HTML PUBLIC "-//W3C//DTD HTML 4.01 Transitional//EN">
+<HTML>
+ <HEAD>
+   <TITLE> [Libpkg-svn] r208 - trunk/src
+   </TITLE>
+   <LINK REL="Index" HREF="http://lists.berlios.de/pipermail/libpkg-svn/2006-October/index.html" >
+   <LINK REL="made" HREF="mailto:libpkg-svn%40lists.berlios.de?Subject=Re%3A%20%5BLibpkg-svn%5D%20r208%20-%20trunk/src&In-Reply-To=%3C200610260904.k9Q94jpO017102%40sheep.berlios.de%3E">
+   <META NAME="robots" CONTENT="index,nofollow">
+   <style type="text/css">
+       pre {
+           white-space: pre-wrap;       /* css-2.1, curent FF, Opera, Safari */
+           }
+   </style>
+   <META http-equiv="Content-Type" content="text/html; charset=us-ascii">
+   <LINK REL="Previous"  HREF="000191.html">
+   <LINK REL="Next"  HREF="000193.html">
+ </HEAD>
+ <BODY BGCOLOR="#ffffff">
+   <H1>[Libpkg-svn] r208 - trunk/src</H1>
+    <B>zxombie at BerliOS</B> 
+    <A HREF="mailto:libpkg-svn%40lists.berlios.de?Subject=Re%3A%20%5BLibpkg-svn%5D%20r208%20-%20trunk/src&In-Reply-To=%3C200610260904.k9Q94jpO017102%40sheep.berlios.de%3E"
+       TITLE="[Libpkg-svn] r208 - trunk/src">zxombie at mail.berlios.de
+       </A><BR>
+    <I>Thu Oct 26 11:04:45 CEST 2006</I>
+    <P><UL>
+        <LI>Previous message: <A HREF="000191.html">[Libpkg-svn] r207 - trunk/src
+</A></li>
+        <LI>Next message: <A HREF="000193.html">[Libpkg-svn] r209 - trunk/src
+</A></li>
+         <LI> <B>Messages sorted by:</B> 
+              <a href="date.html#192">[ date ]</a>
+              <a href="thread.html#192">[ thread ]</a>
+              <a href="subject.html#192">[ subject ]</a>
+              <a href="author.html#192">[ author ]</a>
+         </LI>
+       </UL>
+    <HR>  
+<!--beginarticle-->
+<PRE>Author: zxombie
+Date: 2006-10-26 11:04:44 +0200 (Thu, 26 Oct 2006)
+New Revision: 208
+
+Modified:
+   trunk/src/pkg_freebsd.c
+Log:
+Set the dir variable to an empty string in freebsd_run_script
+Set the correct argument on the FreeBSD pkg_script_deinstall script
+Run the pkg_script_pre_deinstall, pkg_script_post_deinstall and pkg_script_deinstall FreeBSD scripts when asked to
+Only call chdir when ew need to
+
+
+Modified: trunk/src/pkg_freebsd.c
+===================================================================
+--- trunk/src/pkg_freebsd.c	2006-10-25 10:57:31 UTC (rev 207)
++++ trunk/src/pkg_freebsd.c	2006-10-26 09:04:44 UTC (rev 208)
+@@ -950,6 +950,7 @@
+ 
+ 	script_file = NULL;
+ 	arg[0] = '\0';
++	dir[0] = '\0';
+ 	switch (script) {
+ 	case pkg_script_pre:
+ 		script_file = pkg_get_control_file(pkg, &quot;+PRE-INSTALL&quot;);
+@@ -983,6 +984,7 @@
+ 		break;
+ 	case pkg_script_deinstall:
+ 		script_file = pkg_get_control_file(pkg, &quot;+DEINSTALL&quot;);
++		snprintf(arg, FILENAME_MAX, &quot;DEINSTALL&quot;);
+ 		break;
+ 	case pkg_script_noop:
+ 		return -1;
+@@ -1019,31 +1021,28 @@
+ 	}
+ 	case pkg_script_pre:
+ 	case pkg_script_post:
+-		pkg_exec(&quot;chmod u+x %s&quot;, pkgfile_get_name(script_file));
+-
+-		/* Execute the script */
+-		ret = pkg_exec(&quot;%s/%s %s %s&quot;, dir,
+-		    pkgfile_get_name(script_file), pkg_get_name(pkg), arg);
+-		break;
+ 	case pkg_script_require:
+ 	case pkg_script_require_deinstall:
++	case pkg_script_pre_deinstall:
++	case pkg_script_post_deinstall:
++	case pkg_script_deinstall:
++		/* Check the script has the execute bit set */
+ 		pkg_exec(&quot;chmod u+x %s&quot;, pkgfile_get_name(script_file));
+ 
++		/* Execute the script */
+ 		ret = pkg_exec(&quot;%s/%s %s %s&quot;, dir,
+ 		    pkgfile_get_name(script_file), pkg_get_name(pkg), arg);
+ 		break;
+-	case pkg_script_pre_deinstall:
+-	case pkg_script_post_deinstall:
+-	case pkg_script_deinstall:
+-		assert(0);
+ 	case pkg_script_noop:
+ 		break;
+ 	}
+ 	unlink(pkgfile_get_name(script_file));
+-	chdir(cwd);
+-	free(cwd);
+ 
+-	rmdir(dir);
++	if (fpkg-&gt;pkg_type == fpkg_from_file) {
++		chdir(cwd);
++		free(cwd);
++		rmdir(dir);
++	}
+ 	return ret;
+ }
+ 
+
+
+</PRE>
+
+<!--endarticle-->
+    <HR>
+    <P><UL>
+        <!--threads-->
+	<LI>Previous message: <A HREF="000191.html">[Libpkg-svn] r207 - trunk/src
+</A></li>
+	<LI>Next message: <A HREF="000193.html">[Libpkg-svn] r209 - trunk/src
+</A></li>
+         <LI> <B>Messages sorted by:</B> 
+              <a href="date.html#192">[ date ]</a>
+              <a href="thread.html#192">[ thread ]</a>
+              <a href="subject.html#192">[ subject ]</a>
+              <a href="author.html#192">[ author ]</a>
+         </LI>
+       </UL>
+
+<hr>
+<a href="https://lists.berlios.de/mailman/listinfo/libpkg-svn">More information about the Libpkg-svn
+mailing list</a><br>
+</body></html>

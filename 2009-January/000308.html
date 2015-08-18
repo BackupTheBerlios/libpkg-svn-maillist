@@ -1,0 +1,229 @@
+<!DOCTYPE HTML PUBLIC "-//W3C//DTD HTML 4.01 Transitional//EN">
+<HTML>
+ <HEAD>
+   <TITLE> r324 - trunk/src
+   </TITLE>
+   <LINK REL="Index" HREF="http://lists.berlios.de/pipermail/libpkg-svn/2009-January/index.html" >
+   <LINK REL="made" HREF="mailto:libpkg-svn%40lists.berlios.de?Subject=Re%3A%20r324%20-%20trunk/src&In-Reply-To=%3C200901032235.n03MZNaU004367%40sheep.berlios.de%3E">
+   <META NAME="robots" CONTENT="index,nofollow">
+   <style type="text/css">
+       pre {
+           white-space: pre-wrap;       /* css-2.1, curent FF, Opera, Safari */
+           }
+   </style>
+   <META http-equiv="Content-Type" content="text/html; charset=us-ascii">
+   <LINK REL="Previous"  HREF="000307.html">
+   <LINK REL="Next"  HREF="000309.html">
+ </HEAD>
+ <BODY BGCOLOR="#ffffff">
+   <H1>r324 - trunk/src</H1>
+    <B>zxombie at users.berlios.de</B> 
+    <A HREF="mailto:libpkg-svn%40lists.berlios.de?Subject=Re%3A%20r324%20-%20trunk/src&In-Reply-To=%3C200901032235.n03MZNaU004367%40sheep.berlios.de%3E"
+       TITLE="r324 - trunk/src">zxombie at users.berlios.de
+       </A><BR>
+    <I>Sat Jan  3 23:35:23 CET 2009</I>
+    <P><UL>
+        <LI>Previous message: <A HREF="000307.html">r323 - trunk/src
+</A></li>
+        <LI>Next message: <A HREF="000309.html">r325 - trunk/src
+</A></li>
+         <LI> <B>Messages sorted by:</B> 
+              <a href="date.html#308">[ date ]</a>
+              <a href="thread.html#308">[ thread ]</a>
+              <a href="subject.html#308">[ subject ]</a>
+              <a href="author.html#308">[ author ]</a>
+         </LI>
+       </UL>
+    <HR>  
+<!--beginarticle-->
+<PRE>Author: zxombie
+Date: 2009-01-03 23:35:23 +0100 (Sat, 03 Jan 2009)
+New Revision: 324
+
+Modified:
+   trunk/src/pkg_freebsd.c
+Log:
+Move the pkg_manifest for package removal
+
+
+Modified: trunk/src/pkg_freebsd.c
+===================================================================
+--- trunk/src/pkg_freebsd.c	2009-01-03 09:47:08 UTC (rev 323)
++++ trunk/src/pkg_freebsd.c	2009-01-03 22:35:23 UTC (rev 324)
+@@ -671,12 +671,11 @@
+ 		pkg_db_chdir *db_chdir, pkg_db_install_file *deinstall_file,
+ 		pkg_db_exec *do_exec, pkg_db_deregister *pkg_deregister)
+ {
++	struct pkg_manifest_item **items;
+ 	int ret;
+ 	unsigned int pos;
+ 	struct pkgfile **control;
+-	struct pkgfile *contents_file;
+-	struct pkg_freebsd_contents *contents;
+-	const char *file_data;
++	const char *cwd, *dir;
+ 
+ 	assert(pkg != NULL);
+ 	assert(pkg_action != NULL);
+@@ -687,7 +686,6 @@
+ 	assert(pkg_deregister != NULL);
+ 
+ 	ret = -1;
+-	contents = NULL;
+ 
+ 	/* Get the control files from the package */
+ 	control = pkg_get_control_files(pkg);
+@@ -696,68 +694,72 @@
+ 		return -1;
+ 	}
+ 
+-	/* Find the +CONTENTS file in the control files */
+-	contents_file = pkg_get_control_file(pkg, &quot;+CONTENTS&quot;);
+-	assert(contents_file != NULL);
+-	if (contents_file == NULL) {
+-		return -1;
+-	}
++	/* Read the package manifest */
++	pkg_get_manifest(pkg);
++	assert(pkg-&gt;pkg_manifest != NULL);
+ 
+-	file_data = pkgfile_get_data(contents_file);
+-	contents = pkg_freebsd_contents_new(file_data,
+-	    pkgfile_get_size(contents_file));
+-	assert(contents != NULL);
+-	if (contents == NULL) {
+-		return -1;
+-	}
++	dir = pkg_manifest_get_attr(pkg-&gt;pkg_manifest, pkgm_prefix);
++	cwd = dir;
++	db_chdir(pkg, pkg_action, data, dir);
+ 
+-	for (pos = 0; pos &lt; contents-&gt;line_count; pos++) {
+-		switch (contents-&gt;lines[pos].line_type) {
+-		case PKG_LINE_IGNORE:
+-			/* Skip 2 lines for the file and checksum */
+-			pos += 2;
++	items = pkg_manifest_get_items(pkg-&gt;pkg_manifest);
++	for (pos = 0; items[pos] != NULL; pos++) {
++		switch(pkg_manifest_item_get_type(items[pos])) {
++		/* Unused item types */
++		case pmt_comment:
++		case pmt_dirlist:
+ 			break;
+-		case PKG_LINE_COMMENT:
+-		case PKG_LINE_EXEC:
+-		case PKG_LINE_MTREE:
+-		case PKG_LINE_PKGDEP:
+-		case PKG_LINE_CONFLICTS:
+-		case PKG_LINE_NAME:
+-			/* These are not used when removing packages */
+-			break;
+-		case PKG_LINE_CWD:
++		case pmt_dir:
++		case pmt_file:
+ 		{
+-			const char *dir = contents-&gt;lines[pos].data;
++			const char *attr, *file_name;
++			struct pkgfile *file;
+ 
+-			if (dir != NULL)
+-				db_chdir(pkg, pkg_action, data, dir);
++			attr =
++			    pkg_manifest_item_get_attr(items[pos], pmia_ignore);
++
++			if (attr == NULL || strcasecmp(attr, &quot;NO&quot;) == 0) {
++				file_name =
++				    pkg_manifest_item_get_data(items[pos]);
++				file = pkgfile_new_from_disk(file_name, 0);
++				deinstall_file(pkg, pkg_action, data, file);
++			}
+ 			break;
+ 		}
+-		case PKG_LINE_DIRRM:
+-		case PKG_LINE_FILE:
++		case pmt_chdir:
++			dir = pkg_manifest_item_get_data(items[pos]);
++
++			if (dir != NULL) {
++				cwd = dir;
++				db_chdir(pkg, pkg_action, data, dir);
++			}
++
++			break;
++		case pmt_output:
++			break;
++		case pmt_execute:
+ 		{
+-			struct pkgfile *file;
++			const char *cmd, *attr;
+ 
+-			if (contents-&gt;lines[pos].line_type == PKG_LINE_FILE) {
+-				file = pkgfile_new_from_disk(
+-				    contents-&gt;lines[pos].line, 0);
+-			} else {
+-				file = pkgfile_new_from_disk(
+-				    contents-&gt;lines[pos].data, 0);
++			attr = pkg_manifest_item_get_attr(items[pos],
++			    pmia_deinstall);
++			if (attr != NULL &amp;&amp; strcasecmp(attr, &quot;YES&quot;) == 0) {
++				cmd = pkg_manifest_item_get_data(items[pos]);
++				do_exec(pkg, pkg_action, data, cmd);
+ 			}
+-			deinstall_file(pkg, pkg_action, data, file);
+ 			break;
+ 		}
+-		case PKG_LINE_UNEXEC:
+-			do_exec(pkg, pkg_action, data,
+-			    contents-&gt;lines[pos].data);
++		case pmt_other:
++		case pmt_error:
++			/*
++			 * This should never happen as pmt_other and
++			 * pmt_error don't appear in pkg_freebsd_parser.y
++			 */
++			abort();
+ 			break;
+-		default:
+-			warnx(&quot;ERROR: Incorrect line in +CONTENTS file &quot;
+-			    &quot;\&quot;%s %s\&quot;\n&quot;, contents-&gt;lines[pos].line,
+-			    contents-&gt;lines[pos].data);
+ 		}
+ 	}
++
+ 	db_chdir(pkg, pkg_action, data, &quot;.&quot;);
+ 	/* Register the package */
+ 	pkg_deregister(pkg, pkg_action, data, control);
+@@ -765,9 +767,6 @@
+ 	/* Set the return to 0 as we have fully installed the package */
+ 	ret = 0;
+ 
+-	if (contents != NULL)
+-		pkg_freebsd_contents_free(contents);
+-
+ 	return ret;
+ }
+ 
+
+
+</PRE>
+
+<!--endarticle-->
+    <HR>
+    <P><UL>
+        <!--threads-->
+	<LI>Previous message: <A HREF="000307.html">r323 - trunk/src
+</A></li>
+	<LI>Next message: <A HREF="000309.html">r325 - trunk/src
+</A></li>
+         <LI> <B>Messages sorted by:</B> 
+              <a href="date.html#308">[ date ]</a>
+              <a href="thread.html#308">[ thread ]</a>
+              <a href="subject.html#308">[ subject ]</a>
+              <a href="author.html#308">[ author ]</a>
+         </LI>
+       </UL>
+
+<hr>
+<a href="https://lists.berlios.de/mailman/listinfo/libpkg-svn">More information about the Libpkg-svn
+mailing list</a><br>
+</body></html>

@@ -1,0 +1,372 @@
+<!DOCTYPE HTML PUBLIC "-//W3C//DTD HTML 4.01 Transitional//EN">
+<HTML>
+ <HEAD>
+   <TITLE> [Libpkg-svn] r296 - in trunk/tools: . pkg_add pkg_delete pkg_info
+   </TITLE>
+   <LINK REL="Index" HREF="http://lists.berlios.de/pipermail/libpkg-svn/2007-March/index.html" >
+   <LINK REL="made" HREF="mailto:libpkg-svn%40lists.berlios.de?Subject=Re%3A%20%5BLibpkg-svn%5D%20r296%20-%20in%20trunk/tools%3A%20.%20pkg_add%20pkg_delete%20pkg_info&In-Reply-To=%3C200703162223.l2GMNu3V016110%40sheep.berlios.de%3E">
+   <META NAME="robots" CONTENT="index,nofollow">
+   <style type="text/css">
+       pre {
+           white-space: pre-wrap;       /* css-2.1, curent FF, Opera, Safari */
+           }
+   </style>
+   <META http-equiv="Content-Type" content="text/html; charset=us-ascii">
+   <LINK REL="Previous"  HREF="000279.html">
+   <LINK REL="Next"  HREF="000281.html">
+ </HEAD>
+ <BODY BGCOLOR="#ffffff">
+   <H1>[Libpkg-svn] r296 - in trunk/tools: . pkg_add pkg_delete pkg_info</H1>
+    <B>zxombie at BerliOS</B> 
+    <A HREF="mailto:libpkg-svn%40lists.berlios.de?Subject=Re%3A%20%5BLibpkg-svn%5D%20r296%20-%20in%20trunk/tools%3A%20.%20pkg_add%20pkg_delete%20pkg_info&In-Reply-To=%3C200703162223.l2GMNu3V016110%40sheep.berlios.de%3E"
+       TITLE="[Libpkg-svn] r296 - in trunk/tools: . pkg_add pkg_delete pkg_info">zxombie at mail.berlios.de
+       </A><BR>
+    <I>Fri Mar 16 23:23:56 CET 2007</I>
+    <P><UL>
+        <LI>Previous message: <A HREF="000279.html">[Libpkg-svn] r295 - trunk/tools/pkg_info
+</A></li>
+        <LI>Next message: <A HREF="000281.html">[Libpkg-svn] r297 - trunk/src
+</A></li>
+         <LI> <B>Messages sorted by:</B> 
+              <a href="date.html#280">[ date ]</a>
+              <a href="thread.html#280">[ thread ]</a>
+              <a href="subject.html#280">[ subject ]</a>
+              <a href="author.html#280">[ author ]</a>
+         </LI>
+       </UL>
+    <HR>  
+<!--beginarticle-->
+<PRE>Author: zxombie
+Date: 2007-03-16 23:23:55 +0100 (Fri, 16 Mar 2007)
+New Revision: 296
+
+Added:
+   trunk/tools/config.sh.eg
+Modified:
+   trunk/tools/pkg_add/test.sh
+   trunk/tools/pkg_delete/test.sh
+   trunk/tools/pkg_info/test.sh
+   trunk/tools/test.sh
+Log:
+Move code from the program tests to a common file
+
+
+Copied: trunk/tools/config.sh.eg (from rev 211, trunk/tools/test.sh)
+===================================================================
+--- trunk/tools/test.sh	2006-10-26 23:28:44 UTC (rev 211)
++++ trunk/tools/config.sh.eg	2007-03-16 22:23:55 UTC (rev 296)
+@@ -0,0 +1,16 @@
++# This is the test configuration script. Copy it to
++# config.sh and change it to suite your environment
++
++
++# Set this to the parent directory to extract the chroot environment to
++#BASE_DIR=/a
++# The file to extract to create the chroot environment
++# This must extract the the files to base/*
++#BASE_TARBALL=${BASE_DIR}/base.tar
++
++# The location of the package files to copy to the chroot
++#PACKAGE_DIR=/some/dir/containing/packages
++# The packages to copy
++#PACKAGES=&quot;bash-3.0.16_1.tbz gettext-0.14.5.tbz libiconv-1.9.2_1.tbz&quot;
++#the package to install
++#PACKAGE=bash-3.0.16_1
+
+Modified: trunk/tools/pkg_add/test.sh
+===================================================================
+--- trunk/tools/pkg_add/test.sh	2007-03-16 22:00:50 UTC (rev 295)
++++ trunk/tools/pkg_add/test.sh	2007-03-16 22:23:55 UTC (rev 296)
+@@ -1,32 +1,18 @@
+ #!/bin/sh
+ 
+-. `dirname $0`/../test.sh
++cd `dirname $0`
++DIR=`pwd`
+ 
++cd ..
++. ${DIR}/../test.sh
++cd ${DIR}
++
+ TEST_NO=$1
+ shift
+ 
+ TEST_MAX=9
+ TOOL_NAME=pkg_add
+ 
+-do_test() {
+-	i=$1
+-	RUN=$2
+-	LIBPKG=$3
+-
+-	build_chroot
+-	if [ &quot;X$LIBPKG&quot; != &quot;X&quot; ]; then
+-		cp ${TOOL_NAME} ${BASE_DIR}/base/usr/sbin/${TOOL_NAME}
+-	fi
+-	chroot ${BASE_DIR}/base /run.sh ${PACKAGE} ${i} &gt; ${RUN}.stdout.${i} 2&gt; ${RUN}.stderr.${i}
+-	# Get the mtree file to use to compare the filesystems
+-	mtree -c -p ${BASE_DIR}/base | grep -v &quot;^\#[[:space:]]*date:&quot; | sed &quot;s/time=[^ ]*//&quot; | grep -v &quot;^[ ]*${TOOL_NAME}[^\.]&quot; &gt; ${RUN}.mtree.${i}
+-	# Create a tarball of the important dir's to compare later
+-	rm ${BASE_DIR}/${RUN}-${i}.tar
+-	tar -cf ${BASE_DIR}/${RUN}-${i}.tar ${BASE_DIR}/base/var/db/pkg ${BASE_DIR}/base/usr/local ${BASE_DIR}/base/usr/pkg
+-	# Cleanup the package directories
+-	rm -fr ${BASE_DIR}/base/var/db/pkg ${BASE_DIR}/base/usr/local ${BASE_DIR}/base/usr/pkg
+-}
+-
+ # Runs the tests for either the libpkg or cvs version of pkg_add
+ do_tests() {
+ 	RUN=$1
+@@ -39,25 +25,9 @@
+ 	done
+ }
+ 
+-# Runs the test
+-run_test() {
+-
+-	build_tool
+-
+-	if [ &quot;X${TEST_NO}&quot; != &quot;X&quot; ] ; then
+-		do_test $TEST_NO cvs
+-		do_test $TEST_NO libpkg true
+-	else
+-		# Get the reference data from the FreeBSD cvs pkg_add
+-		do_tests cvs
+-		# Get the test data from out pkg_add
+-		do_tests libpkg true
+-	fi
+-}
+-
+ CWD=`pwd`
+ cd `dirname $0`
+ 
+-run_test
++run_test ${TEST_NO}
+ 
+ cd $CWD
+
+Modified: trunk/tools/pkg_delete/test.sh
+===================================================================
+--- trunk/tools/pkg_delete/test.sh	2007-03-16 22:00:50 UTC (rev 295)
++++ trunk/tools/pkg_delete/test.sh	2007-03-16 22:23:55 UTC (rev 296)
+@@ -8,25 +8,6 @@
+ TEST_MAX=7
+ TOOL_NAME=pkg_delete
+ 
+-do_test() {
+-	i=$1
+-	RUN=$2
+-	LIBPKG=$3
+-
+-	build_chroot
+-	if [ &quot;X$LIBPKG&quot; != &quot;X&quot; ]; then
+-		cp ${TOOL_NAME} ${BASE_DIR}/base/usr/sbin/${TOOL_NAME}
+-	fi
+-	chroot ${BASE_DIR}/base /run.sh ${PACKAGE} ${i} &gt; ${RUN}.stdout.${i} 2&gt; ${RUN}.stderr.${i}
+-	# Get the mtree file to use to compare the filesystems
+-	mtree -c -p ${BASE_DIR}/base | grep -v &quot;^\#[[:space:]]*date:&quot; | sed &quot;s/time=[^ ]*//&quot; | grep -v &quot;^[ ]*${TOOL_NAME}[^\.]&quot; &gt; ${RUN}.mtree.${i}
+-	# Create a tarball of the important dir's to compare later
+-	rm ${BASE_DIR}/${RUN}-${i}.tar
+-	tar -cf ${BASE_DIR}/${RUN}-${i}.tar ${BASE_DIR}/base/var/db/pkg ${BASE_DIR}/base/usr/local ${BASE_DIR}/base/usr/pkg
+-	# Cleanup the package directories
+-	rm -fr ${BASE_DIR}/base/var/db/pkg ${BASE_DIR}/base/usr/local ${BASE_DIR}/base/usr/pkg
+-}
+-
+ # Runs the tests for either the libpkg or cvs version of pkg_delete
+ do_tests() {
+ 	RUN=$1
+@@ -39,25 +20,9 @@
+ 	done
+ }
+ 
+-# Runs the test
+-run_test() {
+-
+-	build_tool
+-
+-	if [ &quot;X${TEST_NO}&quot; != &quot;X&quot; ] ; then
+-		do_test $TEST_NO cvs
+-		do_test $TEST_NO libpkg true
+-	else
+-		# Get the reference data from the FreeBSD cvs pkg_delete
+-		do_tests cvs
+-		# Get the test data from out pkg_delete
+-		do_tests libpkg true
+-	fi
+-}
+-
+ CWD=`pwd`
+ cd `dirname $0`
+ 
+-run_test
++run_test ${TEST_NO}
+ 
+ cd $CWD
+
+Modified: trunk/tools/pkg_info/test.sh
+===================================================================
+--- trunk/tools/pkg_info/test.sh	2007-03-16 22:00:50 UTC (rev 295)
++++ trunk/tools/pkg_info/test.sh	2007-03-16 22:23:55 UTC (rev 296)
+@@ -10,7 +10,7 @@
+ TEST_NO=$1
+ shift
+ 
+-TEST_MAX=10
++TEST_MAX=12
+ TOOL_NAME=pkg_info
+ 
+ # Runs the tests for either the libpkg or cvs version of pkg_add
+@@ -25,41 +25,10 @@
+ 	done
+ }
+ 
+-# Runs the test
+-run_test() {
+ 
+-	build_tool
+-
+-	if [ &quot;X${TEST_NO}&quot; != &quot;X&quot; ] ; then
+-		do_test $TEST_NO cvs
+-		do_test $TEST_NO libpkg true
+-		for file in stdout stderr mtree; do
+-			diff cvs.${file}.${TEST_NO} libpkg.${file}.${TEST_NO} &gt; /dev/null 2&gt;&amp;1
+-			if [ $? -eq 0 ]; then
+-				rm cvs.${file}.${TEST_NO} libpkg.${file}.${TEST_NO}
+-			fi
+-		done
+-	else
+-		# Get the reference data from the FreeBSD cvs pkg_info
+-		do_tests cvs
+-		# Get the test data from out pkg_info
+-		do_tests libpkg true
+-		i=1
+-		while [ $i -le $TEST_MAX ] ; do
+-			for file in stdout stderr mtree; do
+-				diff cvs.${file}.${i} libpkg.${file}.${i} &gt; /dev/null 2&gt;&amp;1
+-				if [ $? -eq 0 ]; then
+-					rm cvs.${file}.${i} libpkg.${file}.${i}
+-				fi
+-			done
+-			i=$((i+1))
+-		done
+-	fi
+-}
+-
+ CWD=`pwd`
+ cd `dirname $0`
+ 
+-run_test
++run_test ${TEST_NO}
+ 
+ cd $CWD
+
+Modified: trunk/tools/test.sh
+===================================================================
+--- trunk/tools/test.sh	2007-03-16 22:00:50 UTC (rev 295)
++++ trunk/tools/test.sh	2007-03-16 22:23:55 UTC (rev 296)
+@@ -2,19 +2,14 @@
+ # It will test pkg_delete in various senarios and check if the
+ # output is correct and if the filesystem is correct afterwards
+ 
+-# Set this to the parent directory to extract the chroot environment to
+-#BASE_DIR=/a
+-# The file to extract to create the chroot environment
+-# This must extract the the files to base/*
+-BASE_TARBALL=${BASE_DIR}/base.tar
++pwd
++if [ -f ./config.sh ]; then
++	. ./config.sh
++else
++	echo &quot;Copy config.sh.eg to config.sh and modify to suite your environment&quot;
++	exit 1
++fi
+ 
+-# The location of the package files to copy to the chroot
+-#PACKAGE_DIR=/some/dir/containing/packages
+-# The packages to copy
+-#PACKAGES=&quot;bash-3.0.16_1.tbz gettext-0.14.5.tbz libiconv-1.9.2_1.tbz&quot;
+-#the package to install
+-#PACKAGE=bash-3.0.16_1
+-
+ # All the tools with tests
+ ALL_TESTS=&quot;pkg_delete&quot;
+ 
+@@ -42,3 +37,55 @@
+ 	cd $wd &amp;&amp; make all
+ }
+ 
++do_test() {
++	i=$1
++	RUN=$2
++	LIBPKG=$3
++
++	build_chroot
++	if [ &quot;X$LIBPKG&quot; != &quot;X&quot; ]; then
++		cp ${TOOL_NAME} ${BASE_DIR}/base/usr/sbin/${TOOL_NAME}
++	fi
++	chroot ${BASE_DIR}/base /run.sh ${PACKAGE} ${i} &gt; ${RUN}.stdout.${i} 2&gt; ${RUN}.stderr.${i}
++	# Get the mtree file to use to compare the filesystems
++	mtree -c -p ${BASE_DIR}/base | grep -v &quot;^\#[[:space:]]*date:&quot; | sed &quot;s/time=[^ ]*//&quot; | grep -v &quot;^[ ]*${TOOL_NAME}[^\.]&quot; &gt; ${RUN}.mtree.${i}
++	# Create a tarball of the important dir's to compare later
++	rm ${BASE_DIR}/${RUN}-${i}.tar
++	tar -cf ${BASE_DIR}/${RUN}-${i}.tar ${BASE_DIR}/base/var/db/pkg ${BASE_DIR}/base/usr/local ${BASE_DIR}/base/usr/pkg
++	# Cleanup the package directories
++	rm -fr ${BASE_DIR}/base/var/db/pkg ${BASE_DIR}/base/usr/local ${BASE_DIR}/base/usr/pkg
++}
++
++# Runs the test
++run_test() {
++	TEST_NO=$1
++
++	build_tool
++
++	if [ &quot;X${TEST_NO}&quot; != &quot;X&quot; ] ; then
++		do_test $TEST_NO cvs
++		do_test $TEST_NO libpkg true
++		for file in stdout stderr mtree; do
++			diff cvs.${file}.${TEST_NO} libpkg.${file}.${TEST_NO} &gt; /dev/null 2&gt;&amp;1
++			if [ $? -eq 0 ]; then
++				rm cvs.${file}.${TEST_NO} libpkg.${file}.${TEST_NO}
++			fi
++		done
++	else
++		# Get the reference data from the FreeBSD cvs pkg_info
++		do_tests cvs
++		# Get the test data from out pkg_info
++		do_tests libpkg true
++		i=1
++		while [ $i -le $TEST_MAX ] ; do
++			for file in stdout stderr mtree; do
++				diff cvs.${file}.${i} libpkg.${file}.${i} &gt; /dev/null 2&gt;&amp;1
++				if [ $? -eq 0 ]; then
++					rm cvs.${file}.${i} libpkg.${file}.${i}
++				fi
++			done
++			i=$((i+1))
++		done
++	fi
++}
++
+
+
+</PRE>
+
+<!--endarticle-->
+    <HR>
+    <P><UL>
+        <!--threads-->
+	<LI>Previous message: <A HREF="000279.html">[Libpkg-svn] r295 - trunk/tools/pkg_info
+</A></li>
+	<LI>Next message: <A HREF="000281.html">[Libpkg-svn] r297 - trunk/src
+</A></li>
+         <LI> <B>Messages sorted by:</B> 
+              <a href="date.html#280">[ date ]</a>
+              <a href="thread.html#280">[ thread ]</a>
+              <a href="subject.html#280">[ subject ]</a>
+              <a href="author.html#280">[ author ]</a>
+         </LI>
+       </UL>
+
+<hr>
+<a href="https://lists.berlios.de/mailman/listinfo/libpkg-svn">More information about the Libpkg-svn
+mailing list</a><br>
+</body></html>

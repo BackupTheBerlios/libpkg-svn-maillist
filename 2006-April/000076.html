@@ -1,0 +1,309 @@
+<!DOCTYPE HTML PUBLIC "-//W3C//DTD HTML 4.01 Transitional//EN">
+<HTML>
+ <HEAD>
+   <TITLE> [Libpkg-svn] r92 - trunk/src
+   </TITLE>
+   <LINK REL="Index" HREF="http://lists.berlios.de/pipermail/libpkg-svn/2006-April/index.html" >
+   <LINK REL="made" HREF="mailto:libpkg-svn%40lists.berlios.de?Subject=Re%3A%20%5BLibpkg-svn%5D%20r92%20-%20trunk/src&In-Reply-To=%3C200604121034.k3CAYcqw010677%40sheep.berlios.de%3E">
+   <META NAME="robots" CONTENT="index,nofollow">
+   <style type="text/css">
+       pre {
+           white-space: pre-wrap;       /* css-2.1, curent FF, Opera, Safari */
+           }
+   </style>
+   <META http-equiv="Content-Type" content="text/html; charset=us-ascii">
+   <LINK REL="Previous"  HREF="000075.html">
+   <LINK REL="Next"  HREF="000077.html">
+ </HEAD>
+ <BODY BGCOLOR="#ffffff">
+   <H1>[Libpkg-svn] r92 - trunk/src</H1>
+    <B>zxombie at BerliOS</B> 
+    <A HREF="mailto:libpkg-svn%40lists.berlios.de?Subject=Re%3A%20%5BLibpkg-svn%5D%20r92%20-%20trunk/src&In-Reply-To=%3C200604121034.k3CAYcqw010677%40sheep.berlios.de%3E"
+       TITLE="[Libpkg-svn] r92 - trunk/src">zxombie at berlios.de
+       </A><BR>
+    <I>Wed Apr 12 12:34:38 CEST 2006</I>
+    <P><UL>
+        <LI>Previous message: <A HREF="000075.html">[Libpkg-svn] r91 - trunk/src
+</A></li>
+        <LI>Next message: <A HREF="000077.html">[Libpkg-svn] r93 - trunk/src
+</A></li>
+         <LI> <B>Messages sorted by:</B> 
+              <a href="date.html#76">[ date ]</a>
+              <a href="thread.html#76">[ thread ]</a>
+              <a href="subject.html#76">[ subject ]</a>
+              <a href="author.html#76">[ author ]</a>
+         </LI>
+       </UL>
+    <HR>  
+<!--beginarticle-->
+<PRE>Author: zxombie
+Date: 2006-04-12 12:34:22 +0200 (Wed, 12 Apr 2006)
+New Revision: 92
+
+Modified:
+   trunk/src/pkg.c
+   trunk/src/pkg.h
+   trunk/src/pkg_db_freebsd.c
+   trunk/src/pkg_freebsd.c
+   trunk/src/pkg_private.h
+Log:
+Implement execution of pre/post installation scripts
+
+
+Modified: trunk/src/pkg.c
+===================================================================
+--- trunk/src/pkg.c	2006-04-11 03:42:12 UTC (rev 91)
++++ trunk/src/pkg.c	2006-04-12 10:34:22 UTC (rev 92)
+@@ -89,6 +89,7 @@
+ 	pkg-&gt;pkg_add_depend = NULL;
+ 	pkg-&gt;pkg_add_file = NULL;
+ 	pkg-&gt;pkg_get_next_file = NULL;
++	pkg-&gt;pkg_run_script = NULL;
+ 
+ 	/* The data is unknown so set to NULL */	
+ 	pkg-&gt;data = NULL;
+@@ -142,17 +143,20 @@
+  * @brief Internal function to add callbacks that are used when a package is installed
+  * @param pkg The package returned by pkg_new()
+  * @param next_file A callback to be used by pkg_get_next_file()
++ * @param run_script A callback to be used by pkg_run_script()
+  * @return 0 on success, -1 on error.
+  * @return
+  */
+ int
+ pkg_add_callbacks_install (struct pkg *pkg,
+-		pkg_get_next_file_callback *next_file)
++		pkg_get_next_file_callback *next_file,
++		pkg_run_script_callback *run_script)
+ {
+ 	if (pkg == NULL)
+ 		return -1;
+ 
+ 	pkg-&gt;pkg_get_next_file = next_file;
++	pkg-&gt;pkg_run_script = run_script;
+ 	return 0;
+ }
+ 
+@@ -328,6 +332,22 @@
+ }
+ 
+ /**
++ * @brief Runs the named script from the package
++ * @return The return value of the script, or -1
++ */
++int
++pkg_run_script(struct pkg *pkg, pkg_script script)
++{
++	if (pkg == NULL)
++			return -1;
++
++	if (pkg-&gt;pkg_run_script == NULL)
++		return -1;
++
++	return pkg-&gt;pkg_run_script(pkg, script);
++}
++
++/**
+  * @brief Adds a dependency to a given package
+  * @return 0 on success, -1 on error.
+  */
+
+Modified: trunk/src/pkg.h
+===================================================================
+--- trunk/src/pkg.h	2006-04-11 03:42:12 UTC (rev 91)
++++ trunk/src/pkg.h	2006-04-12 10:34:22 UTC (rev 92)
+@@ -60,6 +60,12 @@
+  */
+ struct pkg;
+ 
++typedef enum {
++	pkg_script_noop,
++	pkg_script_pre,
++	pkg_script_post
++} pkg_script;
++
+ struct pkg		 *pkg_new_empty(const char *);
+ struct pkg		 *pkg_new_freebsd_from_file(FILE *);
+ struct pkg		 *pkg_new_freebsd_installed(const char *, const char *);
+@@ -72,6 +78,7 @@
+ struct pkg_file		 *pkg_get_next_file(struct pkg *);
+ const const char	 *pkg_get_origin(struct pkg *);
+ const const char	 *pkg_get_version(struct pkg *);
++int			  pkg_run_script(struct pkg *, pkg_script);
+ int			  pkg_add_dependency(struct pkg *, struct pkg *);
+ int			  pkg_add_file(struct pkg *, struct pkg_file *);
+ int			  pkg_list_free(struct pkg **);
+
+Modified: trunk/src/pkg_db_freebsd.c
+===================================================================
+--- trunk/src/pkg_db_freebsd.c	2006-04-11 03:42:12 UTC (rev 91)
++++ trunk/src/pkg_db_freebsd.c	2006-04-12 10:34:22 UTC (rev 92)
+@@ -179,6 +179,9 @@
+ 	prefix = strdup(directory);
+ 	last_file = NULL;
+ 
++	/** @todo pkg_action the pre script */
++	pkg_run_script(pkg, pkg_script_pre);
++
+ 	/* Read through the contents file and install the package */
+ 	for (; line &lt; contents-&gt;line_count; line++) {
+ 		switch (contents-&gt;lines[line].line_type) {
+@@ -338,7 +341,10 @@
+ 		    prefix);
+ 
+ 	free(prefix);
+-	
++
++	/** @todo pkg_action the post script */
++	pkg_run_script(pkg, pkg_script_post);
++
+ 	if (pkg_action != NULL)
+ 		pkg_action(PKG_DB_INFO,
+ 		    &quot;Attempting to record package into /var/db/pkg/%s..&quot;,
+
+Modified: trunk/src/pkg_freebsd.c
+===================================================================
+--- trunk/src/pkg_freebsd.c	2006-04-11 03:42:12 UTC (rev 91)
++++ trunk/src/pkg_freebsd.c	2006-04-12 10:34:22 UTC (rev 92)
+@@ -56,6 +56,7 @@
+ 					const char *);
+ pkg_static struct pkg_file	 *freebsd_get_next_file(struct pkg *);
+ pkg_static struct pkg		**freebsd_get_deps(struct pkg *);
++pkg_static int			  freebsd_run_script(struct pkg *, pkg_script);
+ pkg_static int			  freebsd_free(struct pkg *);
+ 
+ /* Internal functions */
+@@ -147,7 +148,8 @@
+ 		return NULL;
+ 	}
+ 	pkg_add_callbacks_data(pkg, freebsd_get_version, freebsd_get_origin);
+-	pkg_add_callbacks_install(pkg, freebsd_get_next_file);
++	pkg_add_callbacks_install(pkg, freebsd_get_next_file,
++	    freebsd_run_script);
+ 	pkg-&gt;data = fpkg;
+ 
+ 	return pkg;
+@@ -471,6 +473,74 @@
+ }
+ 
+ /**
++ * @brief Callback for pkg_run_script()
++ * @return 0
++ */
++static int
++freebsd_run_script(struct pkg *pkg, pkg_script script)
++{
++	struct freebsd_package *fpkg;
++	struct pkg_file *script_file;
++	char arg[FILENAME_MAX];
++	char dir[FILENAME_MAX];
++	char *dir1, *cwd;
++	int ret;
++
++	assert(pkg != NULL);
++
++	fpkg = pkg-&gt;data;
++	assert(fpkg != NULL);
++	assert(fpkg-&gt;pkg_type != fpkg_unknown);
++	assert(fpkg-&gt;pkg_type != fpkg_from_installed);
++	assert(fpkg-&gt;pkg_type != fpkg_from_empty);
++
++	script_file = NULL;
++	arg[0] = '\0';
++	switch (script) {
++	case pkg_script_pre:
++		script_file = pkg_get_control_file(pkg, &quot;+PRE-INSTALL&quot;);
++		if (script_file == NULL) {
++			script_file = pkg_get_control_file(pkg, &quot;+INSTALL&quot;);
++			snprintf(arg, FILENAME_MAX, &quot;PRE-INSTALL&quot;);
++		}
++		break;
++	case pkg_script_post:
++		script_file = pkg_get_control_file(pkg, &quot;+POST-INSTALL&quot;);
++		if (script_file == NULL) {
++			script_file = pkg_get_control_file(pkg, &quot;+INSTALL&quot;);
++			snprintf(arg, FILENAME_MAX, &quot;POST-INSTALL&quot;);
++		}
++		break;
++	default:
++		return -1;
++	}
++	if (script_file == NULL)
++		return 0;
++
++	/** @todo make a tempdir, cd tempdir, extrace the file, execute it, cleanup tempdir */
++	/** @todo Add a lock around mkdtemp ad arc4random is not thread safe */
++	snprintf(dir, FILENAME_MAX, &quot;/tmp/libpkg_XXXXXXX&quot;);
++	dir1 = mkdtemp(dir);
++
++	/* Change to the temp dir and back up the current dir to return here */
++	cwd = getcwd(NULL, 0);
++	chdir(dir1);
++
++	/* Extract the script */
++	pkg_file_write(script_file);
++	pkg_exec(&quot;chmod u+x %s&quot;, pkg_file_get_name(script_file));
++	chdir(cwd);
++	free(cwd);
++
++	/* Execute the script */
++	ret = pkg_exec(&quot;%s/%s %s %s&quot;, dir1, pkg_file_get_name(script_file),
++	    pkg_get_name(pkg), arg);
++
++	rmdir(dir1);
++	return ret;
++}
++
++/**
+  * @brief Callback for pkg_free()
+  * @return 0
+  */
+
+Modified: trunk/src/pkg_private.h
+===================================================================
+--- trunk/src/pkg_private.h	2006-04-11 03:42:12 UTC (rev 91)
++++ trunk/src/pkg_private.h	2006-04-12 10:34:22 UTC (rev 92)
+@@ -77,8 +77,10 @@
+ 
+ /* Callbacks used with installable packages. Used by pkg_repo */
+ typedef struct pkg_file	 *pkg_get_next_file_callback(struct pkg *);
++typedef int		  pkg_run_script_callback(struct pkg *, pkg_script);
+ int			  pkg_add_callbacks_install(struct pkg *,
+-				pkg_get_next_file_callback *);
++				pkg_get_next_file_callback *,
++				pkg_run_script_callback *);
+ 
+ struct pkg {
+ 	void	*data;
+@@ -100,6 +102,7 @@
+ 
+ 	/* Callbacks used with installing packages */
+ 	pkg_get_next_file_callback	*pkg_get_next_file;
++	pkg_run_script_callback		*pkg_run_script;
+ };
+ 
+ int pkg_dir_build(const char *);
+
+
+</PRE>
+
+<!--endarticle-->
+    <HR>
+    <P><UL>
+        <!--threads-->
+	<LI>Previous message: <A HREF="000075.html">[Libpkg-svn] r91 - trunk/src
+</A></li>
+	<LI>Next message: <A HREF="000077.html">[Libpkg-svn] r93 - trunk/src
+</A></li>
+         <LI> <B>Messages sorted by:</B> 
+              <a href="date.html#76">[ date ]</a>
+              <a href="thread.html#76">[ thread ]</a>
+              <a href="subject.html#76">[ subject ]</a>
+              <a href="author.html#76">[ author ]</a>
+         </LI>
+       </UL>
+
+<hr>
+<a href="https://lists.berlios.de/mailman/listinfo/libpkg-svn">More information about the Libpkg-svn
+mailing list</a><br>
+</body></html>

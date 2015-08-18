@@ -1,0 +1,95 @@
+<!DOCTYPE HTML PUBLIC "-//W3C//DTD HTML 4.01 Transitional//EN">
+<HTML>
+ <HEAD>
+   <TITLE> [Libpkg-svn] r214 - trunk/src
+   </TITLE>
+   <LINK REL="Index" HREF="http://lists.berlios.de/pipermail/libpkg-svn/2006-October/index.html" >
+   <LINK REL="made" HREF="mailto:libpkg-svn%40lists.berlios.de?Subject=Re%3A%20%5BLibpkg-svn%5D%20r214%20-%20trunk/src&In-Reply-To=%3C200610270551.k9R5pmgH006398%40sheep.berlios.de%3E">
+   <META NAME="robots" CONTENT="index,nofollow">
+   <style type="text/css">
+       pre {
+           white-space: pre-wrap;       /* css-2.1, curent FF, Opera, Safari */
+           }
+   </style>
+   <META http-equiv="Content-Type" content="text/html; charset=us-ascii">
+   <LINK REL="Previous"  HREF="000197.html">
+   <LINK REL="Next"  HREF="000199.html">
+ </HEAD>
+ <BODY BGCOLOR="#ffffff">
+   <H1>[Libpkg-svn] r214 - trunk/src</H1>
+    <B>zxombie at BerliOS</B> 
+    <A HREF="mailto:libpkg-svn%40lists.berlios.de?Subject=Re%3A%20%5BLibpkg-svn%5D%20r214%20-%20trunk/src&In-Reply-To=%3C200610270551.k9R5pmgH006398%40sheep.berlios.de%3E"
+       TITLE="[Libpkg-svn] r214 - trunk/src">zxombie at mail.berlios.de
+       </A><BR>
+    <I>Fri Oct 27 07:51:48 CEST 2006</I>
+    <P><UL>
+        <LI>Previous message: <A HREF="000197.html">[Libpkg-svn] r213 - trunk/src
+</A></li>
+        <LI>Next message: <A HREF="000199.html">[Libpkg-svn] r215 - trunk/tools/pkg_delete
+</A></li>
+         <LI> <B>Messages sorted by:</B> 
+              <a href="date.html#198">[ date ]</a>
+              <a href="thread.html#198">[ thread ]</a>
+              <a href="subject.html#198">[ subject ]</a>
+              <a href="author.html#198">[ author ]</a>
+         </LI>
+       </UL>
+    <HR>  
+<!--beginarticle-->
+<PRE>Author: zxombie
+Date: 2006-10-27 07:51:47 +0200 (Fri, 27 Oct 2006)
+New Revision: 214
+
+Modified:
+   trunk/src/pkg_db_freebsd.c
+Log:
+Rename CWD -&gt; Change working directory and execute -&gt; Execute in FreeBSD pkg_action strings
+
+
+Modified: trunk/src/pkg_db_freebsd.c
+===================================================================
+--- trunk/src/pkg_db_freebsd.c	2006-10-27 05:41:59 UTC (rev 213)
++++ trunk/src/pkg_db_freebsd.c	2006-10-27 05:51:47 UTC (rev 214)
+@@ -530,7 +530,8 @@
+ 	}
+ 	pkg_remove_extra_slashes(install_data-&gt;directory);
+ 
+-	pkg_action(PKG_DB_PACKAGE, &quot;CWD to %s&quot;, install_data-&gt;directory);
++	pkg_action(PKG_DB_PACKAGE, &quot;Change working directory to %s&quot;,
++	    install_data-&gt;directory);
+ 
+ 	if (!install_data-&gt;fake) {
+ 		pkg_dir_build(install_data-&gt;directory, 0);
+@@ -618,7 +619,7 @@
+ 	freebsd_format_cmd(the_cmd, FILENAME_MAX, cmd, install_data-&gt;directory,
+ 	    install_data-&gt;last_file);
+ 
+-	pkg_action(PKG_DB_PACKAGE, &quot;execute '%s'&quot;, the_cmd);
++	pkg_action(PKG_DB_PACKAGE, &quot;Execute '%s'&quot;, the_cmd);
+ 	if (!install_data-&gt;fake) {
+ 		return pkg_exec(the_cmd);
+ 	}
+
+
+</PRE>
+
+<!--endarticle-->
+    <HR>
+    <P><UL>
+        <!--threads-->
+	<LI>Previous message: <A HREF="000197.html">[Libpkg-svn] r213 - trunk/src
+</A></li>
+	<LI>Next message: <A HREF="000199.html">[Libpkg-svn] r215 - trunk/tools/pkg_delete
+</A></li>
+         <LI> <B>Messages sorted by:</B> 
+              <a href="date.html#198">[ date ]</a>
+              <a href="thread.html#198">[ thread ]</a>
+              <a href="subject.html#198">[ subject ]</a>
+              <a href="author.html#198">[ author ]</a>
+         </LI>
+       </UL>
+
+<hr>
+<a href="https://lists.berlios.de/mailman/listinfo/libpkg-svn">More information about the Libpkg-svn
+mailing list</a><br>
+</body></html>

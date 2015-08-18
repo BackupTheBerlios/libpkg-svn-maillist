@@ -1,0 +1,1207 @@
+From zxombie at mail.berlios.de  Mon Jan 15 04:54:49 2007
+From: zxombie at mail.berlios.de (zxombie at BerliOS)
+Date: Mon, 15 Jan 2007 04:54:49 +0100
+Subject: [Libpkg-svn] r241 - trunk/src
+Message-ID: <200701150354.l0F3snLE014208@sheep.berlios.de>
+
+Author: zxombie
+Date: 2007-01-15 04:54:49 +0100 (Mon, 15 Jan 2007)
+New Revision: 241
+
+Modified:
+   trunk/src/pkg.c
+Log:
+Fix a type and improve the style
+
+
+Modified: trunk/src/pkg.c
+===================================================================
+--- trunk/src/pkg.c	2006-11-20 09:43:35 UTC (rev 240)
++++ trunk/src/pkg.c	2007-01-15 03:54:49 UTC (rev 241)
+@@ -428,7 +428,7 @@
+ /**
+  * @brief Runs the named script from the package
+  * @param pkg The package
+- * @param prefix Thh prefix to pass to the script or NULL fro the default
++ * @param prefix The prefix to pass to the script or NULL for the default
+  * @param script The script to run
+  * @return The return value of the script, or -1
+  */
+@@ -436,7 +436,7 @@
+ pkg_run_script(struct pkg *pkg, const char *prefix, pkg_script script)
+ {
+ 	if (pkg == NULL)
+-			return -1;
++		return -1;
+ 
+ 	if (pkg->pkg_run_script == NULL)
+ 		return -1;
+
+
+
+From zxombie at mail.berlios.de  Mon Jan 15 04:59:21 2007
+From: zxombie at mail.berlios.de (zxombie at BerliOS)
+Date: Mon, 15 Jan 2007 04:59:21 +0100
+Subject: [Libpkg-svn] r242 - trunk/src
+Message-ID: <200701150359.l0F3xL7C014503@sheep.berlios.de>
+
+Author: zxombie
+Date: 2007-01-15 04:59:19 +0100 (Mon, 15 Jan 2007)
+New Revision: 242
+
+Modified:
+   trunk/src/pkgfile.c
+Log:
+Allow pkgfile_get_type to be called with a file not from disk
+
+
+Modified: trunk/src/pkgfile.c
+===================================================================
+--- trunk/src/pkgfile.c	2007-01-15 03:54:49 UTC (rev 241)
++++ trunk/src/pkgfile.c	2007-01-15 03:59:19 UTC (rev 242)
+@@ -141,8 +141,11 @@
+ pkgfile_get_type(struct pkgfile *file)
+ {
+ 	assert(file != NULL);
+-	assert(file->loc == pkgfile_loc_disk);
+ 
++	/* If this is a file from a buffer it will already have a type */
++	if (file->loc != pkgfile_loc_disk)
++		return 0;
++
+ 	/* Find the file type */
+ 	if (file->type == pkgfile_none) {
+ 		struct stat sb;
+
+
+
+From zxombie at mail.berlios.de  Mon Jan 15 05:35:55 2007
+From: zxombie at mail.berlios.de (zxombie at BerliOS)
+Date: Mon, 15 Jan 2007 05:35:55 +0100
+Subject: [Libpkg-svn] r243 - trunk/tools/pkg_add
+Message-ID: <200701150435.l0F4ZtWD017125@sheep.berlios.de>
+
+Author: zxombie
+Date: 2007-01-15 05:35:54 +0100 (Mon, 15 Jan 2007)
+New Revision: 243
+
+Modified:
+   trunk/tools/pkg_add/main.c
+Log:
+Fix the logic deciding to install or not
+
+
+Modified: trunk/tools/pkg_add/main.c
+===================================================================
+--- trunk/tools/pkg_add/main.c	2007-01-15 03:59:19 UTC (rev 242)
++++ trunk/tools/pkg_add/main.c	2007-01-15 04:35:54 UTC (rev 243)
+@@ -330,7 +330,7 @@
+ 			    pkg_get_name(pkg));
+ 		}
+ 		ret = pkg_db_install_pkg_action(db, pkg, base_prefix, record,
+-		    scripts, run, action);
++		    scripts, !run, action);
+ 	}
+ 	/*
+ 	 * Insert the installed package in a linked
+
+
+
+From zxombie at mail.berlios.de  Mon Jan 15 05:46:29 2007
+From: zxombie at mail.berlios.de (zxombie at BerliOS)
+Date: Mon, 15 Jan 2007 05:46:29 +0100
+Subject: [Libpkg-svn] r244 - trunk/src
+Message-ID: <200701150446.l0F4kT1j017665@sheep.berlios.de>
+
+Author: zxombie
+Date: 2007-01-15 05:46:28 +0100 (Mon, 15 Jan 2007)
+New Revision: 244
+
+Modified:
+   trunk/src/pkg_private.h
+   trunk/src/pkg_util.c
+Log:
+Add pkg_dir_clean to remove empty dir's from a tree
+
+
+Modified: trunk/src/pkg_private.h
+===================================================================
+--- trunk/src/pkg_private.h	2007-01-15 04:35:54 UTC (rev 243)
++++ trunk/src/pkg_private.h	2007-01-15 04:46:28 UTC (rev 244)
+@@ -163,6 +163,7 @@
+ };
+ 
+ int pkg_dir_build(const char *, mode_t);
++int pkg_dir_clean(const char *);
+ int pkg_exec(const char *, ...);
+ FILE *pkg_cached_file(FILE *, const char *);
+ 
+
+Modified: trunk/src/pkg_util.c
+===================================================================
+--- trunk/src/pkg_util.c	2007-01-15 04:35:54 UTC (rev 243)
++++ trunk/src/pkg_util.c	2007-01-15 04:46:28 UTC (rev 244)
+@@ -34,8 +34,10 @@
+ #include <sys/stat.h>
+ 
+ #include <assert.h>
++#include <dirent.h>
+ #include <err.h>
+ #include <errno.h>
++#include <libgen.h>
+ #include <md5.h>
+ #include <stdarg.h>
+ #include <stdio.h>
+@@ -110,6 +112,36 @@
+ }
+ 
+ /**
++ * @brief Walks from the a child directory to the root removing all empty directories
++ * @param child The directory to start from
++ * @return  0 on success
++ * @return -1 on failure
++ */
++int
++pkg_dir_clean(const char *child)
++{
++	char cur_dir[MAXPATHLEN];
++
++	assert(child[0] == '/');
++
++	strlcpy(cur_dir, child, MAXPATHLEN);
++
++	/* Remove all empty directories */
++	errno = 0;
++	while(strcmp(cur_dir, "/") != 0) {
++		if (rmdir(cur_dir) != 0)
++			break;
++
++		/* Move to the parent directory */
++		strlcpy(cur_dir, dirname(cur_dir), MAXPATHLEN);
++	}
++	if (errno != 0 && errno != ENOTEMPTY)
++		return -1;
++
++	return 0;
++}
++
++/**
+  * @brief Creates an absolute pathname from a relative name
+  *
+  * Creates an absolute path, additionally removing all .'s, ..'s, and extraneous
+
+
+
+From zxombie at mail.berlios.de  Mon Jan 15 05:52:15 2007
+From: zxombie at mail.berlios.de (zxombie at BerliOS)
+Date: Mon, 15 Jan 2007 05:52:15 +0100
+Subject: [Libpkg-svn] r245 - trunk/src
+Message-ID: <200701150452.l0F4qFwa018014@sheep.berlios.de>
+
+Author: zxombie
+Date: 2007-01-15 05:52:14 +0100 (Mon, 15 Jan 2007)
+New Revision: 245
+
+Modified:
+   trunk/src/pkg_db_freebsd.c
+   trunk/src/pkg_freebsd.c
+Log:
+Fix installation
+
+
+Modified: trunk/src/pkg_db_freebsd.c
+===================================================================
+--- trunk/src/pkg_db_freebsd.c	2007-01-15 04:46:28 UTC (rev 244)
++++ trunk/src/pkg_db_freebsd.c	2007-01-15 04:52:14 UTC (rev 245)
+@@ -35,6 +35,7 @@
+ #include <dirent.h>
+ #include <errno.h>
+ #include <fcntl.h>
++#include <libgen.h>
+ #include <stdio.h>
+ #include <stdlib.h>
+ #include <string.h>
+@@ -50,6 +51,7 @@
+ 
+ struct pkg_install_data {
+ 	int fake;
++	int empty_dirs;		/* Used in the removal of files */
+ 	struct pkg_db *db;
+ 	const char *last_dir;
+ 	char last_file[FILENAME_MAX];
+@@ -291,7 +293,7 @@
+ 	if (pkg_get_origin(pkg) != NULL) {
+ 		pkgs = freebsd_get_installed_match(db, pkg_match_by_origin,
+ 		    0, (const void *)pkg_get_origin(pkg));
+-		if (pkgs[0] != NULL)
++		if (pkgs != NULL && pkgs[0] != NULL)
+ 			is_installed = 0;
+ 		pkg_list_free(pkgs);
+ 	}
+@@ -392,8 +394,6 @@
+ 	assert(db != NULL);
+ 	assert(the_pkg != NULL);
+ 
+-	assert(clean_dirs == 0);
+-
+ 	/* Get the real package. The one supplyed may be an empty one */
+ 	/** @todo Check if the package suplyed is a valid package or not */
+ 	real_pkg = freebsd_get_package(db, pkg_get_name(the_pkg));
+@@ -502,6 +502,7 @@
+ 	/* Do the deinstall */
+ 	deinstall_data.db = db;
+ 	deinstall_data.fake = fake;
++	deinstall_data.empty_dirs = clean_dirs;
+ 	deinstall_data.last_dir = NULL;
+ 	deinstall_data.last_file[0] = '\0';
+ 	deinstall_data.directory[0] = '\0';
+@@ -608,8 +609,7 @@
+ 	snprintf(install_data->last_file, FILENAME_MAX, "%s",
+ 	    pkgfile_get_name(file));
+ 
+-	pkg_action(PKG_DB_PACKAGE, "%s/%s", install_data->directory,
+-	    pkgfile_get_name(file));
++	pkg_action(PKG_DB_PACKAGE, "%s", pkgfile_get_name(file));
+ 	if (!install_data->fake)
+ 		return pkgfile_write(file);
+ 	return 0;
+@@ -641,11 +641,16 @@
+ 	if (install_data->fake) {
+ 		return 0;
+ 	} else {
+-		return pkgfile_unlink(file);
++		if (pkgfile_unlink(file) != 0)
++			return -1;
++		if (install_data->empty_dirs)
++			if (pkg_dir_clean(dirname(pkgfile_get_name(file))) != 0)
++				return -1;
++		return 0;
+ 	}
+ }
+ /**
+- * @brief The do_chdir callback of pkg_install() for the FreeBSD package
++ * @brief The db_exec callback of pkg_install() for the FreeBSD package
+  *     database
+  * @return 0 on success or -1 on error
+  */
+@@ -687,6 +692,7 @@
+ 	struct pkg_install_data *install_data;
+ 	struct pkg_db *db;
+ 	struct pkg **deps;
++	char dir[PATH_MAX], *real_dir;
+ 
+ 	assert(pkg != NULL);
+ 	assert(pkg_action != NULL);
+@@ -697,9 +703,17 @@
+ 	assert(install_data->db);
+ 	db = install_data->db;
+ 
+-	pkg_action(PKG_DB_INFO,
+-	    "Attempting to record package into " DB_LOCATION "/%s..",
++	snprintf(dir, PATH_MAX, DB_LOCATION "%s/%s", db->db_base,
+ 	    pkg_get_name(pkg));
++
++	real_dir = pkg_abspath(dir);
++	if (real_dir == NULL)
++		real_dir = dir;
++
++	pkg_action(PKG_DB_INFO, "Attempting to record package into %s..",
++	    real_dir);
++
++	pkg_dir_build(real_dir, 0755);
+ 	for (pos = 0; control[pos] != NULL; pos++) {
+ 		freebsd_install_file(pkg, pkg_action, data, control[pos]);
+ 	}
+@@ -725,9 +739,13 @@
+ 	}
+ 	pkg_list_free(deps);
+ 	
+-	pkg_action(PKG_DB_INFO, "Package %s registered in %s" DB_LOCATION
+-	    "/%s", pkg_get_name(pkg), db->db_base, pkg_get_name(pkg));
+-	return -1;
++	pkg_action(PKG_DB_INFO, "Package %s registered in %s",
++	    pkg_get_name(pkg), real_dir);
++
++	if (real_dir != NULL && real_dir != dir)
++		free(real_dir);
++
++	return 0;
+ }
+ 
+ /**
+
+Modified: trunk/src/pkg_freebsd.c
+===================================================================
+--- trunk/src/pkg_freebsd.c	2007-01-15 04:46:28 UTC (rev 244)
++++ trunk/src/pkg_freebsd.c	2007-01-15 04:52:14 UTC (rev 245)
+@@ -67,7 +67,7 @@
+ 				pkg_db_exec *, pkg_db_register *);
+ static struct pkg	**freebsd_get_deps(struct pkg *);
+ static struct pkg	**freebsd_get_rdeps(struct pkg *);
+-static int		  freebsd_run_script(struct pkg *, const char *,
++static int		  freebsd_run_script(struct pkg *,const char *,
+ 				pkg_script);
+ static int		  freebsd_free(struct pkg *);
+ 
+@@ -456,7 +456,7 @@
+ 	struct pkgfile **control;
+ 	struct pkgfile *contents_file;
+ 	struct pkg_freebsd_contents *contents;
+-	const char *file_data;
++	const char *file_data, *cwd;
+ 	int chdir_first = 1;
+ 	int only_control_files = 0;
+ 
+@@ -469,6 +469,7 @@
+ 
+ 	ret = -1;
+ 	contents = NULL;
++	cwd = NULL;
+ 
+ 	/* Get the control files from the package */
+ 	control = pkg_get_control_files(pkg);
+@@ -531,8 +532,10 @@
+ 					dir = contents->lines[pos].data;
+ 				chdir_first = 0;
+ 			}
+-			if (dir != NULL)
++			if (dir != NULL) {
++				cwd = dir;
+ 				db_chdir(pkg, pkg_action, data, dir);
++			}
+ 
+ 
+ 			break;
+@@ -570,6 +573,7 @@
+ 				pkgfile_set_checksum_md5(file, p);
+ 				if (pkgfile_compare_checksum_md5(file) == 0) {
+ 					if (!ignore) {
++						pkgfile_set_cwd(file, cwd);
+ 						install_file(pkg, pkg_action,
+ 						    data, file);
+ 					}
+
+
+
+From zxombie at mail.berlios.de  Mon Jan 15 08:58:29 2007
+From: zxombie at mail.berlios.de (zxombie at BerliOS)
+Date: Mon, 15 Jan 2007 08:58:29 +0100
+Subject: [Libpkg-svn] r246 - trunk/tools/pkg_add
+Message-ID: <200701150758.l0F7wTqD005881@sheep.berlios.de>
+
+Author: zxombie
+Date: 2007-01-15 08:58:28 +0100 (Mon, 15 Jan 2007)
+New Revision: 246
+
+Modified:
+   trunk/tools/pkg_add/main.c
+Log:
+Correct the scripts logic in pkg_add
+
+
+Modified: trunk/tools/pkg_add/main.c
+===================================================================
+--- trunk/tools/pkg_add/main.c	2007-01-15 04:52:14 UTC (rev 245)
++++ trunk/tools/pkg_add/main.c	2007-01-15 07:58:28 UTC (rev 246)
+@@ -279,7 +279,7 @@
+ 	}
+ 
+ 	record = ((flags & no_record_install_flag) != no_record_install_flag);
+-	scripts = ((flags & no_run_script_flag) == no_run_script_flag);
++	scripts = ((flags & no_run_script_flag) != no_run_script_flag);
+ 	run = ((flags & no_run_flag) != no_run_flag);
+ 	verbose = (flags & verbosity_flag) == verbosity_flag;
+ 
+
+
+
+From zxombie at mail.berlios.de  Mon Jan 15 08:59:10 2007
+From: zxombie at mail.berlios.de (zxombie at BerliOS)
+Date: Mon, 15 Jan 2007 08:59:10 +0100
+Subject: [Libpkg-svn] r247 - trunk/tools/pkg_add
+Message-ID: <200701150759.l0F7xANa005954@sheep.berlios.de>
+
+Author: zxombie
+Date: 2007-01-15 08:59:09 +0100 (Mon, 15 Jan 2007)
+New Revision: 247
+
+Added:
+   trunk/tools/pkg_add/run.sh
+   trunk/tools/pkg_add/test.sh
+Log:
+Add 2 tests for pkg_add
+
+
+Added: trunk/tools/pkg_add/run.sh
+===================================================================
+--- trunk/tools/pkg_add/run.sh	2007-01-15 07:58:28 UTC (rev 246)
++++ trunk/tools/pkg_add/run.sh	2007-01-15 07:59:09 UTC (rev 247)
+@@ -0,0 +1,17 @@
++#!/bin/sh
++
++PACKAGE=$1
++shift
++TESTNO=$1
++
++if [ ${TESTNO} -eq 1 ] ; then
++	pkg_add ./${PACKAGE}.tbz
++	if [ $? -ne 0 ] ; then
++		exit 1
++	fi
++elif [ ${TESTNO} -eq 2 ] ; then
++	pkg_add -v ./${PACKAGE}.tbz
++	if [ $? -ne 0 ] ; then
++		exit 1
++	fi
++fi
+
+
+Property changes on: trunk/tools/pkg_add/run.sh
+___________________________________________________________________
+Name: svn:executable
+   + *
+
+Added: trunk/tools/pkg_add/test.sh
+===================================================================
+--- trunk/tools/pkg_add/test.sh	2007-01-15 07:58:28 UTC (rev 246)
++++ trunk/tools/pkg_add/test.sh	2007-01-15 07:59:09 UTC (rev 247)
+@@ -0,0 +1,43 @@
++#!/bin/sh
++
++. `dirname $0`/../test.sh
++
++# Rins the tests for either the libpkg or cvs version of pkg_add
++do_test() {
++	RUN=$1
++
++	i=1
++	while [ $i -le 2 ] ; do
++		chroot ${BASE_DIR}/base /run.sh ${PACKAGE} ${i} > ${RUN}.stdout.${i} 2> ${RUN}.stderr.${i}
++		# Get the mtree file to use to compare the filesystems
++		mtree -c -p ${BASE_DIR}/base | grep -v "^\#[[:space:]]*date:" | sed "s/time=[^ ]*//" | grep -v "^[ ]*pkg_add" > ${RUN}.mtree.${i}
++		# Create a tarball of the important dir's to compare later
++		rm ${BASE_DIR}/${RUN}-${i}.tar
++		tar -cf ${BASE_DIR}/${RUN}-${i}.tar ${BASE_DIR}/base/var/db/pkg ${BASE_DIR}/base/usr/local
++		# Cleanup the package directories
++		rm -fr ${BASE_DIR}/base/var/db/pkg ${BASE_DIR}/base/usr/local
++
++		i=$((i+1))
++	done
++}
++
++# Runs the test
++run_test() {
++
++	# Get the reference data from the FreeBSD cvs pkg_add
++	build_chroot
++	do_test cvs
++
++	# Get the test data from out pkg_add
++	build_chroot
++	build_tool
++	cp pkg_add ${BASE_DIR}/base/usr/sbin/pkg_add
++	do_test libpkg
++}
++
++CWD=`pwd`
++cd `dirname $0`
++
++run_test
++
++cd $CWD
+
+
+Property changes on: trunk/tools/pkg_add/test.sh
+___________________________________________________________________
+Name: svn:executable
+   + *
+
+
+
+From zxombie at mail.berlios.de  Mon Jan 15 09:52:00 2007
+From: zxombie at mail.berlios.de (zxombie at BerliOS)
+Date: Mon, 15 Jan 2007 09:52:00 +0100
+Subject: [Libpkg-svn] r248 - trunk/tools/pkg_add
+Message-ID: <200701150852.l0F8q0ZM009655@sheep.berlios.de>
+
+Author: zxombie
+Date: 2007-01-15 09:52:00 +0100 (Mon, 15 Jan 2007)
+New Revision: 248
+
+Modified:
+   trunk/tools/pkg_add/main.c
+Log:
+Remove an extra message and add a missing message to pkg_add
+
+
+Modified: trunk/tools/pkg_add/main.c
+===================================================================
+--- trunk/tools/pkg_add/main.c	2007-01-15 07:59:09 UTC (rev 247)
++++ trunk/tools/pkg_add/main.c	2007-01-15 08:52:00 UTC (rev 248)
+@@ -313,6 +313,11 @@
+ 		pkg_free(deps[i]);
+ 		deps[i] = new_pkg;
+ 
++		action(PKG_DB_INFO,
++		    "Package '%s' depends on '%s' with '%s' origin.",
++		    pkg_get_name(pkg), pkg_get_name(deps[i]),
++		    pkg_get_origin(deps[i]));
++
+ 		/* Install the dependency */
+ 		if (install_package(deps[i], repo, db, prefix, prefix, flags)
+ 		    != 0 && (flags & force_flag) != force_flag) {
+@@ -325,10 +330,6 @@
+ 	ret = -1;
+ 	/* Install the package */
+ 	if (action != NULL) {
+-		if (verbose) {
+-			printf("extract: Package name is %s\n",
+-			    pkg_get_name(pkg));
+-		}
+ 		ret = pkg_db_install_pkg_action(db, pkg, base_prefix, record,
+ 		    scripts, !run, action);
+ 	}
+
+
+
+From zxombie at mail.berlios.de  Mon Jan 15 10:03:27 2007
+From: zxombie at mail.berlios.de (zxombie at BerliOS)
+Date: Mon, 15 Jan 2007 10:03:27 +0100
+Subject: [Libpkg-svn] r249 - trunk/src
+Message-ID: <200701150903.l0F93Rkl010319@sheep.berlios.de>
+
+Author: zxombie
+Date: 2007-01-15 10:03:27 +0100 (Mon, 15 Jan 2007)
+New Revision: 249
+
+Modified:
+   trunk/src/pkg_db_freebsd.c
+Log:
+Add more pkg_action messages
+Don't output when installing the control files
+Undo the chdir when installation fails
+Fix up style a little
+
+
+Modified: trunk/src/pkg_db_freebsd.c
+===================================================================
+--- trunk/src/pkg_db_freebsd.c	2007-01-15 08:52:00 UTC (rev 248)
++++ trunk/src/pkg_db_freebsd.c	2007-01-15 09:03:27 UTC (rev 249)
+@@ -210,12 +210,12 @@
+ 	pkg_action(PKG_DB_PACKAGE, "Package name is %s", pkg_get_name(pkg));
+ 
+ 	/* Run +REQUIRE */
+-	pkg_action(PKG_DB_INFO, "Running ... for %s..",
+-	    pkg_get_name(pkg));
++	pkg_action(PKG_DB_INFO, "Running ... for %s..", pkg_get_name(pkg));
+ 
+ 	if (!fake) {
+ 		/** @todo Check if the force flag is set */
+ 		if (pkg_run_script(pkg, prefix, pkg_script_require) != 0) {
++			chdir(cwd);
+ 			return -1;
+ 		}
+ 	}
+@@ -236,6 +236,7 @@
+ 	if (pkg_install(pkg, prefix, reg, pkg_action, &install_data,
+ 	    freebsd_do_chdir, freebsd_install_file, freebsd_do_exec,
+ 	    freebsd_register) != 0) {
++		chdir(cwd);
+ 		return -1;
+ 	}
+ 
+@@ -714,8 +715,12 @@
+ 	    real_dir);
+ 
+ 	pkg_dir_build(real_dir, 0755);
++	/*
++	 * Install the control file's. Use pkg_action_null
++	 * as we dont need any output from this.
++	 */
+ 	for (pos = 0; control[pos] != NULL; pos++) {
+-		freebsd_install_file(pkg, pkg_action, data, control[pos]);
++		freebsd_install_file(pkg, pkg_action_null, data, control[pos]);
+ 	}
+ 
+ 	/* Register reverse dependency */
+@@ -725,6 +730,10 @@
+ 		const char *name;
+ 		FILE *fd;
+ 
++		pkg_action(PKG_DB_INFO, "Trying to record dependency on "
++		    "package '%s' with '%s' origin.", pkg_get_name(pkg),
++		    pkg_get_origin(deps[pos]));
++
+ 		snprintf(required_by, FILENAME_MAX, "%s" DB_LOCATION
+ 		    "/%s/+REQUIRED_BY", db->db_base, pkg_get_name(deps[pos]));
+ 		pkg_remove_extra_slashes(required_by);
+
+
+
+From zxombie at mail.berlios.de  Tue Jan 16 11:24:53 2007
+From: zxombie at mail.berlios.de (zxombie at BerliOS)
+Date: Tue, 16 Jan 2007 11:24:53 +0100
+Subject: [Libpkg-svn] r250 - trunk/tools/pkg_add
+Message-ID: <200701161024.l0GAOrup006215@sheep.berlios.de>
+
+Author: zxombie
+Date: 2007-01-16 11:24:53 +0100 (Tue, 16 Jan 2007)
+New Revision: 250
+
+Modified:
+   trunk/tools/pkg_add/run.sh
+   trunk/tools/pkg_add/test.sh
+Log:
+Add more pkg_add tests
+Adjust the pkg_add test script to build a clean environment each time
+
+
+Modified: trunk/tools/pkg_add/run.sh
+===================================================================
+--- trunk/tools/pkg_add/run.sh	2007-01-15 09:03:27 UTC (rev 249)
++++ trunk/tools/pkg_add/run.sh	2007-01-16 10:24:53 UTC (rev 250)
+@@ -14,4 +14,14 @@
+ 	if [ $? -ne 0 ] ; then
+ 		exit 1
+ 	fi
++elif [ ${TESTNO} -eq 3 ] ; then
++	pkg_add -n ./${PACKAGE}.tbz
++	if [ $? -ne 0 ] ; then
++		exit 1
++	fi
++elif [ ${TESTNO} -eq 4 ] ; then
++	pkg_add -nv ./${PACKAGE}.tbz
++	if [ $? -ne 0 ] ; then
++		exit 1
++	fi
+ fi
+
+Modified: trunk/tools/pkg_add/test.sh
+===================================================================
+--- trunk/tools/pkg_add/test.sh	2007-01-15 09:03:27 UTC (rev 249)
++++ trunk/tools/pkg_add/test.sh	2007-01-16 10:24:53 UTC (rev 250)
+@@ -5,9 +5,14 @@
+ # Rins the tests for either the libpkg or cvs version of pkg_add
+ do_test() {
+ 	RUN=$1
++	LIBPKG=$2
+ 
+ 	i=1
+-	while [ $i -le 2 ] ; do
++	while [ $i -le 4 ] ; do
++		build_chroot
++		if [ "X$LIBPKG" != "X" ]; then
++			cp pkg_add ${BASE_DIR}/base/usr/sbin/pkg_add
++		fi
+ 		chroot ${BASE_DIR}/base /run.sh ${PACKAGE} ${i} > ${RUN}.stdout.${i} 2> ${RUN}.stderr.${i}
+ 		# Get the mtree file to use to compare the filesystems
+ 		mtree -c -p ${BASE_DIR}/base | grep -v "^\#[[:space:]]*date:" | sed "s/time=[^ ]*//" | grep -v "^[ ]*pkg_add" > ${RUN}.mtree.${i}
+@@ -25,14 +30,11 @@
+ run_test() {
+ 
+ 	# Get the reference data from the FreeBSD cvs pkg_add
+-	build_chroot
+ 	do_test cvs
+ 
+ 	# Get the test data from out pkg_add
+-	build_chroot
+ 	build_tool
+-	cp pkg_add ${BASE_DIR}/base/usr/sbin/pkg_add
+-	do_test libpkg
++	do_test libpkg true
+ }
+ 
+ CWD=`pwd`
+
+
+
+From zxombie at mail.berlios.de  Fri Jan 26 05:58:10 2007
+From: zxombie at mail.berlios.de (zxombie at BerliOS)
+Date: Fri, 26 Jan 2007 05:58:10 +0100
+Subject: [Libpkg-svn] r251 - trunk/tools/pkg_add
+Message-ID: <200701260458.l0Q4wADo025125@sheep.berlios.de>
+
+Author: zxombie
+Date: 2007-01-26 05:58:10 +0100 (Fri, 26 Jan 2007)
+New Revision: 251
+
+Modified:
+   trunk/tools/pkg_add/test.sh
+Log:
+Don't remove lines from the pkg_add mtree when they are core dumps
+
+
+Modified: trunk/tools/pkg_add/test.sh
+===================================================================
+--- trunk/tools/pkg_add/test.sh	2007-01-16 10:24:53 UTC (rev 250)
++++ trunk/tools/pkg_add/test.sh	2007-01-26 04:58:10 UTC (rev 251)
+@@ -15,7 +15,7 @@
+ 		fi
+ 		chroot ${BASE_DIR}/base /run.sh ${PACKAGE} ${i} > ${RUN}.stdout.${i} 2> ${RUN}.stderr.${i}
+ 		# Get the mtree file to use to compare the filesystems
+-		mtree -c -p ${BASE_DIR}/base | grep -v "^\#[[:space:]]*date:" | sed "s/time=[^ ]*//" | grep -v "^[ ]*pkg_add" > ${RUN}.mtree.${i}
++		mtree -c -p ${BASE_DIR}/base | grep -v "^\#[[:space:]]*date:" | sed "s/time=[^ ]*//" | grep -v "^[ ]*pkg_add[^\.]" > ${RUN}.mtree.${i}
+ 		# Create a tarball of the important dir's to compare later
+ 		rm ${BASE_DIR}/${RUN}-${i}.tar
+ 		tar -cf ${BASE_DIR}/${RUN}-${i}.tar ${BASE_DIR}/base/var/db/pkg ${BASE_DIR}/base/usr/local
+
+
+
+From zxombie at mail.berlios.de  Fri Jan 26 06:19:46 2007
+From: zxombie at mail.berlios.de (zxombie at BerliOS)
+Date: Fri, 26 Jan 2007 06:19:46 +0100
+Subject: [Libpkg-svn] r252 - trunk/tools/pkg_add
+Message-ID: <200701260519.l0Q5Jk55026179@sheep.berlios.de>
+
+Author: zxombie
+Date: 2007-01-26 06:19:46 +0100 (Fri, 26 Jan 2007)
+New Revision: 252
+
+Modified:
+   trunk/tools/pkg_add/main.c
+Log:
+Fix a crash in pkg_add when -n is used
+
+
+Modified: trunk/tools/pkg_add/main.c
+===================================================================
+--- trunk/tools/pkg_add/main.c	2007-01-26 04:58:10 UTC (rev 251)
++++ trunk/tools/pkg_add/main.c	2007-01-26 05:19:46 UTC (rev 252)
+@@ -283,18 +283,11 @@
+ 	run = ((flags & no_run_flag) != no_run_flag);
+ 	verbose = (flags & verbosity_flag) == verbosity_flag;
+ 
+-	/*
+-	 * Deside which pkg_db_action to use. If neither is
+-	 * set then we won't be installing any packages
+-	 * (ie. nothing will happen with !verbose and !run)
+-	 */
+-	action = NULL;
++	/* Use the no output pkg_action by default */
++	action = pkg_action_null;
+ 	if (verbose) {
+-		/* Use our pkg_db_action */
++		/* Use our pkg_db_action when in verbose mode */
+ 		action = pkg_action;
+-	} else if (run) {
+-		/* Use the no output pkg_action */
+-		action = pkg_action_null;
+ 	}
+ 
+ 	/* Get the package's dependencies */
+
+
+
+From zxombie at mail.berlios.de  Fri Jan 26 07:20:58 2007
+From: zxombie at mail.berlios.de (zxombie at BerliOS)
+Date: Fri, 26 Jan 2007 07:20:58 +0100
+Subject: [Libpkg-svn] r253 - trunk/src
+Message-ID: <200701260620.l0Q6Kwlp006569@sheep.berlios.de>
+
+Author: zxombie
+Date: 2007-01-26 07:20:57 +0100 (Fri, 26 Jan 2007)
+New Revision: 253
+
+Modified:
+   trunk/src/pkg_db_freebsd.c
+Log:
+Don't install any control files or create the database directory when we are faking an installation
+
+
+Modified: trunk/src/pkg_db_freebsd.c
+===================================================================
+--- trunk/src/pkg_db_freebsd.c	2007-01-26 05:19:46 UTC (rev 252)
++++ trunk/src/pkg_db_freebsd.c	2007-01-26 06:20:57 UTC (rev 253)
+@@ -714,13 +714,17 @@
+ 	pkg_action(PKG_DB_INFO, "Attempting to record package into %s..",
+ 	    real_dir);
+ 
+-	pkg_dir_build(real_dir, 0755);
+-	/*
+-	 * Install the control file's. Use pkg_action_null
+-	 * as we dont need any output from this.
+-	 */
+-	for (pos = 0; control[pos] != NULL; pos++) {
+-		freebsd_install_file(pkg, pkg_action_null, data, control[pos]);
++	if (!install_data->fake) {
++		pkg_dir_build(real_dir, 0755);
++
++		/*
++		 * Install the control file's. Use pkg_action_null
++		 * as we don't need any output from this.
++		 */
++		for (pos = 0; control[pos] != NULL; pos++) {
++			freebsd_install_file(pkg, pkg_action_null, data,
++			    control[pos]);
++		}
+ 	}
+ 
+ 	/* Register reverse dependency */
+@@ -734,6 +738,10 @@
+ 		    "package '%s' with '%s' origin.", pkg_get_name(pkg),
+ 		    pkg_get_origin(deps[pos]));
+ 
++		/* Skip writing to +REQUIRED_BY when in a faked run */
++		if (install_data->fake)
++			continue;
++
+ 		snprintf(required_by, FILENAME_MAX, "%s" DB_LOCATION
+ 		    "/%s/+REQUIRED_BY", db->db_base, pkg_get_name(deps[pos]));
+ 		pkg_remove_extra_slashes(required_by);
+
+
+
+From zxombie at mail.berlios.de  Fri Jan 26 11:18:02 2007
+From: zxombie at mail.berlios.de (zxombie at BerliOS)
+Date: Fri, 26 Jan 2007 11:18:02 +0100
+Subject: [Libpkg-svn] r254 - trunk/tools/pkg_add
+Message-ID: <200701261018.l0QAI2Vw025707@sheep.berlios.de>
+
+Author: zxombie
+Date: 2007-01-26 11:18:01 +0100 (Fri, 26 Jan 2007)
+New Revision: 254
+
+Modified:
+   trunk/tools/pkg_add/main.c
+Log:
+Read the force pkg_add flag
+If a package is already installed don't attempt to install it again
+Don't recurse in install_package if we won't run the install
+Fix the strings being output when not installing
+When verbose and some dependencies are not installed complain
+Add some white space to improve the style
+
+
+Modified: trunk/tools/pkg_add/main.c
+===================================================================
+--- trunk/tools/pkg_add/main.c	2007-01-26 06:20:57 UTC (rev 253)
++++ trunk/tools/pkg_add/main.c	2007-01-26 10:18:01 UTC (rev 254)
+@@ -252,7 +252,7 @@
+ 		const char *base_prefix, const char *prefix, int flags)
+ {
+ 	unsigned int i;
+-	int ret, run, scripts, record, verbose;
++	int extras, force, record, ret, run, scripts, verbose;
+ 	pkg_db_action *action;
+ 	struct pkg **deps;
+ 	struct pkg_list *cur;
+@@ -278,9 +278,10 @@
+ 		return 0;
+ 	}
+ 
++	force = ((flags & force_flag) == force_flag);
+ 	record = ((flags & no_record_install_flag) != no_record_install_flag);
++	run = ((flags & no_run_flag) != no_run_flag);
+ 	scripts = ((flags & no_run_script_flag) != no_run_script_flag);
+-	run = ((flags & no_run_flag) != no_run_flag);
+ 	verbose = (flags & verbosity_flag) == verbosity_flag;
+ 
+ 	/* Use the no output pkg_action by default */
+@@ -292,7 +293,7 @@
+ 
+ 	/* Get the package's dependencies */
+ 	deps = pkg_get_dependencies(pkg);
+-	for (i=0; deps[i] != NULL; i++) {
++	for (i = 0, extras = 0; deps[i] != NULL; i++) {
+ 		struct pkg *new_pkg;
+ 
+ 		/* Replace the empty package with one from disk */
+@@ -311,21 +312,41 @@
+ 		    pkg_get_name(pkg), pkg_get_name(deps[i]),
+ 		    pkg_get_origin(deps[i]));
+ 
+-		/* Install the dependency */
+-		if (install_package(deps[i], repo, db, prefix, prefix, flags)
+-		    != 0 && (flags & force_flag) != force_flag) {
+-			pkg_list_free(deps);
+-			return -1;
++		/* Skip installed packages */
++		if (pkg_db_is_installed(db, deps[i]) == 0)
++			continue;
++
++		if (run) {
++			/* Install the dependency */
++			if (install_package(deps[i], repo, db, prefix, prefix,
++			    flags) != 0 && (flags & force_flag) != force_flag) {
++				pkg_list_free(deps);
++				return -1;
++			}
++		} else {
++			extras++;
++			if (verbose) {
++				action(PKG_DB_INFO, "and was not found.");
++			} else {
++				printf("Package dependency %s for %s "
++				    "not found%s\n", pkg_get_name(deps[i]),
++				    pkg_get_name(pkg),
++				    force ? " (proceeding anyway)" : "!");
++			}
+ 		}
+ 	}
+ 	pkg_list_free(deps);
+ 
+ 	ret = -1;
++
+ 	/* Install the package */
+-	if (action != NULL) {
++	if (run) {
+ 		ret = pkg_db_install_pkg_action(db, pkg, base_prefix, record,
+ 		    scripts, !run, action);
++	} else if (verbose && extras != 0) {
++		warnx("%u package addition(s) failed", extras);
+ 	}
++
+ 	/*
+ 	 * Insert the installed package in a linked
+ 	 * list to stop it being installed again.
+
+
+
+From zxombie at mail.berlios.de  Sat Jan 27 03:14:15 2007
+From: zxombie at mail.berlios.de (zxombie at BerliOS)
+Date: Sat, 27 Jan 2007 03:14:15 +0100
+Subject: [Libpkg-svn] r255 - trunk/tools/pkg_add
+Message-ID: <200701270214.l0R2EFMY003269@sheep.berlios.de>
+
+Author: zxombie
+Date: 2007-01-27 03:14:14 +0100 (Sat, 27 Jan 2007)
+New Revision: 255
+
+Modified:
+   trunk/tools/pkg_add/main.c
+Log:
+Don't pass the -R pkg_add flag to dependencies
+
+
+Modified: trunk/tools/pkg_add/main.c
+===================================================================
+--- trunk/tools/pkg_add/main.c	2007-01-26 10:18:01 UTC (rev 254)
++++ trunk/tools/pkg_add/main.c	2007-01-27 02:14:14 UTC (rev 255)
+@@ -317,9 +317,13 @@
+ 			continue;
+ 
+ 		if (run) {
+-			/* Install the dependency */
++			/*
++			 * Install the dependency. The record flag
++			 * is not passed down to be compatible
++			 */
+ 			if (install_package(deps[i], repo, db, prefix, prefix,
+-			    flags) != 0 && (flags & force_flag) != force_flag) {
++			    flags & ~(no_record_install_flag)) != 0 &&
++			    (flags & force_flag) != force_flag) {
+ 				pkg_list_free(deps);
+ 				return -1;
+ 			}
+
+
+
+From zxombie at mail.berlios.de  Sat Jan 27 03:16:08 2007
+From: zxombie at mail.berlios.de (zxombie at BerliOS)
+Date: Sat, 27 Jan 2007 03:16:08 +0100
+Subject: [Libpkg-svn] r256 - trunk/tools/pkg_add
+Message-ID: <200701270216.l0R2G8Ul003374@sheep.berlios.de>
+
+Author: zxombie
+Date: 2007-01-27 03:16:08 +0100 (Sat, 27 Jan 2007)
+New Revision: 256
+
+Modified:
+   trunk/tools/pkg_add/run.sh
+   trunk/tools/pkg_add/test.sh
+Log:
+Add more pkg_add tests
+Allow each pkg_add test to be run separately
+
+
+Modified: trunk/tools/pkg_add/run.sh
+===================================================================
+--- trunk/tools/pkg_add/run.sh	2007-01-27 02:14:14 UTC (rev 255)
++++ trunk/tools/pkg_add/run.sh	2007-01-27 02:16:08 UTC (rev 256)
+@@ -24,4 +24,29 @@
+ 	if [ $? -ne 0 ] ; then
+ 		exit 1
+ 	fi
++elif [ ${TESTNO} -eq 5 ] ; then
++	pkg_add -I ./${PACKAGE}.tbz
++	if [ $? -ne 0 ] ; then
++		exit 1
++	fi
++elif [ ${TESTNO} -eq 6 ] ; then
++	pkg_add -R ./${PACKAGE}.tbz
++	if [ $? -ne 0 ] ; then
++		exit 1
++	fi
++elif [ ${TESTNO} -eq 7 ] ; then
++	pkg_add -f ./${PACKAGE}.tbz
++	if [ $? -ne 0 ] ; then
++		exit 1
++	fi
++elif [ ${TESTNO} -eq 8 ] ; then
++	pkg_add -p /usr/pkg ./${PACKAGE}.tbz
++	if [ $? -ne 0 ] ; then
++		exit 1
++	fi
++elif [ ${TESTNO} -eq 9 ] ; then
++	pkg_add -P /usr/pkg ./${PACKAGE}.tbz
++	if [ $? -ne 0 ] ; then
++		exit 1
++	fi
+ fi
+
+Modified: trunk/tools/pkg_add/test.sh
+===================================================================
+--- trunk/tools/pkg_add/test.sh	2007-01-27 02:14:14 UTC (rev 255)
++++ trunk/tools/pkg_add/test.sh	2007-01-27 02:16:08 UTC (rev 256)
+@@ -2,26 +2,36 @@
+ 
+ . `dirname $0`/../test.sh
+ 
++TEST_NO=$1
++shift
++
++do_test() {
++	i=$1
++	RUN=$2
++	LIBPKG=$3
++
++	build_chroot
++	if [ "X$LIBPKG" != "X" ]; then
++		cp pkg_add ${BASE_DIR}/base/usr/sbin/pkg_add
++	fi
++	chroot ${BASE_DIR}/base /run.sh ${PACKAGE} ${i} > ${RUN}.stdout.${i} 2> ${RUN}.stderr.${i}
++	# Get the mtree file to use to compare the filesystems
++	mtree -c -p ${BASE_DIR}/base | grep -v "^\#[[:space:]]*date:" | sed "s/time=[^ ]*//" | grep -v "^[ ]*pkg_add[^\.]" > ${RUN}.mtree.${i}
++	# Create a tarball of the important dir's to compare later
++	rm ${BASE_DIR}/${RUN}-${i}.tar
++	tar -cf ${BASE_DIR}/${RUN}-${i}.tar ${BASE_DIR}/base/var/db/pkg ${BASE_DIR}/base/usr/local ${BASE_DIR}/base/usr/pkg
++	# Cleanup the package directories
++	rm -fr ${BASE_DIR}/base/var/db/pkg ${BASE_DIR}/base/usr/local ${BASE_DIR}/base/usr/pkg
++}
++
+ # Rins the tests for either the libpkg or cvs version of pkg_add
+-do_test() {
++do_tests() {
+ 	RUN=$1
+ 	LIBPKG=$2
+ 
+ 	i=1
+-	while [ $i -le 4 ] ; do
+-		build_chroot
+-		if [ "X$LIBPKG" != "X" ]; then
+-			cp pkg_add ${BASE_DIR}/base/usr/sbin/pkg_add
+-		fi
+-		chroot ${BASE_DIR}/base /run.sh ${PACKAGE} ${i} > ${RUN}.stdout.${i} 2> ${RUN}.stderr.${i}
+-		# Get the mtree file to use to compare the filesystems
+-		mtree -c -p ${BASE_DIR}/base | grep -v "^\#[[:space:]]*date:" | sed "s/time=[^ ]*//" | grep -v "^[ ]*pkg_add[^\.]" > ${RUN}.mtree.${i}
+-		# Create a tarball of the important dir's to compare later
+-		rm ${BASE_DIR}/${RUN}-${i}.tar
+-		tar -cf ${BASE_DIR}/${RUN}-${i}.tar ${BASE_DIR}/base/var/db/pkg ${BASE_DIR}/base/usr/local
+-		# Cleanup the package directories
+-		rm -fr ${BASE_DIR}/base/var/db/pkg ${BASE_DIR}/base/usr/local
+-
++	while [ $i -le 9 ] ; do
++		do_test $i $RUN $LIBPKG
+ 		i=$((i+1))
+ 	done
+ }
+@@ -29,12 +39,17 @@
+ # Runs the test
+ run_test() {
+ 
+-	# Get the reference data from the FreeBSD cvs pkg_add
+-	do_test cvs
++	build_tool
+ 
+-	# Get the test data from out pkg_add
+-	build_tool
+-	do_test libpkg true
++	if [ "X${TEST_NO}" != "X" ] ; then
++		do_test $TEST_NO cvs
++		do_test $TEST_NO libpkg true
++	else
++		# Get the reference data from the FreeBSD cvs pkg_add
++		do_tests cvs
++		# Get the test data from out pkg_add
++		do_tests libpkg true
++	fi
+ }
+ 
+ CWD=`pwd`
+
+
+
+From zxombie at mail.berlios.de  Sat Jan 27 03:18:08 2007
+From: zxombie at mail.berlios.de (zxombie at BerliOS)
+Date: Sat, 27 Jan 2007 03:18:08 +0100
+Subject: [Libpkg-svn] r257 - trunk/tools/pkg_add
+Message-ID: <200701270218.l0R2I8aG003425@sheep.berlios.de>
+
+Author: zxombie
+Date: 2007-01-27 03:18:08 +0100 (Sat, 27 Jan 2007)
+New Revision: 257
+
+Modified:
+   trunk/tools/pkg_add/Makefile
+Log:
+Clean up after the pkg_add tests
+
+
+Modified: trunk/tools/pkg_add/Makefile
+===================================================================
+--- trunk/tools/pkg_add/Makefile	2007-01-27 02:16:08 UTC (rev 256)
++++ trunk/tools/pkg_add/Makefile	2007-01-27 02:18:08 UTC (rev 257)
+@@ -18,4 +18,12 @@
+ 
+ WARNS	?= 6
+ 
++.for run in libpkg cvs
++. for type in mtree stdout stderr
++.  for i in 1 2 3 4 5 6 7 8 9
++CLEANFILES	+= ${run}.${type}.${i}
++.  endfor
++. endfor
++.endfor
++
+ .include <bsd.prog.mk>
+
+
+
+From zxombie at mail.berlios.de  Sat Jan 27 03:19:47 2007
+From: zxombie at mail.berlios.de (zxombie at BerliOS)
+Date: Sat, 27 Jan 2007 03:19:47 +0100
+Subject: [Libpkg-svn] r258 - trunk/src
+Message-ID: <200701270219.l0R2Jl1X003507@sheep.berlios.de>
+
+Author: zxombie
+Date: 2007-01-27 03:19:46 +0100 (Sat, 27 Jan 2007)
+New Revision: 258
+
+Modified:
+   trunk/src/pkg_freebsd.c
+Log:
+Only register packages when asked to
+
+
+Modified: trunk/src/pkg_freebsd.c
+===================================================================
+--- trunk/src/pkg_freebsd.c	2007-01-27 02:18:08 UTC (rev 257)
++++ trunk/src/pkg_freebsd.c	2007-01-27 02:19:46 UTC (rev 258)
+@@ -598,9 +598,12 @@
+ 			    contents->lines[pos].data);
+ 		}
+ 	}
+-	/* Register the package */
+-	pkg_register(pkg, pkg_action, data, control);
+ 
++	if (reg) {
++		/* Register the package */
++		pkg_register(pkg, pkg_action, data, control);
++	}
++
+ 	/* Set the return to 0 as we have fully installed the package */
+ 	ret = 0;
+ 
+
+
+

@@ -1,0 +1,130 @@
+<!DOCTYPE HTML PUBLIC "-//W3C//DTD HTML 4.01 Transitional//EN">
+<HTML>
+ <HEAD>
+   <TITLE> [Libpkg-svn] r250 - trunk/tools/pkg_add
+   </TITLE>
+   <LINK REL="Index" HREF="http://lists.berlios.de/pipermail/libpkg-svn/2007-January/index.html" >
+   <LINK REL="made" HREF="mailto:libpkg-svn%40lists.berlios.de?Subject=Re%3A%20%5BLibpkg-svn%5D%20r250%20-%20trunk/tools/pkg_add&In-Reply-To=%3C200701161024.l0GAOrup006215%40sheep.berlios.de%3E">
+   <META NAME="robots" CONTENT="index,nofollow">
+   <style type="text/css">
+       pre {
+           white-space: pre-wrap;       /* css-2.1, curent FF, Opera, Safari */
+           }
+   </style>
+   <META http-equiv="Content-Type" content="text/html; charset=us-ascii">
+   <LINK REL="Previous"  HREF="000233.html">
+   <LINK REL="Next"  HREF="000235.html">
+ </HEAD>
+ <BODY BGCOLOR="#ffffff">
+   <H1>[Libpkg-svn] r250 - trunk/tools/pkg_add</H1>
+    <B>zxombie at BerliOS</B> 
+    <A HREF="mailto:libpkg-svn%40lists.berlios.de?Subject=Re%3A%20%5BLibpkg-svn%5D%20r250%20-%20trunk/tools/pkg_add&In-Reply-To=%3C200701161024.l0GAOrup006215%40sheep.berlios.de%3E"
+       TITLE="[Libpkg-svn] r250 - trunk/tools/pkg_add">zxombie at mail.berlios.de
+       </A><BR>
+    <I>Tue Jan 16 11:24:53 CET 2007</I>
+    <P><UL>
+        <LI>Previous message: <A HREF="000233.html">[Libpkg-svn] r249 - trunk/src
+</A></li>
+        <LI>Next message: <A HREF="000235.html">[Libpkg-svn] r251 - trunk/tools/pkg_add
+</A></li>
+         <LI> <B>Messages sorted by:</B> 
+              <a href="date.html#234">[ date ]</a>
+              <a href="thread.html#234">[ thread ]</a>
+              <a href="subject.html#234">[ subject ]</a>
+              <a href="author.html#234">[ author ]</a>
+         </LI>
+       </UL>
+    <HR>  
+<!--beginarticle-->
+<PRE>Author: zxombie
+Date: 2007-01-16 11:24:53 +0100 (Tue, 16 Jan 2007)
+New Revision: 250
+
+Modified:
+   trunk/tools/pkg_add/run.sh
+   trunk/tools/pkg_add/test.sh
+Log:
+Add more pkg_add tests
+Adjust the pkg_add test script to build a clean environment each time
+
+
+Modified: trunk/tools/pkg_add/run.sh
+===================================================================
+--- trunk/tools/pkg_add/run.sh	2007-01-15 09:03:27 UTC (rev 249)
++++ trunk/tools/pkg_add/run.sh	2007-01-16 10:24:53 UTC (rev 250)
+@@ -14,4 +14,14 @@
+ 	if [ $? -ne 0 ] ; then
+ 		exit 1
+ 	fi
++elif [ ${TESTNO} -eq 3 ] ; then
++	pkg_add -n ./${PACKAGE}.tbz
++	if [ $? -ne 0 ] ; then
++		exit 1
++	fi
++elif [ ${TESTNO} -eq 4 ] ; then
++	pkg_add -nv ./${PACKAGE}.tbz
++	if [ $? -ne 0 ] ; then
++		exit 1
++	fi
+ fi
+
+Modified: trunk/tools/pkg_add/test.sh
+===================================================================
+--- trunk/tools/pkg_add/test.sh	2007-01-15 09:03:27 UTC (rev 249)
++++ trunk/tools/pkg_add/test.sh	2007-01-16 10:24:53 UTC (rev 250)
+@@ -5,9 +5,14 @@
+ # Rins the tests for either the libpkg or cvs version of pkg_add
+ do_test() {
+ 	RUN=$1
++	LIBPKG=$2
+ 
+ 	i=1
+-	while [ $i -le 2 ] ; do
++	while [ $i -le 4 ] ; do
++		build_chroot
++		if [ &quot;X$LIBPKG&quot; != &quot;X&quot; ]; then
++			cp pkg_add ${BASE_DIR}/base/usr/sbin/pkg_add
++		fi
+ 		chroot ${BASE_DIR}/base /run.sh ${PACKAGE} ${i} &gt; ${RUN}.stdout.${i} 2&gt; ${RUN}.stderr.${i}
+ 		# Get the mtree file to use to compare the filesystems
+ 		mtree -c -p ${BASE_DIR}/base | grep -v &quot;^\#[[:space:]]*date:&quot; | sed &quot;s/time=[^ ]*//&quot; | grep -v &quot;^[ ]*pkg_add&quot; &gt; ${RUN}.mtree.${i}
+@@ -25,14 +30,11 @@
+ run_test() {
+ 
+ 	# Get the reference data from the FreeBSD cvs pkg_add
+-	build_chroot
+ 	do_test cvs
+ 
+ 	# Get the test data from out pkg_add
+-	build_chroot
+ 	build_tool
+-	cp pkg_add ${BASE_DIR}/base/usr/sbin/pkg_add
+-	do_test libpkg
++	do_test libpkg true
+ }
+ 
+ CWD=`pwd`
+
+
+</PRE>
+
+<!--endarticle-->
+    <HR>
+    <P><UL>
+        <!--threads-->
+	<LI>Previous message: <A HREF="000233.html">[Libpkg-svn] r249 - trunk/src
+</A></li>
+	<LI>Next message: <A HREF="000235.html">[Libpkg-svn] r251 - trunk/tools/pkg_add
+</A></li>
+         <LI> <B>Messages sorted by:</B> 
+              <a href="date.html#234">[ date ]</a>
+              <a href="thread.html#234">[ thread ]</a>
+              <a href="subject.html#234">[ subject ]</a>
+              <a href="author.html#234">[ author ]</a>
+         </LI>
+       </UL>
+
+<hr>
+<a href="https://lists.berlios.de/mailman/listinfo/libpkg-svn">More information about the Libpkg-svn
+mailing list</a><br>
+</body></html>

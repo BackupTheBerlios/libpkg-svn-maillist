@@ -1,0 +1,286 @@
+<!DOCTYPE HTML PUBLIC "-//W3C//DTD HTML 4.01 Transitional//EN">
+<HTML>
+ <HEAD>
+   <TITLE> [Libpkg-svn] r153 - trunk/src
+   </TITLE>
+   <LINK REL="Index" HREF="http://lists.berlios.de/pipermail/libpkg-svn/2006-July/index.html" >
+   <LINK REL="made" HREF="mailto:libpkg-svn%40lists.berlios.de?Subject=Re%3A%20%5BLibpkg-svn%5D%20r153%20-%20trunk/src&In-Reply-To=%3C200607210434.k6L4Y2V1002840%40sheep.berlios.de%3E">
+   <META NAME="robots" CONTENT="index,nofollow">
+   <style type="text/css">
+       pre {
+           white-space: pre-wrap;       /* css-2.1, curent FF, Opera, Safari */
+           }
+   </style>
+   <META http-equiv="Content-Type" content="text/html; charset=us-ascii">
+   <LINK REL="Previous"  HREF="000132.html">
+   <LINK REL="Next"  HREF="000138.html">
+ </HEAD>
+ <BODY BGCOLOR="#ffffff">
+   <H1>[Libpkg-svn] r153 - trunk/src</H1>
+    <B>zxombie at BerliOS</B> 
+    <A HREF="mailto:libpkg-svn%40lists.berlios.de?Subject=Re%3A%20%5BLibpkg-svn%5D%20r153%20-%20trunk/src&In-Reply-To=%3C200607210434.k6L4Y2V1002840%40sheep.berlios.de%3E"
+       TITLE="[Libpkg-svn] r153 - trunk/src">zxombie at mail.berlios.de
+       </A><BR>
+    <I>Fri Jul 21 06:34:02 CEST 2006</I>
+    <P><UL>
+        <LI>Previous message: <A HREF="000132.html">[Libpkg-svn] r152 - trunk/src
+</A></li>
+        <LI>Next message: <A HREF="000138.html">[Libpkg-svn] r154 - trunk/src
+</A></li>
+         <LI> <B>Messages sorted by:</B> 
+              <a href="date.html#137">[ date ]</a>
+              <a href="thread.html#137">[ thread ]</a>
+              <a href="subject.html#137">[ subject ]</a>
+              <a href="author.html#137">[ author ]</a>
+         </LI>
+       </UL>
+    <HR>  
+<!--beginarticle-->
+<PRE>Author: zxombie
+Date: 2006-07-21 06:33:59 +0200 (Fri, 21 Jul 2006)
+New Revision: 153
+
+Modified:
+   trunk/src/pkg_private.h
+   trunk/src/pkgfile.c
+Log:
+Allow a file to be fopen'ed only when it is needed
+
+
+Modified: trunk/src/pkg_private.h
+===================================================================
+--- trunk/src/pkg_private.h	2006-07-14 06:38:44 UTC (rev 152)
++++ trunk/src/pkg_private.h	2006-07-21 04:33:59 UTC (rev 153)
+@@ -35,10 +35,17 @@
+ 
+ int archive_read_open_stream(struct archive *, FILE *, size_t);
+ 
++/* Package file location */
++typedef enum {
++	pkgfile_loc_disk,
++	pkgfile_loc_mem
++} pkgfile_loc;
++
+ /** @todo Reorder the struct to remove alignment gaps */
+ struct pkgfile {
+ 	char		*name;
+ 	pkgfile_type	 type;
++	pkgfile_loc	 loc;
+ 	FILE		*fd;
+ 	char		*data;
+ 	uint64_t	 length;
+@@ -53,7 +60,7 @@
+ /* Main callbacks used in most packages */
+ typedef struct pkg	**pkg_get_dependencies_callback(struct pkg *);
+ typedef struct pkgfile	**pkg_get_control_files_callback(struct pkg *);
+-typedef struct pkgfile  *pkg_get_control_file_callback(struct pkg *,
++typedef struct pkgfile   *pkg_get_control_file_callback(struct pkg *,
+ 				const char *);
+ typedef int		  pkg_free_callback(struct pkg *);
+ 
+
+Modified: trunk/src/pkgfile.c
+===================================================================
+--- trunk/src/pkgfile.c	2006-07-14 06:38:44 UTC (rev 152)
++++ trunk/src/pkgfile.c	2006-07-21 04:33:59 UTC (rev 153)
+@@ -42,7 +42,8 @@
+ #include &quot;pkg.h&quot;
+ #include &quot;pkg_private.h&quot;
+ 
+-static struct pkgfile*  pkgfile_new(const char *, pkgfile_type);
++static struct pkgfile	*pkgfile_new(const char *, pkgfile_type, pkgfile_loc);
++static int		 pkgfile_open_fd(struct pkgfile *file);
+ 
+ /**
+  * @defgroup PackageFileInternal Internal file functions
+@@ -56,7 +57,7 @@
+  * @return A new pkgfile object or NULL
+  */
+ static struct pkgfile*
+-pkgfile_new(const char *filename, pkgfile_type type)
++pkgfile_new(const char *filename, pkgfile_type type, pkgfile_loc location)
+ {
+ 	struct pkgfile *file;
+ 
+@@ -71,6 +72,7 @@
+ 	}
+ 
+ 	file-&gt;type = type;
++	file-&gt;loc = location;
+ 	file-&gt;fd = NULL;
+ 	file-&gt;data = NULL;
+ 	file-&gt;length = 0;
+@@ -81,6 +83,37 @@
+ }
+ 
+ /**
++ * @brief Creates a FILE pointer in the given pkgfile object
++ * @return  0 On success
++ * @return -1 On error
++ */
++static int
++pkgfile_open_fd(struct pkgfile *file)
++{
++	/* Consistancy check */
++	assert(file != NULL);
++	assert(file-&gt;loc == pkgfile_loc_disk);
++	assert(file-&gt;data == NULL);
++
++	/* Check if the file has already been opened */
++	if (file-&gt;fd != NULL)
++		return 0;
++
++	/* Open the file read write */
++	file-&gt;fd = fopen(file-&gt;name, &quot;r+&quot;);
++	if (file-&gt;fd == NULL) {
++		/* Attempt to open file read only */
++		file-&gt;fd = fopen(file-&gt;name, &quot;r&quot;);
++	}
++
++	/* If we failed return -1 */
++	if (file-&gt;fd == NULL)
++		return -1;
++
++	return 0;
++}
++
++/**
+  * @}
+  */
+ 
+@@ -105,22 +138,12 @@
+ 	if (i != 0)
+ 		return NULL;
+ 
+-	file = pkgfile_new(filename, pkgfile_none);
++	file = pkgfile_new(filename, pkgfile_none, pkgfile_loc_disk);
+ 	if (file == NULL)
+ 		return NULL;
+ 	
+ 	if (S_ISREG(sb.st_mode) || (follow_link &amp;&amp; S_ISLNK(sb.st_mode))) {
+ 		file-&gt;type = pkgfile_regular;
+-		/* Attempt to open file read/write */
+-		file-&gt;fd = fopen(file-&gt;name, &quot;r+&quot;);
+-		if (file-&gt;fd == NULL) {
+-			/* Attempt to open file read only */
+-			file-&gt;fd = fopen(file-&gt;name, &quot;r&quot;);
+-			if (file-&gt;fd == NULL) {
+-				pkgfile_free(file);
+-				return NULL;
+-			}
+-		}
+ 	} else if(S_ISLNK(sb.st_mode)) {
+ 		file-&gt;type = pkgfile_symlink;
+ 	} else if (S_ISDIR(sb.st_mode)) {
+@@ -145,7 +168,7 @@
+ 	if (name == NULL || (contents == NULL &amp;&amp; length &gt; 0))
+ 		return NULL;
+ 
+-	file = pkgfile_new(name, pkgfile_regular);
++	file = pkgfile_new(name, pkgfile_regular, pkgfile_loc_mem);
+ 	if (file == NULL)
+ 		return NULL;
+ 
+@@ -173,7 +196,7 @@
+ 	if (file == NULL || data == NULL)
+ 		return NULL;
+ 
+-	pkgfile = pkgfile_new(file, pkgfile_symlink);
++	pkgfile = pkgfile_new(file, pkgfile_symlink, pkgfile_loc_mem);
+ 	if (pkgfile == NULL)
+ 		return NULL;
+ 
+@@ -198,7 +221,7 @@
+ 	if (file == NULL || other_file == NULL)
+ 		return NULL;
+ 
+-	pkgfile = pkgfile_new(file, pkgfile_hardlink);
++	pkgfile = pkgfile_new(file, pkgfile_hardlink, pkgfile_loc_mem);
+ 	if (pkgfile == NULL)
+ 		return NULL;
+ 
+@@ -223,7 +246,7 @@
+ 	if (dir == NULL)
+ 		return NULL;
+ 
+-	file = pkgfile_new(dir, pkgfile_dir);
++	file = pkgfile_new(dir, pkgfile_dir, pkgfile_loc_mem);
+ 	if (file == NULL)
+ 		return NULL;
+ 
+@@ -268,8 +291,10 @@
+ 		case pkgfile_hardlink:
+ 			break;
+ 		case pkgfile_regular:
+-			if (file-&gt;fd != NULL) {
++			if (file-&gt;loc == pkgfile_loc_disk) {
+ 				struct stat sb;
++
++				pkgfile_open_fd(file);
+ 				fstat(fileno(file-&gt;fd), &amp;sb);
+ 				return sb.st_size;
+ 			} else if (file-&gt;data != NULL) {
+@@ -312,13 +337,14 @@
+ 			data = malloc(length);
+ 			if (data == NULL)
+ 				return NULL;
+-			if (file-&gt;fd != NULL) {
++			if (file-&gt;loc == pkgfile_loc_disk) {
+ 				/*
+ 				 * Read up to length bytes
+ 				 * from the file to data
+ 				 */
+ 				size_t len;
+ 
++				pkgfile_open_fd(file);
+ 				len = fread(data, 1, length, file-&gt;fd);
+ 			} else if (file-&gt;data != NULL) {
+ 				memcpy(data, file-&gt;data, length);
+@@ -407,10 +433,13 @@
+ 	assert(file-&gt;type != pkgfile_dir);
+ 
+ 	if (file-&gt;type == pkgfile_regular) {
+-		assert(file-&gt;fd != NULL);
++		assert(file-&gt;loc == pkgfile_loc_disk);
++		pkgfile_open_fd(file);
+ 		if (file-&gt;fd != NULL) {
+ 			if (fseek(file-&gt;fd, position, whence) != 0)
+ 				return -1;
++		} else {
++			return -1;
+ 		}
+ 	}
+ 	return 0;
+@@ -450,7 +479,7 @@
+ 	case pkgfile_none:
+ 		break;
+ 	case pkgfile_regular:
+-		if (file-&gt;data != NULL) {
++		if (file-&gt;loc == pkgfile_loc_mem &amp;&amp; file-&gt;data != NULL) {
+ 			uint64_t length;
+ 			struct stat sb;
+ 			size_t write_size;
+
+
+</PRE>
+
+<!--endarticle-->
+    <HR>
+    <P><UL>
+        <!--threads-->
+	<LI>Previous message: <A HREF="000132.html">[Libpkg-svn] r152 - trunk/src
+</A></li>
+	<LI>Next message: <A HREF="000138.html">[Libpkg-svn] r154 - trunk/src
+</A></li>
+         <LI> <B>Messages sorted by:</B> 
+              <a href="date.html#137">[ date ]</a>
+              <a href="thread.html#137">[ thread ]</a>
+              <a href="subject.html#137">[ subject ]</a>
+              <a href="author.html#137">[ author ]</a>
+         </LI>
+       </UL>
+
+<hr>
+<a href="https://lists.berlios.de/mailman/listinfo/libpkg-svn">More information about the Libpkg-svn
+mailing list</a><br>
+</body></html>

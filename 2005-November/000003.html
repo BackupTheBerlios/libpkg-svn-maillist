@@ -1,0 +1,167 @@
+<!DOCTYPE HTML PUBLIC "-//W3C//DTD HTML 4.01 Transitional//EN">
+<HTML>
+ <HEAD>
+   <TITLE> [Libpkg-svn] r9 - trunk/src
+   </TITLE>
+   <LINK REL="Index" HREF="http://lists.berlios.de/pipermail/libpkg-svn/2005-November/index.html" >
+   <LINK REL="made" HREF="mailto:libpkg-svn%40lists.berlios.de?Subject=Re%3A%20%5BLibpkg-svn%5D%20r9%20-%20trunk/src&In-Reply-To=%3C200511100531.jAA5VM2M003925%40sheep.berlios.de%3E">
+   <META NAME="robots" CONTENT="index,nofollow">
+   <style type="text/css">
+       pre {
+           white-space: pre-wrap;       /* css-2.1, curent FF, Opera, Safari */
+           }
+   </style>
+   <META http-equiv="Content-Type" content="text/html; charset=us-ascii">
+   <LINK REL="Previous"  HREF="000002.html">
+   <LINK REL="Next"  HREF="000004.html">
+ </HEAD>
+ <BODY BGCOLOR="#ffffff">
+   <H1>[Libpkg-svn] r9 - trunk/src</H1>
+    <B>Andrew Turner at BerliOS</B> 
+    <A HREF="mailto:libpkg-svn%40lists.berlios.de?Subject=Re%3A%20%5BLibpkg-svn%5D%20r9%20-%20trunk/src&In-Reply-To=%3C200511100531.jAA5VM2M003925%40sheep.berlios.de%3E"
+       TITLE="[Libpkg-svn] r9 - trunk/src">zxombie at berlios.de
+       </A><BR>
+    <I>Thu Nov 10 06:31:22 CET 2005</I>
+    <P><UL>
+        <LI>Previous message: <A HREF="000002.html">[Libpkg-svn] r8 - trunk/src
+</A></li>
+        <LI>Next message: <A HREF="000004.html">[Libpkg-svn] r10 - trunk/src
+</A></li>
+         <LI> <B>Messages sorted by:</B> 
+              <a href="date.html#3">[ date ]</a>
+              <a href="thread.html#3">[ thread ]</a>
+              <a href="subject.html#3">[ subject ]</a>
+              <a href="author.html#3">[ author ]</a>
+         </LI>
+       </UL>
+    <HR>  
+<!--beginarticle-->
+<PRE>Author: zxombie
+Date: 2005-11-10 06:31:16 +0100 (Thu, 10 Nov 2005)
+New Revision: 9
+
+Modified:
+   trunk/src/libpkg.3
+Log:
+Update libpkg(3) to reflect rev 8
+
+Modified: trunk/src/libpkg.3
+===================================================================
+--- trunk/src/libpkg.3	2005-11-10 04:50:22 UTC (rev 8)
++++ trunk/src/libpkg.3	2005-11-10 05:31:16 UTC (rev 9)
+@@ -60,11 +60,13 @@
+ .Fn pkg_error_set &quot;struct pkg_object *obj&quot; &quot;const char *fmt&quot; &quot;...&quot;
+ .Ft char *
+ .Fn pkg_error_string &quot;struct pkg_object *obj&quot;
++.Ft int
++.Fn pkg_object_free &quot;struct pkg_object *obj&quot;
+ .Ft struct pkg *
+ .Fn pkg_new &quot;const char *name&quot; &quot;pkg_get_control_files_callback *control_files&quot; &quot;pkg_get_next_file_callback *next_file&quot; &quot;pkg_free_callback *free_pkg&quot;
+ .Ft struct pkg *
+ .Fn pkg_new_freebsd &quot;FILE *fd&quot;
+-.Ft struct pkg_file_list *
++.Ft struct pkg_list *
+ .Fn pkg_get_control_files &quot;struct pkg *pkg&quot;
+ .Ft struct pkg_file *
+ .Fn pkg_get_next_file &quot;struct pkg *pkg&quot;
+@@ -90,18 +92,20 @@
+ .Fn pkg_db_is_installed &quot;struct pkg_db *db&quot; &quot;const char *package&quot;
+ .Ft int
+ .Fn pkg_db_free &quot;struct pkg_db *db&quot;
++.Ft struct pkg_list *
++.Fn pkg_list_add &quot;struct pkg_list *list&quot; &quot;struct pkg_object *obj&quot;
++.Ft int
++.Fn pkg_list_free &quot;struct pkg_list *list&quot;
+ .Ft struct pkg_file *
+ .Fn pkg_file_new_from_buffer &quot;const char *filename&quot; &quot;uint64_t length&quot; &quot;char *buffer&quot; &quot;const struct stat *sb&quot;
+ .Ft int
+ .Fn pkg_file_write &quot;strict pkg_file *file&quot;
+ .Ft int
+ .Fn pkg_file_free &quot;struct pkg_file *file&quot;
+-.Ft struct pkg_file_list *
+-.Fn pkg_file_list_add &quot;struct pkg_file_list *list&quot; &quot;struct pkg_file *file&quot;
++.Ft struct pkg_list *
++.Fn pkg_file_list_add &quot;struct pkg_list *list&quot; &quot;struct pkg_file *file&quot;
+ .Ft struct pkg_file *
+-.Fn pkg_file_list_get_file &quot;struct pkg_file_list *list&quot; &quot;const char *name&quot;
+-.Ft int
+-.Fn pkg_file_list_free &quot;struct pkg_file_list *list&quot;
++.Fn pkg_file_list_get_file &quot;struct pkg_list *list&quot; &quot;const char *name&quot;
+ .Sh OVERVIEW
+ The
+ .Nm
+@@ -152,7 +156,9 @@
+ .Xr printf 3 .
+ .It Fn pkg_error_string
+ Retreives the error string as written by
+-.Fn pkg_error_set
++.Fn pkg_error_set .
++.It Fn pkg_object_free
++Will free the object pointed to it by obj.
+ .El
+ .Ss Packages
+ A package is represented by a
+@@ -267,24 +273,27 @@
+ Frees a
+ .Tn struct pkg_file .
+ .El
+-.Ss Package File List
+-A Package file list contains one or more Package files
++.Ss Package List
++A Package list contains one or more Package Objects
+ within the
+-.Tn struct pkg_file_list .
+-It is a singularly linked list.
++.Tn struct pkg_list .
+ .Bl -tag -compact -width indent
++.It Fn pkg_list_add
++Adds a Package Object
++.Vt obj
++to the list pointed at by
++.Vt list .
++If list is NULL it will create a new list.
++.Fn pkg_list_add
++will return the new location of the list as it will change.
++.It Fn pkg_list_free
++Frees the pkg_list and objects contained within it.
+ .It Fn pkg_file_list_add
+-Returns a new root to a linked list.
+-.Vt file
+-is the file to be contained in the list.
+-.Vt list
+-will become the next item in the list.
++Adds a new Package File to a list by calling
++.Fn pkg_list_add .
+ .It Fn pkg_file_list_get_file
+ Returns the first file named
+ .Vt name
+ from
+ .Vt list .
+-.It Fn pkg_file_list_free
+-Frees all items in the list with the head at
+-.Vt list .
+ .El
+
+
+</PRE>
+
+<!--endarticle-->
+    <HR>
+    <P><UL>
+        <!--threads-->
+	<LI>Previous message: <A HREF="000002.html">[Libpkg-svn] r8 - trunk/src
+</A></li>
+	<LI>Next message: <A HREF="000004.html">[Libpkg-svn] r10 - trunk/src
+</A></li>
+         <LI> <B>Messages sorted by:</B> 
+              <a href="date.html#3">[ date ]</a>
+              <a href="thread.html#3">[ thread ]</a>
+              <a href="subject.html#3">[ subject ]</a>
+              <a href="author.html#3">[ author ]</a>
+         </LI>
+       </UL>
+
+<hr>
+<a href="https://lists.berlios.de/mailman/listinfo/libpkg-svn">More information about the Libpkg-svn
+mailing list</a><br>
+</body></html>

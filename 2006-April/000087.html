@@ -1,0 +1,710 @@
+<!DOCTYPE HTML PUBLIC "-//W3C//DTD HTML 4.01 Transitional//EN">
+<HTML>
+ <HEAD>
+   <TITLE> [Libpkg-svn] r103 - trunk/src
+   </TITLE>
+   <LINK REL="Index" HREF="http://lists.berlios.de/pipermail/libpkg-svn/2006-April/index.html" >
+   <LINK REL="made" HREF="mailto:libpkg-svn%40lists.berlios.de?Subject=Re%3A%20%5BLibpkg-svn%5D%20r103%20-%20trunk/src&In-Reply-To=%3C200604241047.k3OAl5Xg006391%40sheep.berlios.de%3E">
+   <META NAME="robots" CONTENT="index,nofollow">
+   <style type="text/css">
+       pre {
+           white-space: pre-wrap;       /* css-2.1, curent FF, Opera, Safari */
+           }
+   </style>
+   <META http-equiv="Content-Type" content="text/html; charset=us-ascii">
+   <LINK REL="Previous"  HREF="000086.html">
+   <LINK REL="Next"  HREF="000088.html">
+ </HEAD>
+ <BODY BGCOLOR="#ffffff">
+   <H1>[Libpkg-svn] r103 - trunk/src</H1>
+    <B>zxombie at BerliOS</B> 
+    <A HREF="mailto:libpkg-svn%40lists.berlios.de?Subject=Re%3A%20%5BLibpkg-svn%5D%20r103%20-%20trunk/src&In-Reply-To=%3C200604241047.k3OAl5Xg006391%40sheep.berlios.de%3E"
+       TITLE="[Libpkg-svn] r103 - trunk/src">zxombie at berlios.de
+       </A><BR>
+    <I>Mon Apr 24 12:47:05 CEST 2006</I>
+    <P><UL>
+        <LI>Previous message: <A HREF="000086.html">[Libpkg-svn] r102 - trunk/src
+</A></li>
+        <LI>Next message: <A HREF="000088.html">[Libpkg-svn] r104 - trunk/src
+</A></li>
+         <LI> <B>Messages sorted by:</B> 
+              <a href="date.html#87">[ date ]</a>
+              <a href="thread.html#87">[ thread ]</a>
+              <a href="subject.html#87">[ subject ]</a>
+              <a href="author.html#87">[ author ]</a>
+         </LI>
+       </UL>
+    <HR>  
+<!--beginarticle-->
+<PRE>Author: zxombie
+Date: 2006-04-24 12:46:40 +0200 (Mon, 24 Apr 2006)
+New Revision: 103
+
+Modified:
+   trunk/src/pkg.c
+   trunk/src/pkg_db.c
+   trunk/src/pkg_db_freebsd.c
+   trunk/src/pkg_freebsd.c
+   trunk/src/pkg_private.h
+Log:
+Add pkg_action_null, a pkg_action callback to do nothing. This means the check to se if pkg_action is NULL can be removed
+Add pkg_install, an internal function to install packages. This removes the need to know the internals of a package from pkg_db.
+Make pkg_freebsd know how to install it's self to a given database by using the pkg_install function
+
+
+Modified: trunk/src/pkg.c
+===================================================================
+--- trunk/src/pkg.c	2006-04-24 02:00:42 UTC (rev 102)
++++ trunk/src/pkg.c	2006-04-24 10:46:40 UTC (rev 103)
+@@ -90,6 +90,7 @@
+ 	pkg-&gt;pkg_add_file = NULL;
+ 	pkg-&gt;pkg_get_next_file = NULL;
+ 	pkg-&gt;pkg_run_script = NULL;
++	pkg-&gt;pkg_install = NULL;
+ 
+ 	/* The data is unknown so set to NULL */
+ 	pkg-&gt;pkg_prefix = NULL;
+@@ -150,12 +151,14 @@
+  */
+ int
+ pkg_add_callbacks_install (struct pkg *pkg,
++		pkg_install_callback *install,
+ 		pkg_get_next_file_callback *next_file,
+ 		pkg_run_script_callback *run_script)
+ {
+ 	if (pkg == NULL)
+ 		return -1;
+ 
++	pkg-&gt;pkg_install = install;
+ 	pkg-&gt;pkg_get_next_file = next_file;
+ 	pkg-&gt;pkg_run_script = run_script;
+ 	return 0;
+@@ -424,6 +427,23 @@
+ 	return -1;
+ }
+ 
++int
++pkg_install(struct pkg *pkg, int reg, pkg_db_action * pkg_action, void *data,
++		pkg_db_chdir *db_chdir,	pkg_db_install_file *install_file,
++		pkg_db_exec *do_exec)
++{
++	if (pkg == NULL || data == NULL || db_chdir == NULL ||
++	    install_file == NULL || do_exec == NULL)
++		return -1;
++
++	if (pkg-&gt;pkg_install == NULL)
++		return -1;
++
++	return pkg-&gt;pkg_install(pkg, reg, pkg_action, data, db_chdir,
++	    install_file, do_exec);
++}
++
++
+ /**
+  * @brief Frees a NULL terminated array of packages
+  *
+
+Modified: trunk/src/pkg_db.c
+===================================================================
+--- trunk/src/pkg_db.c	2006-04-24 02:00:42 UTC (rev 102)
++++ trunk/src/pkg_db.c	2006-04-24 10:46:40 UTC (rev 103)
+@@ -105,6 +105,11 @@
+ 	return db;
+ }
+ 
++static void
++pkg_action_null(int level __unused, const char *fmt __unused, ...)
++{
++}
++
+ /**
+  * @}
+  */
+@@ -157,6 +162,9 @@
+ 		return -1;
+ 	}
+ 
++	if (action == NULL)
++		action = pkg_action_null;
++
+ 	return db-&gt;pkg_install(db, pkg, reg, fake, action);
+ }
+ 
+
+Modified: trunk/src/pkg_db_freebsd.c
+===================================================================
+--- trunk/src/pkg_db_freebsd.c	2006-04-24 02:00:42 UTC (rev 102)
++++ trunk/src/pkg_db_freebsd.c	2006-04-24 10:46:40 UTC (rev 103)
+@@ -39,6 +39,8 @@
+ #include &lt;stdlib.h&gt;
+ #include &lt;string.h&gt;
+ 
++#include &lt;md5.h&gt;
++
+ #include &quot;pkg.h&quot;
+ #include &quot;pkg_db.h&quot;
+ #include &quot;pkg_freebsd.h&quot;
+@@ -48,6 +50,14 @@
+ 
+ #define DB_LOCATION	&quot;/var/db/pkg&quot;
+ 
++#ifdef NEW_DB
++struct pkg_install_data {
++	int fake;
++	struct pkg_db *db;
++	char last_file[FILENAME_MAX];
++	char directory[MAXPATHLEN];
++};
++#endif
+ /*
+  * State transition array for the head part of a +CONTENTS file.
+  * p0 is the start state, p4 and p6 are the accepting states
+@@ -71,8 +81,16 @@
+ 
+ /* Internal */
+ #ifdef NEW_DB
++pkg_static int	freebsd_do_chdir(struct pkg *, pkg_db_action *, void *,
++				const char *);
++pkg_static int	freebsd_install_file(struct pkg *, pkg_db_action *, void *,
++				struct pkg_file *);
++pkg_static int	freebsd_do_exec(struct pkg *, pkg_db_action *, void *,
++				const char *);
++#ifdef DEAD
+ pkg_static int			 freebsd_do_install(struct pkg_db *,
+-				struct pkg *);
++				struct pkg *, int, pkg_db_action *);
++#endif
+ #else
+ pkg_static struct pkg_file	*freebsd_build_contents(
+ 				struct pkg_freebsd_contents *);
+@@ -80,9 +98,9 @@
+ 				char *, int);
+ pkg_static int			 freebsd_check_contents(struct pkg_db *,
+ 				struct pkg_freebsd_contents *, int);
++#endif
+ pkg_static void			 freebsd_format_cmd(char *, int, const char *,
+ 				const char *, const char *);
+-#endif
+ 
+ /**
+  * @defgroup PackageDBFreebsd FreeBSD Package Database handeling
+@@ -139,16 +157,20 @@
+ 	char *directory, *last_file;
+ 	int i;
+ 	unsigned int pos, line;
++#else
++	struct pkg_install_data install_data;
+ #endif
+ 
+ 	assert(db != NULL);
+ 	assert(pkg != NULL);
++	assert(pkg_action != NULL);
+ 
+ #ifdef NEW_DB
++	pkg_action(PKG_DB_PACKAGE, &quot;Package name is %s&quot;, pkg_get_name(pkg));
++
+ 	/* Run +REQUIRE */
+-	if (pkg_action != NULL)
+-		pkg_action(PKG_DB_INFO, &quot;Running pre-install for %s..&quot;,
+-		    pkg_get_name(pkg));
++	pkg_action(PKG_DB_INFO, &quot;Running ... for %s..&quot;,
++	    pkg_get_name(pkg));
+ 
+ 	if (!fake) {
+ 		/** @todo Check if the force flag is set */
+@@ -158,28 +180,30 @@
+ 	}
+ 
+ 	/* Run Pre-install */
+-	if (pkg_action != NULL)
+-		pkg_action(PKG_DB_INFO, &quot;Running pre-install for %s..&quot;,
+-		    pkg_get_name(pkg));
++	pkg_action(PKG_DB_INFO, &quot;Running pre-install for %s..&quot;,
++	    pkg_get_name(pkg));
+ 
+ 	if (!fake)
+ 		pkg_run_script(pkg, pkg_script_pre);
+ 
+ 	/* Do the Install */
+-	freebsd_do_install(db, pkg);
++	install_data.db = db;
++	install_data.fake = 0;
++	if (fake) {
++		install_data.fake = 1;
++	}
++	pkg_install(pkg, reg, pkg_action, &amp;install_data, freebsd_do_chdir,
++	    freebsd_install_file, freebsd_do_exec);
+ 
+ 	/* Extract the +MTREE */
+-	if (pkg_action != NULL)
+-		pkg_action(PKG_DB_INFO, &quot;Running mtree for %s..&quot;,
+-		    pkg_get_name(pkg));
++	pkg_action(PKG_DB_INFO, &quot;Running mtree for %s..&quot;, pkg_get_name(pkg));
+ 
+ 	if (!fake)
+ 		pkg_run_script(pkg, pkg_script_mtree);
+ 
+ 	/* Run post-install */
+-	if (pkg_action != NULL)
+-		pkg_action(PKG_DB_INFO, &quot;Running post-install for %s..&quot;,
+-		    pkg_get_name(pkg));
++	pkg_action(PKG_DB_INFO, &quot;Running post-install for %s..&quot;,
++	    pkg_get_name(pkg));
+ 
+ 	if (!fake)
+ 		pkg_run_script(pkg, pkg_script_post);
+@@ -210,9 +234,7 @@
+ 		return -1;
+ 	}
+ 
+-	if (pkg_action != NULL)
+-		pkg_action(PKG_DB_PACKAGE, &quot;Package name is %s&quot;,
+-		    pkg_get_name(pkg));
++	pkg_action(PKG_DB_PACKAGE, &quot;Package name is %s&quot;, pkg_get_name(pkg));
+ 
+ 	cwd = getcwd(NULL, 0);
+ 	if (!cwd) {
+@@ -262,9 +284,8 @@
+ 					directory = getcwd(NULL, 0);
+ 				}
+ 			}
+-			if (pkg_action != NULL)
+-				pkg_action(PKG_DB_PACKAGE, &quot;CWD to %s&quot;,
+-				    contents-&gt;lines[line].data);
++			pkg_action(PKG_DB_PACKAGE, &quot;CWD to %s&quot;,
++			    contents-&gt;lines[line].data);
+ 			break;
+ 		case PKG_LINE_EXEC: {
+ 			char cmd[FILENAME_MAX];
+@@ -272,8 +293,7 @@
+ 			    contents-&gt;lines[line].data, directory, last_file);
+ 			if (!fake)
+ 				pkg_exec(cmd);
+-			if (pkg_action != NULL)
+-				pkg_action(PKG_DB_PACKAGE, &quot;execute '%s'&quot;, cmd);
++			pkg_action(PKG_DB_PACKAGE, &quot;execute '%s'&quot;, cmd);
+ 			break;
+ 		}
+ 		case PKG_LINE_FILE: {
+@@ -326,9 +346,8 @@
+ 					pkg_freebsd_contents_free(contents);
+ 					return -1;
+ 				}
+-				if (pkg_action != NULL)
+-					pkg_action(PKG_DB_PACKAGE, &quot;%s/%s&quot;,
+-					    directory, pkg_file_get_name(file));
++				pkg_action(PKG_DB_PACKAGE, &quot;%s/%s&quot;, directory,
++				    pkg_file_get_name(file));
+ 			}
+ 
+ 			contents_sum = strchr(contents-&gt;lines[line+1].data,
+@@ -381,9 +400,7 @@
+ 	}
+ 
+ 
+-	if (pkg_action != NULL)
+-		pkg_action(PKG_DB_INFO, &quot;Running mtree for %s..&quot;,
+-		    pkg_get_name(pkg));
++	pkg_action(PKG_DB_INFO, &quot;Running mtree for %s..&quot;, pkg_get_name(pkg));
+ 
+ 	if (!fake)
+ 		pkg_run_script(pkg, pkg_script_mtree);
+@@ -392,10 +409,9 @@
+ 	pkg_run_script(pkg, pkg_script_post);
+ 
+ 	if (reg) {
+-		if (pkg_action != NULL)
+-			pkg_action(PKG_DB_INFO,
+-			    &quot;Attempting to record package into &quot; DB_LOCATION
+-			    &quot;/%s..&quot;, pkg_get_name(pkg));
++		pkg_action(PKG_DB_INFO,
++		    &quot;Attempting to record package into &quot; DB_LOCATION &quot;/%s..&quot;,
++		    pkg_get_name(pkg));
+ 
+ 		/* Create the new contents file */
+ 		if (!fake) {
+@@ -404,10 +420,9 @@
+ 			pkg_file_free(contents_file);
+ 		}
+ 		/** @todo Register the reverse dependencies */
+-		if (pkg_action != NULL)
+-			pkg_action(PKG_DB_INFO,
+-			    &quot;Package %s registered in &quot; DB_LOCATION &quot;/%s&quot;,
+-			    pkg_get_name(pkg), pkg_get_name(pkg));
++		pkg_action(PKG_DB_INFO,
++		    &quot;Package %s registered in &quot; DB_LOCATION &quot;/%s&quot;,
++		    pkg_get_name(pkg), pkg_get_name(pkg));
+ 	}
+ 
+ 	free(directory);
+@@ -547,11 +562,80 @@
+ 
+ #ifdef NEW_DB
+ static int
+-freebsd_do_install(struct pkg_db *db __unused, struct pkg *pkg __unused)
++freebsd_do_chdir(struct pkg *pkg, pkg_db_action *pkg_action, void *data,
++		const char *dir)
+ {
++	struct pkg_install_data *install_data;
++	struct pkg_db *db;
++
++	assert(pkg != NULL);
++	assert(pkg_action != NULL);
++	assert(data != NULL);
++	assert(dir != NULL);
++	
++	install_data = data;
++	db = install_data-&gt;db;
++	assert(db != NULL);
++	assert(db-&gt;db_base != NULL);
++
++	if (strcmp(dir, &quot;.&quot;) == 0) {
++		snprintf(install_data-&gt;directory, MAXPATHLEN,
++		    &quot;%s&quot; DB_LOCATION &quot;/%s&quot;, db-&gt;db_base, pkg_get_name(pkg));
++		if (install_data-&gt;fake != 0)
++			pkg_dir_build(install_data-&gt;directory);
++	} else {
++		snprintf(install_data-&gt;directory, MAXPATHLEN, &quot;%s/%s&quot;,
++		    db-&gt;db_base, dir);
++	}
++
++	pkg_action(PKG_DB_PACKAGE, &quot;CWD to %s&quot;, install_data-&gt;directory);
++	if (install_data-&gt;fake != 0)
++		return chdir(install_data-&gt;directory);
++
++	return 0;
++}
++
++static int
++freebsd_install_file(struct pkg *pkg, pkg_db_action *pkg_action __unused,
++		void *data, struct pkg_file *file)
++{
++	struct pkg_install_data *install_data;
++
++	assert(pkg != NULL);
++	assert(data != NULL);
++	assert(file != NULL);
++
++	install_data = data;
++	snprintf(install_data-&gt;last_file, FILENAME_MAX, &quot;%s&quot;,
++	    pkg_file_get_name(file));
++	printf(&quot;%s\n&quot;, pkg_file_get_name(file));
+ 	return -1;
+ }
+ 
++static int
++freebsd_do_exec(struct pkg *pkg, pkg_db_action *pkg_action, void *data,
++		const char *cmd)
++{
++	char the_cmd[FILENAME_MAX];
++	struct pkg_install_data *install_data;
++
++	assert(pkg != NULL);
++	assert(pkg_action != NULL);
++	assert(data != NULL);
++	assert(cmd != NULL);
++
++	install_data = data;
++
++	freebsd_format_cmd(the_cmd, FILENAME_MAX, cmd, install_data-&gt;directory,
++	    install_data-&gt;last_file);
++
++	pkg_action(PKG_DB_PACKAGE, &quot;execute '%s'&quot;, the_cmd);
++	if (install_data-&gt;fake != 0)
++		return pkg_exec(the_cmd);
++
++	return 0;
++}
++
+ #else
+ /**
+  * @brief Internal function to to the correct thing for an \@cwd line
+@@ -724,6 +808,7 @@
+ 	}
+ 	return i;
+ }
++#endif
+ 
+ /**
+  * @brief Creates a string containing the command to run using printf
+@@ -804,7 +889,6 @@
+ 	}
+ 	*buf = '\0';
+ }
+-#endif
+ 
+ /**
+  * @}
+
+Modified: trunk/src/pkg_freebsd.c
+===================================================================
+--- trunk/src/pkg_freebsd.c	2006-04-24 02:00:42 UTC (rev 102)
++++ trunk/src/pkg_freebsd.c	2006-04-24 10:46:40 UTC (rev 103)
+@@ -55,6 +55,9 @@
+ pkg_static struct pkg_file	 *freebsd_get_control_file(struct pkg *,
+ 					const char *);
+ pkg_static struct pkg_file	 *freebsd_get_next_file(struct pkg *);
++pkg_static int			  freebsd_install(struct pkg *, int,
++					pkg_db_action *, void *, pkg_db_chdir *,
++				       	pkg_db_install_file *, pkg_db_exec *);
+ pkg_static struct pkg		**freebsd_get_deps(struct pkg *);
+ pkg_static int			  freebsd_run_script(struct pkg *, pkg_script);
+ pkg_static int			  freebsd_free(struct pkg *);
+@@ -148,7 +151,7 @@
+ 		return NULL;
+ 	}
+ 	pkg_add_callbacks_data(pkg, freebsd_get_version, freebsd_get_origin);
+-	pkg_add_callbacks_install(pkg, freebsd_get_next_file,
++	pkg_add_callbacks_install(pkg, freebsd_install, freebsd_get_next_file,
+ 	    freebsd_run_script);
+ 	pkg-&gt;data = fpkg;
+ 
+@@ -404,15 +407,160 @@
+ 	return NULL;
+ }
+ 
++static int
++freebsd_install(struct pkg *pkg, int reg, pkg_db_action *pkg_action, void *data,
++		pkg_db_chdir *db_chdir, pkg_db_install_file *install_file,
++		pkg_db_exec *do_exec)
++{
++	int ret;
++	unsigned int pos;
++	struct pkg_file **control;
++	struct pkg_file *contents_file;
++	struct pkg_freebsd_contents *contents;
++
++	assert(pkg != NULL);
++	assert(pkg_action != NULL);
++	assert(data != NULL);
++	assert(db_chdir != NULL);
++	assert(install_file != NULL);
++
++	ret = -1;
++	contents = NULL;
++
++	/* Get the control files from the package */
++	control = pkg_get_control_files(pkg);
++	if (control == NULL) {
++		return -1;
++	}
++
++	/* Find the +CONTENTS file in the control files */
++	for (pos = 0; control[pos] != NULL; pos++)
++		if (!strcmp(control[pos]-&gt;filename, &quot;+CONTENTS&quot;))
++			break;
++	contents_file = control[pos];
++	if (contents_file == NULL) {
++		return -1;
++	}
++
++	contents = pkg_freebsd_contents_new(pkg_file_get(contents_file));
++	if (contents == NULL) {
++		return -1;
++	}
++
++	for (pos = 0; pos &lt; contents-&gt;line_count; pos++) {
++		char ignore;
++
++		ignore = 0;
++		if (contents-&gt;lines[pos].line_type == PKG_LINE_IGNORE) {
++			ignore = ~0;
++			pos++;
++		}
++		switch (contents-&gt;lines[pos].line_type) {
++		case PKG_LINE_IGNORE:
++			/* Error in contents file */
++			ret = -1;
++			goto exit;
++		case PKG_LINE_COMMENT:
++		case PKG_LINE_UNEXEC:
++		case PKG_LINE_DIRRM:
++		case PKG_LINE_MTREE:
++		case PKG_LINE_PKGDEP:
++			break;
++		case PKG_LINE_NAME:
++			/* Check the name is the same as the packages name */
++			if (strcmp(pkg_get_name(pkg),
++			    contents-&gt;lines[pos].data) != 0) {
++				ret = -1;
++				goto exit;
++			}
++			break;
++		case PKG_LINE_CWD:
++		{
++			const char *dir;
++
++			dir = contents-&gt;lines[pos].data;
++			if (strcmp(dir, &quot;.&quot;) == 0) {
++				if (reg)
++					db_chdir(pkg, pkg_action, data, dir);
++			} else {
++				db_chdir(pkg, pkg_action, data, dir);
++			}
++			break;
++		}
++		case PKG_LINE_FILE:
++		{
++			struct pkg_file *file;
++
++			file = pkg_get_next_file(pkg);
++			if (file == NULL)
++				file = pkg_get_control_file(pkg,
++				    contents-&gt;lines[pos].line);
++			if (file == NULL) {
++				/* File not found in the package */
++				ret = -1;
++				goto exit;
++			}
++
++			/* Check the file name is correct */
++			if (strcmp(contents-&gt;lines[pos].line,
++			    pkg_file_get_name(file)) != 0) {
++				ret = -1;
++				goto exit;
++			}
++
++			if (contents-&gt;lines[pos+1].line_type ==
++			    PKG_LINE_COMMENT) {
++				char *p;
++
++				p = strchr(contents-&gt;lines[pos+1].data, ':');
++				p++;
++				if (pkg_checksum_md5(file, p) == 0) {
++					/** @todo Install the file */
++					install_file(pkg, pkg_action, data,
++					    file);
++				} else {
++					ret = -1;
++					goto exit;
++				}
++				pos++;
++			}
++//			if (ignore)
++//				printf(&quot; (Ignored)&quot;);
++			break;
++		}
++		case PKG_LINE_EXEC:
++		{
++			do_exec(pkg, pkg_action, data,
++			    contents-&gt;lines[pos].data);
++			break;
++		}
++
++		default:
++			printf(&quot;%s&quot;, contents-&gt;lines[pos].line);
++			if (contents-&gt;lines[pos].data != NULL)
++				printf(&quot; %s&quot;, contents-&gt;lines[pos].data);
++			if (ignore)
++				printf(&quot; (Ignored)&quot;);
++			putchar('\n');
++		}
++	}
++exit:
++	if (contents != NULL)
++		pkg_freebsd_contents_free(contents);
++
++	return ret;
++}
++
+ /**
+  * @brief Callback for pkg_get_next_file()
+- * @todo Write
+  * @return The next non-control pkg_file or NULL
+  */
+ static struct pkg_file *
+ freebsd_get_next_file(struct pkg *pkg)
+ {
+ 	struct freebsd_package *fpkg;
++	struct pkg_file *file;
++
+ 	assert(pkg != NULL);
+ 	fpkg = pkg-&gt;data;
+ 	assert(fpkg != NULL);
+@@ -423,7 +571,15 @@
+ 		fpkg-&gt;next_file = NULL;
+ 		return pkg_file;
+ 	}
+-	return freebsd_get_next_entry(fpkg-&gt;archive);
++	if (fpkg-&gt;archive == NULL)
++		return NULL;
++
++	file = freebsd_get_next_entry(fpkg-&gt;archive);
++	if (file == NULL) {
++		archive_read_finish(fpkg-&gt;archive);
++		fpkg-&gt;archive = NULL;
++	}
++	return file;
+ }
+ 
+ /**
+
+Modified: trunk/src/pkg_private.h
+===================================================================
+--- trunk/src/pkg_private.h	2006-04-24 02:00:42 UTC (rev 102)
++++ trunk/src/pkg_private.h	2006-04-24 10:46:40 UTC (rev 103)
+@@ -31,6 +31,7 @@
+ #define __LIBPKG_PKG_PRIVATE_H__
+ 
+ #include &lt;archive.h&gt;
++#include &quot;pkg_db.h&quot;
+ 
+ int archive_read_open_stream(struct archive *, FILE *, size_t);
+ 
+@@ -76,11 +77,24 @@
+ 				pkg_add_file_callback *);
+ 
+ /* Callbacks used with installable packages. Used by pkg_repo */
++typedef int	  	  pkg_db_chdir(struct pkg *, pkg_db_action *, void *,
++				const char *);
++typedef int		  pkg_db_install_file(struct pkg *, pkg_db_action *,
++				void *, struct pkg_file *);
++typedef int		  pkg_db_exec(struct pkg *, pkg_db_action *, void *,
++				const char *);
++typedef int	  	  pkg_install_callback(struct pkg*, int,
++				pkg_db_action *, void *, pkg_db_chdir *,
++				pkg_db_install_file *, pkg_db_exec *);
+ typedef struct pkg_file	 *pkg_get_next_file_callback(struct pkg *);
+ typedef int		  pkg_run_script_callback(struct pkg *, pkg_script);
+ int			  pkg_add_callbacks_install(struct pkg *,
++				pkg_install_callback *,
+ 				pkg_get_next_file_callback *,
+ 				pkg_run_script_callback *);
++int			  pkg_install(struct pkg *, int, pkg_db_action *,
++				void *, pkg_db_chdir *, pkg_db_install_file *,
++				pkg_db_exec *);
+ 
+ struct pkg {
+ 	void	*data;
+@@ -102,6 +116,7 @@
+ 	pkg_add_file_callback		*pkg_add_file;
+ 
+ 	/* Callbacks used with installing packages */
++	pkg_install_callback		*pkg_install;
+ 	pkg_get_next_file_callback	*pkg_get_next_file;
+ 	pkg_run_script_callback		*pkg_run_script;
+ };
+
+
+</PRE>
+
+<!--endarticle-->
+    <HR>
+    <P><UL>
+        <!--threads-->
+	<LI>Previous message: <A HREF="000086.html">[Libpkg-svn] r102 - trunk/src
+</A></li>
+	<LI>Next message: <A HREF="000088.html">[Libpkg-svn] r104 - trunk/src
+</A></li>
+         <LI> <B>Messages sorted by:</B> 
+              <a href="date.html#87">[ date ]</a>
+              <a href="thread.html#87">[ thread ]</a>
+              <a href="subject.html#87">[ subject ]</a>
+              <a href="author.html#87">[ author ]</a>
+         </LI>
+       </UL>
+
+<hr>
+<a href="https://lists.berlios.de/mailman/listinfo/libpkg-svn">More information about the Libpkg-svn
+mailing list</a><br>
+</body></html>

@@ -1,0 +1,173 @@
+<!DOCTYPE HTML PUBLIC "-//W3C//DTD HTML 4.01 Transitional//EN">
+<HTML>
+ <HEAD>
+   <TITLE> [Libpkg-svn] r129 - trunk/src
+   </TITLE>
+   <LINK REL="Index" HREF="http://lists.berlios.de/pipermail/libpkg-svn/2006-June/index.html" >
+   <LINK REL="made" HREF="mailto:libpkg-svn%40lists.berlios.de?Subject=Re%3A%20%5BLibpkg-svn%5D%20r129%20-%20trunk/src&In-Reply-To=%3C200606230808.k5N88488014472%40sheep.berlios.de%3E">
+   <META NAME="robots" CONTENT="index,nofollow">
+   <style type="text/css">
+       pre {
+           white-space: pre-wrap;       /* css-2.1, curent FF, Opera, Safari */
+           }
+   </style>
+   <META http-equiv="Content-Type" content="text/html; charset=us-ascii">
+   <LINK REL="Previous"  HREF="000112.html">
+   <LINK REL="Next"  HREF="000114.html">
+ </HEAD>
+ <BODY BGCOLOR="#ffffff">
+   <H1>[Libpkg-svn] r129 - trunk/src</H1>
+    <B>zxombie at BerliOS</B> 
+    <A HREF="mailto:libpkg-svn%40lists.berlios.de?Subject=Re%3A%20%5BLibpkg-svn%5D%20r129%20-%20trunk/src&In-Reply-To=%3C200606230808.k5N88488014472%40sheep.berlios.de%3E"
+       TITLE="[Libpkg-svn] r129 - trunk/src">zxombie at berlios.de
+       </A><BR>
+    <I>Fri Jun 23 10:08:04 CEST 2006</I>
+    <P><UL>
+        <LI>Previous message: <A HREF="000112.html">[Libpkg-svn] r128 - trunk/src
+</A></li>
+        <LI>Next message: <A HREF="000114.html">[Libpkg-svn] r130 - trunk/src
+</A></li>
+         <LI> <B>Messages sorted by:</B> 
+              <a href="date.html#113">[ date ]</a>
+              <a href="thread.html#113">[ thread ]</a>
+              <a href="subject.html#113">[ subject ]</a>
+              <a href="author.html#113">[ author ]</a>
+         </LI>
+       </UL>
+    <HR>  
+<!--beginarticle-->
+<PRE>Author: zxombie
+Date: 2006-06-23 10:08:03 +0200 (Fri, 23 Jun 2006)
+New Revision: 129
+
+Modified:
+   trunk/src/pkg.h
+   trunk/src/pkg_freebsd.c
+   trunk/src/pkg_private.h
+   trunk/src/pkgfile.c
+Log:
+Set the mode when writing a pkgfile
+
+
+Modified: trunk/src/pkg.h
+===================================================================
+--- trunk/src/pkg.h	2006-06-23 04:30:40 UTC (rev 128)
++++ trunk/src/pkg.h	2006-06-23 08:08:03 UTC (rev 129)
+@@ -66,7 +66,7 @@
+ char		*pkgfile_get_data(struct pkgfile *, uint64_t);
+ char		*pkgfile_get_data_all(struct pkgfile *);
+ int		 pkgfile_seek(struct pkgfile *, uint64_t, int);
+-int		 pkgfile_set_stat(struct pkgfile *, const struct stat *);
++int		 pkgfile_set_mode(struct pkgfile *, mode_t);
+ int		 pkgfile_write(struct pkgfile *);
+ int		 pkgfile_free(struct pkgfile *);
+ 
+
+Modified: trunk/src/pkg_freebsd.c
+===================================================================
+--- trunk/src/pkg_freebsd.c	2006-06-23 04:30:40 UTC (rev 128)
++++ trunk/src/pkg_freebsd.c	2006-06-23 08:08:03 UTC (rev 129)
+@@ -979,10 +979,7 @@
+ 	if (file == NULL)
+ 		errx(1, &quot;File is not regular or symbolic link&quot;);
+ 
+-	/**
+-	 * @todo Uncomment when pkgfile_set_stat is written
+-	 */
+-	/* pkgfile_set_stat(file, sb); */
++	pkgfile_set_mode(file, sb-&gt;st_mode);
+ 	return file;
+ }
+ 
+
+Modified: trunk/src/pkg_private.h
+===================================================================
+--- trunk/src/pkg_private.h	2006-06-23 04:30:40 UTC (rev 128)
++++ trunk/src/pkg_private.h	2006-06-23 08:08:03 UTC (rev 129)
+@@ -35,13 +35,14 @@
+ 
+ int archive_read_open_stream(struct archive *, FILE *, size_t);
+ 
++/** @todo Reorder the struct to remove alignment gaps */
+ struct pkgfile {
+ 	char		*name;
+ 	pkgfile_type	 type;
+ 	FILE		*fd;
+ 	char		*data;
+ 	uint64_t	 length;
+-	struct stat	*stat;
++	mode_t		 mode;
+ };
+ 
+ /*
+
+Modified: trunk/src/pkgfile.c
+===================================================================
+--- trunk/src/pkgfile.c	2006-06-23 04:30:40 UTC (rev 128)
++++ trunk/src/pkgfile.c	2006-06-23 08:08:03 UTC (rev 129)
+@@ -70,6 +70,7 @@
+ 	file-&gt;fd = NULL;
+ 	file-&gt;data = NULL;
+ 	file-&gt;length = 0;
++	file-&gt;mode = 0;
+ 
+ 	return file;
+ }
+@@ -369,6 +370,22 @@
+ }
+ 
+ /**
++ * @brief Sets the given file's mode
++ * @param Tile The file to set the mode on
++ * @param The mode to set. 0 will unset it
++ * @return 0 o success or -1 on error
++ */
++int
++pkgfile_set_mode(struct pkgfile *file, mode_t mode)
++{
++	if (file == NULL)
++		return -1;
++
++	file-&gt;mode = mode &amp; ALLPERMS;
++	return 0;
++}
++
++/**
+  * @brief Writes a pkgfile to disk
+  * @return 0 on success or -1 on error
+  */
+@@ -439,6 +456,10 @@
+ 					break;
+ 				}
+ 			}
++
++			if (file-&gt;mode != 0)
++				fchmod(fileno(fd), file-&gt;mode);
++
+ 			fclose(fd);
+ 		}
+ 		break;
+
+
+</PRE>
+
+<!--endarticle-->
+    <HR>
+    <P><UL>
+        <!--threads-->
+	<LI>Previous message: <A HREF="000112.html">[Libpkg-svn] r128 - trunk/src
+</A></li>
+	<LI>Next message: <A HREF="000114.html">[Libpkg-svn] r130 - trunk/src
+</A></li>
+         <LI> <B>Messages sorted by:</B> 
+              <a href="date.html#113">[ date ]</a>
+              <a href="thread.html#113">[ thread ]</a>
+              <a href="subject.html#113">[ subject ]</a>
+              <a href="author.html#113">[ author ]</a>
+         </LI>
+       </UL>
+
+<hr>
+<a href="https://lists.berlios.de/mailman/listinfo/libpkg-svn">More information about the Libpkg-svn
+mailing list</a><br>
+</body></html>

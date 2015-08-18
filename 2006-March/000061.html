@@ -1,0 +1,363 @@
+<!DOCTYPE HTML PUBLIC "-//W3C//DTD HTML 4.01 Transitional//EN">
+<HTML>
+ <HEAD>
+   <TITLE> [Libpkg-svn] r76 - in trunk/tools: . pkg_add
+   </TITLE>
+   <LINK REL="Index" HREF="http://lists.berlios.de/pipermail/libpkg-svn/2006-March/index.html" >
+   <LINK REL="made" HREF="mailto:libpkg-svn%40lists.berlios.de?Subject=Re%3A%20%5BLibpkg-svn%5D%20r76%20-%20in%20trunk/tools%3A%20.%20pkg_add&In-Reply-To=%3C200603160958.k2G9waNA016334%40sheep.berlios.de%3E">
+   <META NAME="robots" CONTENT="index,nofollow">
+   <style type="text/css">
+       pre {
+           white-space: pre-wrap;       /* css-2.1, curent FF, Opera, Safari */
+           }
+   </style>
+   <META http-equiv="Content-Type" content="text/html; charset=us-ascii">
+   <LINK REL="Previous"  HREF="000060.html">
+   <LINK REL="Next"  HREF="000062.html">
+ </HEAD>
+ <BODY BGCOLOR="#ffffff">
+   <H1>[Libpkg-svn] r76 - in trunk/tools: . pkg_add</H1>
+    <B>zxombie at BerliOS</B> 
+    <A HREF="mailto:libpkg-svn%40lists.berlios.de?Subject=Re%3A%20%5BLibpkg-svn%5D%20r76%20-%20in%20trunk/tools%3A%20.%20pkg_add&In-Reply-To=%3C200603160958.k2G9waNA016334%40sheep.berlios.de%3E"
+       TITLE="[Libpkg-svn] r76 - in trunk/tools: . pkg_add">zxombie at berlios.de
+       </A><BR>
+    <I>Thu Mar 16 10:58:36 CET 2006</I>
+    <P><UL>
+        <LI>Previous message: <A HREF="000060.html">[Libpkg-svn] r75 - trunk/src
+</A></li>
+        <LI>Next message: <A HREF="000062.html">[Libpkg-svn] r77 - trunk/src
+</A></li>
+         <LI> <B>Messages sorted by:</B> 
+              <a href="date.html#61">[ date ]</a>
+              <a href="thread.html#61">[ thread ]</a>
+              <a href="subject.html#61">[ subject ]</a>
+              <a href="author.html#61">[ author ]</a>
+         </LI>
+       </UL>
+    <HR>  
+<!--beginarticle-->
+<PRE>Author: zxombie
+Date: 2006-03-16 10:58:35 +0100 (Thu, 16 Mar 2006)
+New Revision: 76
+
+Added:
+   trunk/tools/pkg_add/
+   trunk/tools/pkg_add/Makefile
+   trunk/tools/pkg_add/main.c
+Modified:
+   trunk/tools/Makefile
+Log:
+Add the start of a pkg_add replacement
+
+
+Modified: trunk/tools/Makefile
+===================================================================
+--- trunk/tools/Makefile	2006-03-14 10:20:21 UTC (rev 75)
++++ trunk/tools/Makefile	2006-03-16 09:58:35 UTC (rev 76)
+@@ -1,3 +1,3 @@
+-SUBDIR=pkg_info
++SUBDIR=pkg_info pkg_add
+ 
+ .include &lt;bsd.subdir.mk&gt;
+
+Added: trunk/tools/pkg_add/Makefile
+===================================================================
+--- trunk/tools/pkg_add/Makefile	2006-03-14 10:20:21 UTC (rev 75)
++++ trunk/tools/pkg_add/Makefile	2006-03-16 09:58:35 UTC (rev 76)
+@@ -0,0 +1,18 @@
++PROG	 = pkg_add
++
++SRCS	 = main.c
++
++CFLAGS	+= -I${.CURDIR}/../../src
++.if defined(WITH_PROFILE)
++CFLAGS	+= -ggdb -pg -lc
++LDADD	 = ${.CURDIR}/../../src/libpkg_p.a
++.else
++LDADD	 = ${.CURDIR}/../../src/libpkg.a
++.endif
++LDADD	+= -lmd -larchive -lbz2 -lz -lfetch
++NOMAN	 = 1
++NO_MAN	 = 1
++
++WARNS	?= 6
++
++.include &lt;bsd.prog.mk&gt;
+
+Added: trunk/tools/pkg_add/main.c
+===================================================================
+--- trunk/tools/pkg_add/main.c	2006-03-14 10:20:21 UTC (rev 75)
++++ trunk/tools/pkg_add/main.c	2006-03-16 09:58:35 UTC (rev 76)
+@@ -0,0 +1,248 @@
++/*
++ *
++ * FreeBSD install - a package for the installation and maintainance
++ * of non-core utilities.
++ *
++ * Redistribution and use in source and binary forms, with or without
++ * modification, are permitted provided that the following conditions
++ * are met:
++ * 1. Redistributions of source code must retain the above copyright
++ *    notice, this list of conditions and the following disclaimer.
++ * 2. Redistributions in binary form must reproduce the above copyright
++ *    notice, this list of conditions and the following disclaimer in the
++ *    documentation and/or other materials provided with the distribution.
++ *
++ * Jordan K. Hubbard
++ * 18 July 1993
++ *
++ * This is the add module.
++ */
++
++#include &lt;sys/param.h&gt;
++
++#include &lt;assert.h&gt;
++#include &lt;err.h&gt;
++#include &lt;pkg.h&gt;
++#include &lt;pkg_db.h&gt;
++#include &lt;pkg_repo.h&gt;
++#include &lt;stdarg.h&gt;
++#include &lt;stdio.h&gt;
++#include &lt;stdlib.h&gt;
++#include &lt;string.h&gt;
++#include &lt;unistd.h&gt;
++
++struct pkg_add {
++	struct pkg_db	 *db;
++	struct pkg_repo	 *repo;
++	struct pkg	**pkgs;
++	int		  verbosity;
++	char		  chroot[PATH_MAX];
++};
++
++static char options[] = &quot;hvIRfnrp:P:SMt:C:K&quot;;
++
++static void usage(void);
++static int pkg_add(struct pkg_add);
++static int install_package(struct pkg *, struct pkg_repo *, struct pkg_db *,
++		int);
++
++int
++main (int argc, char *argv[])
++{
++	char ch;
++	struct pkg_add add;
++	int ret, i;
++
++	add.db = NULL;
++	add.repo = NULL;
++	add.verbosity = 0;
++	add.chroot[0] = '\0';
++	while ((ch = getopt(argc, argv, options)) != -1) {
++		switch(ch) {
++		/* Case statements marked TODO will be supported in the next release */
++		case 'C':
++			strlcpy(add.chroot, optarg, PATH_MAX);
++			break;
++		case 'f':
++			/* TODO */
++			errx(1, &quot;Unsupported argument&quot;);
++			break;
++		case 'I':
++			/* TODO */
++			errx(1, &quot;Unsupported argument&quot;);
++			break;
++		case 'K':
++			/* TODO */
++			errx(1, &quot;Unsupported argument&quot;);
++			break;
++		case 'M':
++			errx(1, &quot;Unsupported argument&quot;);
++			break;
++		case 'n':
++			/* TODO */
++			/* This dosn't seem to do anything in the base version */
++			errx(1, &quot;Unsupported argument&quot;);
++			break;
++		case 'P':
++			errx(1, &quot;Unsupported argument&quot;);
++			break;
++		case 'p':
++			errx(1, &quot;Unsupported argument&quot;);
++			break;
++		case 'R':
++			/* TODO */
++			errx(1, &quot;Unsupported argument&quot;);
++			break;
++		case 'r':
++			pkg_repo_free(add.repo);
++			add.repo = pkg_repo_new_ftp(NULL, NULL);
++			break;
++		case 'S':
++			errx(1, &quot;Unsupported argument&quot;);
++			break;
++		case 't':
++			errx(1, &quot;The -t argument is unneded as the staging area is unused&quot;);
++			break;
++		case 'v':
++			add.verbosity = 1;
++			break;
++		case 'h':
++		case '?':
++		default:
++			usage();
++			break;
++		}
++	}
++	argc -= optind;
++	argv += optind;
++
++	/* There are no packages to install. just quit now */
++	if (argc == 0) {
++		pkg_repo_free(add.repo);
++		return 0;
++	}
++
++	if (add.chroot[0] != '\0')
++		if (chroot(add.chroot) == -1)
++			err(1, &quot;Could not chroot to %s&quot;, add.chroot);
++
++	/* Open the repo and database */
++	if (add.repo == NULL)
++		add.repo = pkg_repo_new_local_freebsd();
++	if (add.db == NULL)
++		add.db = pkg_db_open_freebsd(&quot;/&quot;);
++
++	/* The rest of the arguments are packages to install */
++	add.pkgs = malloc(sizeof(struct pkg*) * (argc + 1));
++	for (i=0; i &lt; argc; i++) {
++		add.pkgs[i] = pkg_repo_get_pkg(add.repo, argv[i]);
++		if (add.pkgs[i] == NULL) {
++			errx(1, &quot;can't stat package file '%s'&quot;, argv[i]);
++		}
++	}
++	add.pkgs[i] = NULL;
++
++	/* Perform the installation */
++	ret = pkg_add(add);
++	free(add.pkgs);
++	pkg_db_free(add.db);
++	pkg_repo_free(add.repo);
++	return ret;
++}
++
++static void
++usage()
++{
++	fprintf(stderr,
++	    &quot;usage: pkg_add [-vInrfRMSK] [-t template] [-p prefix] [-P prefix] [-C chrootdir]\n&quot;
++	    &quot;               pkg-name [pkg-name ...]&quot;);
++    exit(1);
++}
++
++/*
++ * Get the list of packages and call install_package to install them
++ */
++static int
++pkg_add(struct pkg_add add)
++{
++	int i;
++	assert(add.db != NULL);
++	assert(add.repo != NULL);
++	for (i=0; add.pkgs[i] != NULL; i++) {
++		if (pkg_db_is_installed(add.db, add.pkgs[i]) == 0) {
++			warnx(&quot;package '%s' or its older version already installed&quot;,
++			    pkg_get_name(add.pkgs[i]));
++			continue;
++		}
++		install_package(add.pkgs[i], add.repo, add.db, add.verbosity);
++	}
++	return 1;
++}
++
++/*
++ * Print the message from fmt
++ * Only used when -v is set
++ */
++static void
++pkg_action(int level, const char *fmt, ...)
++{
++	va_list ap;
++
++	va_start(ap, fmt);
++	if (level == PKG_DB_PACKAGE)
++		printf(&quot;extract: &quot;);
++	vprintf(fmt, ap);
++	putchar('\n');
++	va_end(ap);
++}
++
++/*
++ * Recursivley install the required packages
++ */
++static int
++install_package(struct pkg *pkg, struct pkg_repo *repo, struct pkg_db *db, int verbosity)
++{
++	unsigned int i;
++	int ret;
++	struct pkg **deps;
++
++	assert(pkg != NULL);
++	assert(repo != NULL);
++	assert(db != NULL);
++
++	/* Don't install packages twice */
++	if (pkg_db_is_installed(db, pkg) == 0) {
++		return 0;
++	}
++
++	/* Get the package's dependencies */
++	deps = pkg_get_dependencies(pkg);
++	for (i=0; deps[i] != NULL; i++) {
++		struct pkg *new_pkg;
++
++		/* Replace the empty package with one from disk */
++		new_pkg = pkg_repo_get_pkg(repo, pkg_get_name(deps[i]));
++		if (new_pkg == NULL) {
++			warnx(&quot;could not find package %s&quot;,
++			    pkg_get_name(deps[i]));
++			continue;
++		}
++		pkg_free(deps[i]);
++		deps[i] = new_pkg;
++
++		/* Install the dependency */
++		if (install_package(deps[i], repo, db, verbosity) != 0) {
++			return -1;
++		}
++	}
++	pkg_list_free(deps);
++
++	if (verbosity) {
++		printf(&quot;extract: Package name is %s\n&quot;, pkg_get_name(pkg));
++		ret = pkg_db_install_pkg_action(db, pkg, pkg_action);
++	} else {
++		ret = pkg_db_install_pkg(db, pkg);
++	}
++	/* XXX Ass warning if ret != 0 */
++	return ret;
++}
+
+
+</PRE>
+
+<!--endarticle-->
+    <HR>
+    <P><UL>
+        <!--threads-->
+	<LI>Previous message: <A HREF="000060.html">[Libpkg-svn] r75 - trunk/src
+</A></li>
+	<LI>Next message: <A HREF="000062.html">[Libpkg-svn] r77 - trunk/src
+</A></li>
+         <LI> <B>Messages sorted by:</B> 
+              <a href="date.html#61">[ date ]</a>
+              <a href="thread.html#61">[ thread ]</a>
+              <a href="subject.html#61">[ subject ]</a>
+              <a href="author.html#61">[ author ]</a>
+         </LI>
+       </UL>
+
+<hr>
+<a href="https://lists.berlios.de/mailman/listinfo/libpkg-svn">More information about the Libpkg-svn
+mailing list</a><br>
+</body></html>

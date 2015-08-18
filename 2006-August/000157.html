@@ -1,0 +1,334 @@
+<!DOCTYPE HTML PUBLIC "-//W3C//DTD HTML 4.01 Transitional//EN">
+<HTML>
+ <HEAD>
+   <TITLE> [Libpkg-svn] r173 - in trunk: src tools/pkg_info
+   </TITLE>
+   <LINK REL="Index" HREF="http://lists.berlios.de/pipermail/libpkg-svn/2006-August/index.html" >
+   <LINK REL="made" HREF="mailto:libpkg-svn%40lists.berlios.de?Subject=Re%3A%20%5BLibpkg-svn%5D%20r173%20-%20in%20trunk%3A%20src%20tools/pkg_info&In-Reply-To=%3C200608020824.k728OPhC025715%40sheep.berlios.de%3E">
+   <META NAME="robots" CONTENT="index,nofollow">
+   <style type="text/css">
+       pre {
+           white-space: pre-wrap;       /* css-2.1, curent FF, Opera, Safari */
+           }
+   </style>
+   <META http-equiv="Content-Type" content="text/html; charset=us-ascii">
+   <LINK REL="Previous"  HREF="000156.html">
+   <LINK REL="Next"  HREF="000158.html">
+ </HEAD>
+ <BODY BGCOLOR="#ffffff">
+   <H1>[Libpkg-svn] r173 - in trunk: src tools/pkg_info</H1>
+    <B>zxombie at BerliOS</B> 
+    <A HREF="mailto:libpkg-svn%40lists.berlios.de?Subject=Re%3A%20%5BLibpkg-svn%5D%20r173%20-%20in%20trunk%3A%20src%20tools/pkg_info&In-Reply-To=%3C200608020824.k728OPhC025715%40sheep.berlios.de%3E"
+       TITLE="[Libpkg-svn] r173 - in trunk: src tools/pkg_info">zxombie at mail.berlios.de
+       </A><BR>
+    <I>Wed Aug  2 10:24:25 CEST 2006</I>
+    <P><UL>
+        <LI>Previous message: <A HREF="000156.html">[Libpkg-svn] r172 - in trunk: src tools/pkg_add
+</A></li>
+        <LI>Next message: <A HREF="000158.html">[Libpkg-svn] r174 - trunk/src
+</A></li>
+         <LI> <B>Messages sorted by:</B> 
+              <a href="date.html#157">[ date ]</a>
+              <a href="thread.html#157">[ thread ]</a>
+              <a href="subject.html#157">[ subject ]</a>
+              <a href="author.html#157">[ author ]</a>
+         </LI>
+       </UL>
+    <HR>  
+<!--beginarticle-->
+<PRE>Author: zxombie
+Date: 2006-08-02 10:24:21 +0200 (Wed, 02 Aug 2006)
+New Revision: 173
+
+Modified:
+   trunk/src/pkg.h
+   trunk/src/pkg_freebsd.c
+   trunk/src/pkg_freebsd_contents.c
+   trunk/src/pkgfile.c
+   trunk/tools/pkg_info/show.c
+Log:
+Change pkgfile_get_data to return a const pointer to the file's data
+Remove pkgfile_get_data_all as it is unneeded now
+
+This reduces the number of strdup's required to read a file's data
+
+
+Modified: trunk/src/pkg.h
+===================================================================
+--- trunk/src/pkg.h	2006-08-01 10:41:05 UTC (rev 172)
++++ trunk/src/pkg.h	2006-08-02 08:24:21 UTC (rev 173)
+@@ -63,8 +63,7 @@
+ 			pkgfile_type);
+ const char	*pkgfile_get_name(struct pkgfile *);
+ uint64_t	 pkgfile_get_size(struct pkgfile *);
+-char		*pkgfile_get_data(struct pkgfile *, uint64_t);
+-char		*pkgfile_get_data_all(struct pkgfile *);
++const char	*pkgfile_get_data(struct pkgfile *);
+ int		 pkgfile_set_checksum_md5(struct pkgfile *, const char *);
+ int		 pkgfile_compare_checksum_md5(struct pkgfile *);
+ int		 pkgfile_seek(struct pkgfile *, uint64_t, int);
+
+Modified: trunk/src/pkg_freebsd.c
+===================================================================
+--- trunk/src/pkg_freebsd.c	2006-08-01 10:41:05 UTC (rev 172)
++++ trunk/src/pkg_freebsd.c	2006-08-02 08:24:21 UTC (rev 173)
+@@ -448,7 +448,7 @@
+ 	struct pkgfile **control;
+ 	struct pkgfile *contents_file;
+ 	struct pkg_freebsd_contents *contents;
+-	char *file_data;
++	const char *file_data;
+ 	int chdir_first = 1;
+ 	int only_control_files = 0;
+ 
+@@ -479,10 +479,9 @@
+ 		return -1;
+ 	}
+ 
+-	file_data = pkgfile_get_data_all(contents_file);
++	file_data = pkgfile_get_data(contents_file);
+ 	contents = pkg_freebsd_contents_new(file_data,
+ 	    pkgfile_get_size(contents_file));
+-	free(file_data);
+ 	if (contents == NULL) {
+ 		return -1;
+ 	}
+@@ -1089,7 +1088,7 @@
+ static int
+ freebsd_parse_contents(struct freebsd_package *fpkg)
+ {
+-	char *file_data;
++	const char *file_data;
+ 	struct pkgfile *contents_file;
+ 	int i;
+ 	
+@@ -1111,10 +1110,9 @@
+ 	if (contents_file == NULL)
+ 		return -1;
+ 
+-	file_data = pkgfile_get_data_all(contents_file);
++	file_data = pkgfile_get_data(contents_file);
+ 	fpkg-&gt;contents = pkg_freebsd_contents_new(file_data,
+ 	    pkgfile_get_size(contents_file));
+-	free(file_data);
+ 	return 0;
+ }
+ 
+
+Modified: trunk/src/pkg_freebsd_contents.c
+===================================================================
+--- trunk/src/pkg_freebsd_contents.c	2006-08-01 10:41:05 UTC (rev 172)
++++ trunk/src/pkg_freebsd_contents.c	2006-08-02 08:24:21 UTC (rev 173)
+@@ -279,7 +279,7 @@
+ 		struct pkgfile *file)
+ {
+ 	char md5[33], tmp[37];
+-	char *data;
++	const char *data;
+ 
+ 	if (contents == NULL || contents-&gt;file != NULL || file == NULL)
+ 		return -1;
+@@ -289,7 +289,7 @@
+ 		return -1;
+ 	}
+ 
+-	data = pkgfile_get_data_all(file);
++	data = pkgfile_get_data(file);
+ 	if (!data)
+ 		return -1;
+ 	MD5Data(data, pkgfile_get_size(file), md5);
+
+Modified: trunk/src/pkgfile.c
+===================================================================
+--- trunk/src/pkgfile.c	2006-08-01 10:41:05 UTC (rev 172)
++++ trunk/src/pkgfile.c	2006-08-02 08:24:21 UTC (rev 173)
+@@ -331,11 +331,9 @@
+  * @return A string containing the data or NULL
+  * @todo Change to return &quot;const char *&quot; and not do the strdup
+  */
+-char *
+-pkgfile_get_data(struct pkgfile *file, uint64_t length)
++const char *
++pkgfile_get_data(struct pkgfile *file)
+ {
+-	char *data;
+-	data = NULL;
+ 	if (file == NULL)
+ 		return NULL;
+ 
+@@ -346,60 +344,40 @@
+ 	assert(file-&gt;type != pkgfile_dir);
+ 
+ 	switch (file-&gt;type) {
+-		case pkgfile_none:
+-		case pkgfile_dir:
+-			break;
+-		case pkgfile_hardlink:
+-			assert(file-&gt;loc == pkgfile_loc_mem);
+-			if (file-&gt;loc == pkgfile_loc_mem) {
++	case pkgfile_none:
++	case pkgfile_dir:
++		break;
++	case pkgfile_hardlink:
++		assert(file-&gt;loc == pkgfile_loc_mem);
++		if (file-&gt;loc == pkgfile_loc_mem) {
++			if (file-&gt;data == NULL)
++				return NULL;
++			return file-&gt;data;
++		}
++		break;
++	case pkgfile_regular:
++		if (file-&gt;loc == pkgfile_loc_disk) {
++			/* Load the file to the data pointer */
++			if (file-&gt;data == NULL) {
++				file-&gt;data = malloc(file-&gt;length);
+ 				if (file-&gt;data == NULL)
+ 					return NULL;
+-				data = strdup(file-&gt;data);
+-			}
+-			break;
+-		case pkgfile_regular:
+-			/** @todo check length &lt; size left in file */
+-			data = malloc(length);
+-			if (data == NULL)
+-				return NULL;
+-			if (file-&gt;loc == pkgfile_loc_disk) {
+ 				/*
+ 				 * Read up to length bytes
+ 				 * from the file to data
+ 				 */
+-				size_t len;
+-
+-				len = fread(data, 1, length, file-&gt;fd);
+-			} else if (file-&gt;data != NULL) {
+-				memcpy(data, file-&gt;data, length);
++				/** @todo check length &lt; size left in file */
++				fread(file-&gt;data, 1, file-&gt;length, file-&gt;fd);
+ 			}
+-			break;
+-		case pkgfile_symlink:
+-			if (file-&gt;data == NULL)
+-				return NULL;
+-			data = strdup(file-&gt;data);
++		}
++	case pkgfile_symlink:
++		return file-&gt;data;
+ 	}
+ 	
+-	return data;
++	return NULL;
+ }
+ 
+ /**
+- * @brief Reads the entire contents of a file
+- * @return A string containing the entire file or NULL
+- */
+-char*
+-pkgfile_get_data_all(struct pkgfile *file)
+-{
+-	uint64_t size;
+-
+-	if (file == NULL)
+-		return NULL;
+-
+-	size = pkgfile_get_size(file);
+-	return pkgfile_get_data(file, size);
+-}
+-
+-/**
+  * @brief Sets the expected md5 of a file
+  * @return  0 on success
+  * @return -1 on error
+@@ -451,12 +429,13 @@
+ 		case pkgfile_symlink:
+ 		case pkgfile_regular:
+ 		{
+-			char *file_data;
++			/*
++			 * Make sure the data has been loaded
++			 * then calculate the checksum
++			 */
++			pkgfile_get_data(file);
++			MD5Data(file-&gt;data, file-&gt;length, checksum);
+ 
+-			file_data = pkgfile_get_data_all(file);
+-			MD5Data(file_data, pkgfile_get_size(file), checksum);
+-			free(file_data);
+-
+ 			break;
+ 		}
+ 	}
+
+Modified: trunk/tools/pkg_info/show.c
+===================================================================
+--- trunk/tools/pkg_info/show.c	2006-08-01 10:41:05 UTC (rev 172)
++++ trunk/tools/pkg_info/show.c	2006-08-02 08:24:21 UTC (rev 173)
+@@ -175,15 +175,14 @@
+ 		printf(&quot;ERROR: show_file: Can't open '%s' for reading!\n&quot;,
+ 		    pkgfile_get_name(file));
+ 	} else {
+-		char *str;
++		const char *str;
+ 		uint64_t length, pos;
+ 
+ 		length = pkgfile_get_size(file);
+-		str = pkgfile_get_data_all(file);
++		str = pkgfile_get_data(file);
+ 		for (pos = 0; pos &lt; length; pos++) {
+ 			putchar(str[pos]);
+ 		}
+-		free(str);
+ 	}
+ 	putchar('\n');
+ 	putchar('\n');
+@@ -239,18 +238,20 @@
+ 	assert(comment != NULL);
+ 	if (comment != NULL &amp;&amp; len &lt; 80) {
+ 		/** @todo Rewrite */
+-		char desc[60], *ptr;
++		char desc[60], *s;
++		const char *ptr;
+ 		/*
+ 		 * Copy the comment to a buffer
+ 		 * so it is 80 characters wide
+ 		 */
+-		ptr = pkgfile_get_data(comment, 80-len);
++		ptr = pkgfile_get_data(comment);
+ 		assert(ptr != NULL);
+ 		strlcpy(desc, ptr, (unsigned int)80-len);
+-		free(ptr);
+-		ptr = strchr(desc, '\n');
+-		if (ptr)
+-			ptr[0] = '\0';
++
++		/* Make sure the line is null terminated at the line break */
++		s = strchr(desc, '\n');
++		if (s)
++			s[0] = '\0';
+ 		printf(&quot;%s\n&quot;, desc);
+ 	} else
+ 		putchar('\n');
+
+
+</PRE>
+
+<!--endarticle-->
+    <HR>
+    <P><UL>
+        <!--threads-->
+	<LI>Previous message: <A HREF="000156.html">[Libpkg-svn] r172 - in trunk: src tools/pkg_add
+</A></li>
+	<LI>Next message: <A HREF="000158.html">[Libpkg-svn] r174 - trunk/src
+</A></li>
+         <LI> <B>Messages sorted by:</B> 
+              <a href="date.html#157">[ date ]</a>
+              <a href="thread.html#157">[ thread ]</a>
+              <a href="subject.html#157">[ subject ]</a>
+              <a href="author.html#157">[ author ]</a>
+         </LI>
+       </UL>
+
+<hr>
+<a href="https://lists.berlios.de/mailman/listinfo/libpkg-svn">More information about the Libpkg-svn
+mailing list</a><br>
+</body></html>

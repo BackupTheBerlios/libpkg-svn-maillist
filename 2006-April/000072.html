@@ -1,0 +1,107 @@
+<!DOCTYPE HTML PUBLIC "-//W3C//DTD HTML 4.01 Transitional//EN">
+<HTML>
+ <HEAD>
+   <TITLE> [Libpkg-svn] r88 - trunk/src
+   </TITLE>
+   <LINK REL="Index" HREF="http://lists.berlios.de/pipermail/libpkg-svn/2006-April/index.html" >
+   <LINK REL="made" HREF="mailto:libpkg-svn%40lists.berlios.de?Subject=Re%3A%20%5BLibpkg-svn%5D%20r88%20-%20trunk/src&In-Reply-To=%3C200604110148.k3B1mUjO015381%40sheep.berlios.de%3E">
+   <META NAME="robots" CONTENT="index,nofollow">
+   <style type="text/css">
+       pre {
+           white-space: pre-wrap;       /* css-2.1, curent FF, Opera, Safari */
+           }
+   </style>
+   <META http-equiv="Content-Type" content="text/html; charset=us-ascii">
+   <LINK REL="Previous"  HREF="000071.html">
+   <LINK REL="Next"  HREF="000073.html">
+ </HEAD>
+ <BODY BGCOLOR="#ffffff">
+   <H1>[Libpkg-svn] r88 - trunk/src</H1>
+    <B>zxombie at BerliOS</B> 
+    <A HREF="mailto:libpkg-svn%40lists.berlios.de?Subject=Re%3A%20%5BLibpkg-svn%5D%20r88%20-%20trunk/src&In-Reply-To=%3C200604110148.k3B1mUjO015381%40sheep.berlios.de%3E"
+       TITLE="[Libpkg-svn] r88 - trunk/src">zxombie at berlios.de
+       </A><BR>
+    <I>Tue Apr 11 03:48:30 CEST 2006</I>
+    <P><UL>
+        <LI>Previous message: <A HREF="000071.html">[Libpkg-svn] r87 - trunk/src
+</A></li>
+        <LI>Next message: <A HREF="000073.html">[Libpkg-svn] r89 - trunk/src
+</A></li>
+         <LI> <B>Messages sorted by:</B> 
+              <a href="date.html#72">[ date ]</a>
+              <a href="thread.html#72">[ thread ]</a>
+              <a href="subject.html#72">[ subject ]</a>
+              <a href="author.html#72">[ author ]</a>
+         </LI>
+       </UL>
+    <HR>  
+<!--beginarticle-->
+<PRE>Author: zxombie
+Date: 2006-04-11 03:47:56 +0200 (Tue, 11 Apr 2006)
+New Revision: 88
+
+Modified:
+   trunk/src/pkg_freebsd.c
+Log:
+Check if the package's database directory exists and is a directory before creating the pkg object
+Return the correct value in freebsd_parse_contents when it has already been called
+Set contents_file to NULL at the start to make thecheck after the for loop valid
+
+
+Modified: trunk/src/pkg_freebsd.c
+===================================================================
+--- trunk/src/pkg_freebsd.c	2006-04-10 07:13:44 UTC (rev 87)
++++ trunk/src/pkg_freebsd.c	2006-04-11 01:47:56 UTC (rev 88)
+@@ -171,7 +171,14 @@
+ {
+ 	struct pkg *pkg;
+ 	struct freebsd_package *fpkg;
++	struct stat sb;
+ 
++	/* check the directory exists and is a directory */
++	if (lstat(pkg_db_dir, &amp;sb) == -1)
++		return NULL;
++	if (!S_ISDIR(sb.st_mode))
++		return NULL;
++
+ 	pkg = pkg_new(pkg_name, freebsd_get_control_files,
+ 	    freebsd_get_control_file, NULL, freebsd_free);
+ 	if (pkg == NULL)
+@@ -704,11 +711,11 @@
+ 	assert(fpkg != NULL);
+ 
+ 	if (fpkg-&gt;contents != NULL)
+-		return -1;
++		return 0;
+ 
+ 	freebsd_open_control_files(fpkg);
+ 
+-	contents_file = fpkg-&gt;control[0];
++	contents_file = NULL;
+ 	for (i = 0; fpkg-&gt;control[i] != NULL; i++) {
+ 		if (strcmp(&quot;+CONTENTS&quot;,
+ 		    basename(pkg_file_get_name(fpkg-&gt;control[i]))) == 0) {
+
+
+</PRE>
+
+<!--endarticle-->
+    <HR>
+    <P><UL>
+        <!--threads-->
+	<LI>Previous message: <A HREF="000071.html">[Libpkg-svn] r87 - trunk/src
+</A></li>
+	<LI>Next message: <A HREF="000073.html">[Libpkg-svn] r89 - trunk/src
+</A></li>
+         <LI> <B>Messages sorted by:</B> 
+              <a href="date.html#72">[ date ]</a>
+              <a href="thread.html#72">[ thread ]</a>
+              <a href="subject.html#72">[ subject ]</a>
+              <a href="author.html#72">[ author ]</a>
+         </LI>
+       </UL>
+
+<hr>
+<a href="https://lists.berlios.de/mailman/listinfo/libpkg-svn">More information about the Libpkg-svn
+mailing list</a><br>
+</body></html>

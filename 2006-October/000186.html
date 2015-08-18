@@ -1,0 +1,167 @@
+<!DOCTYPE HTML PUBLIC "-//W3C//DTD HTML 4.01 Transitional//EN">
+<HTML>
+ <HEAD>
+   <TITLE> [Libpkg-svn] r202 - trunk/tests
+   </TITLE>
+   <LINK REL="Index" HREF="http://lists.berlios.de/pipermail/libpkg-svn/2006-October/index.html" >
+   <LINK REL="made" HREF="mailto:libpkg-svn%40lists.berlios.de?Subject=Re%3A%20%5BLibpkg-svn%5D%20r202%20-%20trunk/tests&In-Reply-To=%3C200610072239.k97MdYxX018252%40sheep.berlios.de%3E">
+   <META NAME="robots" CONTENT="index,nofollow">
+   <style type="text/css">
+       pre {
+           white-space: pre-wrap;       /* css-2.1, curent FF, Opera, Safari */
+           }
+   </style>
+   <META http-equiv="Content-Type" content="text/html; charset=us-ascii">
+   
+   <LINK REL="Next"  HREF="000187.html">
+ </HEAD>
+ <BODY BGCOLOR="#ffffff">
+   <H1>[Libpkg-svn] r202 - trunk/tests</H1>
+    <B>zxombie at BerliOS</B> 
+    <A HREF="mailto:libpkg-svn%40lists.berlios.de?Subject=Re%3A%20%5BLibpkg-svn%5D%20r202%20-%20trunk/tests&In-Reply-To=%3C200610072239.k97MdYxX018252%40sheep.berlios.de%3E"
+       TITLE="[Libpkg-svn] r202 - trunk/tests">zxombie at mail.berlios.de
+       </A><BR>
+    <I>Sun Oct  8 00:39:34 CEST 2006</I>
+    <P><UL>
+        
+        <LI>Next message: <A HREF="000187.html">[Libpkg-svn] r203 - trunk/src
+</A></li>
+         <LI> <B>Messages sorted by:</B> 
+              <a href="date.html#186">[ date ]</a>
+              <a href="thread.html#186">[ thread ]</a>
+              <a href="subject.html#186">[ subject ]</a>
+              <a href="author.html#186">[ author ]</a>
+         </LI>
+       </UL>
+    <HR>  
+<!--beginarticle-->
+<PRE>Author: zxombie
+Date: 2006-10-08 00:39:32 +0200 (Sun, 08 Oct 2006)
+New Revision: 202
+
+Modified:
+   trunk/tests/pkgfile.c
+Log:
+Add tests for files for pkgfile_set_mode, pkgfile_seek and pkgfile_unlink
+Add a test to make sure pkgfile_compare_checksum_md5 fails when no md5 has been set
+Add tests to check if functions that should fail on symlinks do 
+Add a new test pkgfile_misc_bad_args to test functions fail with bad data
+
+
+Modified: trunk/tests/pkgfile.c
+===================================================================
+--- trunk/tests/pkgfile.c	2006-09-28 06:08:36 UTC (rev 201)
++++ trunk/tests/pkgfile.c	2006-10-07 22:39:32 UTC (rev 202)
+@@ -64,11 +64,24 @@
+ 			    NULL);
+ 		}
+ 	}
++
++	/* Test setting the file's mode */
++	fail_unless(pkgfile_set_mode(file, 100) == 0, NULL);
++	fail_unless(file-&gt;mode == (100 &amp; ALLPERMS), NULL);
++	/* Reset it for later operations */
++	fail_unless(pkgfile_set_mode(file, 0) == 0, NULL);
++
++	/* This shouldn't make any sence on a file in memory */
++	fail_unless(pkgfile_seek(file, 0, SEEK_SET) == -1, NULL);
++	fail_unless(pkgfile_unlink(file) == -1, NULL);
+ }
+ 
+ static void
+ test_checksums(struct pkgfile *file, const char *md5)
+ {
++	/* Check if it fails with no md5 set */
++	fail_unless(pkgfile_compare_checksum_md5(file) == -1, NULL);
++
+ 	fail_unless(strlen(md5) == 32, NULL);
+ 	fail_unless(pkgfile_set_checksum_md5(file, md5) == 0, NULL);
+ 	fail_unless(strcmp(file-&gt;md5, md5) == 0, NULL);
+@@ -397,6 +410,11 @@
+ 	system(&quot;rm &quot; BASIC_FILE);
+ 	CLEANUP_TESTDIR();
+ 
++	fail_unless(pkgfile_append(file, &quot;1234567890&quot;, 10) == -1, NULL);
++	fail_unless(pkgfile_remove_line(file, &quot;1234567890&quot;) == -1, NULL);
++	fail_unless(pkgfile_seek(file, 0, SEEK_SET) == -1, NULL);
++	fail_unless(pkgfile_unlink(file) == -1, NULL);
++
+ 	fail_unless(pkgfile_free(file) == 0, NULL);
+ }
+ END_TEST
+@@ -618,22 +636,43 @@
+ }
+ END_TEST
+ 
++START_TEST(pkgfile_misc_bad_args)
++{
++	fail_unless(pkgfile_get_size(NULL) == 0, NULL);
++	fail_unless(pkgfile_get_data(NULL) == NULL, NULL);
++	fail_unless(pkgfile_set_checksum_md5(NULL, NULL) == -1, NULL);
++	fail_unless(pkgfile_set_checksum_md5(NULL, &quot;1234567890123456789012&quot;) == -1, NULL);
++	fail_unless(pkgfile_compare_checksum_md5(NULL) == -1, NULL);
++	fail_unless(pkgfile_unlink(NULL) == -1, NULL);
++	fail_unless(pkgfile_seek(NULL, 0, SEEK_SET) == -1, NULL);
++	fail_unless(pkgfile_set_mode(NULL, 1) == -1, NULL);
++	fail_unless(pkgfile_remove_line(NULL, NULL) == -1, NULL);
++	fail_unless(pkgfile_remove_line(NULL, &quot;&quot;) == -1, NULL);
++	fail_unless(pkgfile_append(NULL, NULL, 0) == -1, NULL);
++	fail_unless(pkgfile_append(NULL, &quot;1234567890&quot;, 10) == -1, NULL);
++	fail_unless(pkgfile_write(NULL) == -1, NULL);
++	fail_unless(pkgfile_free(NULL) == -1, NULL);
++}
++END_TEST
++
+ Suite *
+ pkgfile_suite()
+ {
+ 	Suite *s;
+-	TCase *tc_regular, *tc_symlink, *tc_hardlink, *tc_dir;
++	TCase *tc_regular, *tc_symlink, *tc_hardlink, *tc_dir, *tc_misc;
+ 
+ 	s = suite_create(&quot;pkgfile&quot;);
+ 	tc_regular = tcase_create(&quot;regular&quot;);
+ 	tc_symlink = tcase_create(&quot;symlink&quot;);
+ 	tc_hardlink = tcase_create(&quot;hardlink&quot;);
+ 	tc_dir = tcase_create(&quot;directory&quot;);
++	tc_misc = tcase_create(&quot;misc&quot;);
+ 
+ 	suite_add_tcase(s, tc_regular);
+ 	suite_add_tcase(s, tc_symlink);
+ 	suite_add_tcase(s, tc_hardlink);
+ 	suite_add_tcase(s, tc_dir);
++	suite_add_tcase(s, tc_misc);
+ 
+ 	tcase_add_test(tc_regular, pkgfile_regular_bad_test);
+ 	tcase_add_test(tc_regular, pkgfile_regular_empty_test);
+@@ -657,5 +696,7 @@
+ 	tcase_add_test(tc_dir, pkgfile_directory_existing_test);
+ 	tcase_add_test(tc_dir, pkgfile_directory_depth_test);
+ 
++	tcase_add_test(tc_misc, pkgfile_misc_bad_args);
++
+ 	return s;
+ }
+
+
+</PRE>
+
+<!--endarticle-->
+    <HR>
+    <P><UL>
+        <!--threads-->
+	
+	<LI>Next message: <A HREF="000187.html">[Libpkg-svn] r203 - trunk/src
+</A></li>
+         <LI> <B>Messages sorted by:</B> 
+              <a href="date.html#186">[ date ]</a>
+              <a href="thread.html#186">[ thread ]</a>
+              <a href="subject.html#186">[ subject ]</a>
+              <a href="author.html#186">[ author ]</a>
+         </LI>
+       </UL>
+
+<hr>
+<a href="https://lists.berlios.de/mailman/listinfo/libpkg-svn">More information about the Libpkg-svn
+mailing list</a><br>
+</body></html>

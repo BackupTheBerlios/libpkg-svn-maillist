@@ -1,0 +1,220 @@
+<!DOCTYPE HTML PUBLIC "-//W3C//DTD HTML 4.01 Transitional//EN">
+<HTML>
+ <HEAD>
+   <TITLE> [Libpkg-svn] r50 - trunk/src
+   </TITLE>
+   <LINK REL="Index" HREF="http://lists.berlios.de/pipermail/libpkg-svn/2006-January/index.html" >
+   <LINK REL="made" HREF="mailto:libpkg-svn%40lists.berlios.de?Subject=Re%3A%20%5BLibpkg-svn%5D%20r50%20-%20trunk/src&In-Reply-To=%3C200601160758.k0G7wH7U000776%40sheep.berlios.de%3E">
+   <META NAME="robots" CONTENT="index,nofollow">
+   <style type="text/css">
+       pre {
+           white-space: pre-wrap;       /* css-2.1, curent FF, Opera, Safari */
+           }
+   </style>
+   <META http-equiv="Content-Type" content="text/html; charset=us-ascii">
+   <LINK REL="Previous"  HREF="000034.html">
+   <LINK REL="Next"  HREF="000036.html">
+ </HEAD>
+ <BODY BGCOLOR="#ffffff">
+   <H1>[Libpkg-svn] r50 - trunk/src</H1>
+    <B>zxombie at BerliOS</B> 
+    <A HREF="mailto:libpkg-svn%40lists.berlios.de?Subject=Re%3A%20%5BLibpkg-svn%5D%20r50%20-%20trunk/src&In-Reply-To=%3C200601160758.k0G7wH7U000776%40sheep.berlios.de%3E"
+       TITLE="[Libpkg-svn] r50 - trunk/src">zxombie at berlios.de
+       </A><BR>
+    <I>Mon Jan 16 08:58:17 CET 2006</I>
+    <P><UL>
+        <LI>Previous message: <A HREF="000034.html">[Libpkg-svn] r49 - trunk/src
+</A></li>
+        <LI>Next message: <A HREF="000036.html">[Libpkg-svn] r51 - trunk/src
+</A></li>
+         <LI> <B>Messages sorted by:</B> 
+              <a href="date.html#35">[ date ]</a>
+              <a href="thread.html#35">[ thread ]</a>
+              <a href="subject.html#35">[ subject ]</a>
+              <a href="author.html#35">[ author ]</a>
+         </LI>
+       </UL>
+    <HR>  
+<!--beginarticle-->
+<PRE>Author: zxombie
+Date: 2006-01-16 08:58:16 +0100 (Mon, 16 Jan 2006)
+New Revision: 50
+
+Modified:
+   trunk/src/pkg.c
+   trunk/src/pkg.h
+   trunk/src/pkg_freebsd.c
+   trunk/src/pkg_private.h
+Log:
+Add pkg_get_version to return a string containing the human readable package format version.
+
+
+Modified: trunk/src/pkg.c
+===================================================================
+--- trunk/src/pkg.c	2006-01-10 21:59:44 UTC (rev 49)
++++ trunk/src/pkg.c	2006-01-16 07:58:16 UTC (rev 50)
+@@ -68,6 +68,7 @@
+ 	pkg-&gt;pkg_free = free_pkg;
+ 
+ 	/* Set the other callbacks to NULL */
++	pkg-&gt;pkg_get_version = NULL;
+ 	pkg-&gt;pkg_get_origin = NULL;
+ 	pkg-&gt;pkg_add_depend = NULL;
+ 	pkg-&gt;pkg_add_file = NULL;
+@@ -84,11 +85,14 @@
+  * eg. the packages origin on FreeBSD
+  */
+ int
+-pkg_add_callbacks_data(struct pkg *pkg, pkg_get_origin_callback *get_origin)
++pkg_add_callbacks_data(struct pkg *pkg,
++		pkg_get_version_callback *get_version,
++		pkg_get_origin_callback *get_origin)
+ {
+ 	if (pkg == NULL)
+ 		return -1;
+ 
++	pkg-&gt;pkg_get_version = get_version;
+ 	pkg-&gt;pkg_get_origin = get_origin;
+ 	return 0;
+ }
+@@ -144,6 +148,18 @@
+ 	    (*(const struct pkg **)b)-&gt;pkg_name);
+ }
+ 
++char *
++pkg_get_version(struct pkg *pkg)
++{
++	if (pkg == NULL)
++		return NULL;
++
++	if (pkg-&gt;pkg_get_version != NULL)
++		return pkg-&gt;pkg_get_version(pkg);
++
++	return NULL;
++}
++
+ /*
+  * Gets a packages origin if it has one
+  */
+
+Modified: trunk/src/pkg.h
+===================================================================
+--- trunk/src/pkg.h	2006-01-10 21:59:44 UTC (rev 49)
++++ trunk/src/pkg.h	2006-01-16 07:58:16 UTC (rev 50)
+@@ -58,6 +58,7 @@
+ struct pkg		 *pkg_new_freebsd_installed(const char *, const char *);
+ struct pkg		 *pkg_new_freebsd_empty(const char *);
+ int			  pkg_compare(const void *, const void *);
++char			 *pkg_get_version(struct pkg *);
+ char			 *pkg_get_origin(struct pkg *);
+ int			  pkg_add_dependency(struct pkg *, struct pkg *);
+ int			  pkg_add_file(struct pkg *, struct pkg_file *);
+
+Modified: trunk/src/pkg_freebsd.c
+===================================================================
+--- trunk/src/pkg_freebsd.c	2006-01-10 21:59:44 UTC (rev 49)
++++ trunk/src/pkg_freebsd.c	2006-01-16 07:58:16 UTC (rev 50)
+@@ -71,6 +71,7 @@
+ static struct pkg		**freebsd_get_deps(struct pkg *);
+ static int			  freebsd_free(struct pkg *);
+ 
++static char			 *freebsd_get_version(struct pkg *);
+ static char			 *freebsd_get_origin(struct pkg *);
+ 
+ /* Internal functions */
+@@ -190,7 +191,7 @@
+ 		FREE_CONTENTS(control);
+ 		return NULL;
+ 	}
+-	pkg_add_callbacks_data(pkg, freebsd_get_origin);
++	pkg_add_callbacks_data(pkg, freebsd_get_version, freebsd_get_origin);
+ 
+ 	f_pkg = freebsd_get_package(NULL, control);
+ 	if (f_pkg == NULL) {
+@@ -265,6 +266,38 @@
+ }
+ 
+ /*
++ * Returns a string containing the package version
++ */
++static char *
++freebsd_get_version(struct pkg *pkg)
++{
++	struct freebsd_package *f_pkg;
++	char *s;
++
++	assert(pkg != NULL);
++	assert(pkg-&gt;data != NULL);
++
++	f_pkg = pkg-&gt;data;
++
++	/* Check the package struct is correct
++	 * If any fail it means there is a bug in the library
++	 */
++	assert(f_pkg-&gt;contents != NULL);
++	assert(f_pkg-&gt;contents-&gt;lines != NULL);
++	assert(f_pkg-&gt;contents-&gt;lines[0].data != NULL);
++	assert(f_pkg-&gt;contents-&gt;lines[0].line_type == PKG_LINE_COMMENT);
++	assert(strcmp(&quot;PKG_FORMAT_REVISION:1.1&quot;, f_pkg-&gt;contents-&gt;lines[0].data) == 0);
++	s = strchr(f_pkg-&gt;contents-&gt;lines[0].data, ':');
++	if (s == NULL)
++		return NULL;
++	s++;
++	if (s[0] == '\0')
++		return NULL;
++
++	return s;
++}
++
++/*
+  * Returns the origin of a given package
+  */
+ static char *
+
+Modified: trunk/src/pkg_private.h
+===================================================================
+--- trunk/src/pkg_private.h	2006-01-10 21:59:44 UTC (rev 49)
++++ trunk/src/pkg_private.h	2006-01-16 07:58:16 UTC (rev 50)
+@@ -60,8 +60,10 @@
+ 				pkg_free_callback *);
+ 
+ /* Callbacks to get data from a package, eg. the description */
++typedef char		 *pkg_get_version_callback(struct pkg *);
+ typedef char		 *pkg_get_origin_callback(struct pkg *);
+ int			  pkg_add_callbacks_data(struct pkg *,
++				pkg_get_version_callback *,
+ 				pkg_get_origin_callback *);
+ 
+ /* Callbacks used with empty packages to add files to */
+@@ -89,6 +91,7 @@
+ 	pkg_get_dependencies_callback	*pkg_get_deps;
+ 	pkg_free_callback		*pkg_free;
+ 
++	pkg_get_version_callback	*pkg_get_version;
+ 	pkg_get_origin_callback		*pkg_get_origin;
+ 
+ 	/* Callbacks usally used with empty packages */
+
+
+</PRE>
+
+<!--endarticle-->
+    <HR>
+    <P><UL>
+        <!--threads-->
+	<LI>Previous message: <A HREF="000034.html">[Libpkg-svn] r49 - trunk/src
+</A></li>
+	<LI>Next message: <A HREF="000036.html">[Libpkg-svn] r51 - trunk/src
+</A></li>
+         <LI> <B>Messages sorted by:</B> 
+              <a href="date.html#35">[ date ]</a>
+              <a href="thread.html#35">[ thread ]</a>
+              <a href="subject.html#35">[ subject ]</a>
+              <a href="author.html#35">[ author ]</a>
+         </LI>
+       </UL>
+
+<hr>
+<a href="https://lists.berlios.de/mailman/listinfo/libpkg-svn">More information about the Libpkg-svn
+mailing list</a><br>
+</body></html>

@@ -1,0 +1,366 @@
+<!DOCTYPE HTML PUBLIC "-//W3C//DTD HTML 4.01 Transitional//EN">
+<HTML>
+ <HEAD>
+   <TITLE> [Libpkg-svn] r110 - trunk/src
+   </TITLE>
+   <LINK REL="Index" HREF="http://lists.berlios.de/pipermail/libpkg-svn/2006-April/index.html" >
+   <LINK REL="made" HREF="mailto:libpkg-svn%40lists.berlios.de?Subject=Re%3A%20%5BLibpkg-svn%5D%20r110%20-%20trunk/src&In-Reply-To=%3C200604260414.k3Q4E2Vi028853%40sheep.berlios.de%3E">
+   <META NAME="robots" CONTENT="index,nofollow">
+   <style type="text/css">
+       pre {
+           white-space: pre-wrap;       /* css-2.1, curent FF, Opera, Safari */
+           }
+   </style>
+   <META http-equiv="Content-Type" content="text/html; charset=us-ascii">
+   <LINK REL="Previous"  HREF="000093.html">
+   <LINK REL="Next"  HREF="000095.html">
+ </HEAD>
+ <BODY BGCOLOR="#ffffff">
+   <H1>[Libpkg-svn] r110 - trunk/src</H1>
+    <B>zxombie at BerliOS</B> 
+    <A HREF="mailto:libpkg-svn%40lists.berlios.de?Subject=Re%3A%20%5BLibpkg-svn%5D%20r110%20-%20trunk/src&In-Reply-To=%3C200604260414.k3Q4E2Vi028853%40sheep.berlios.de%3E"
+       TITLE="[Libpkg-svn] r110 - trunk/src">zxombie at berlios.de
+       </A><BR>
+    <I>Wed Apr 26 06:14:02 CEST 2006</I>
+    <P><UL>
+        <LI>Previous message: <A HREF="000093.html">[Libpkg-svn] r109 - trunk/src
+</A></li>
+        <LI>Next message: <A HREF="000095.html">[Libpkg-svn] r111 - trunk
+</A></li>
+         <LI> <B>Messages sorted by:</B> 
+              <a href="date.html#94">[ date ]</a>
+              <a href="thread.html#94">[ thread ]</a>
+              <a href="subject.html#94">[ subject ]</a>
+              <a href="author.html#94">[ author ]</a>
+         </LI>
+       </UL>
+    <HR>  
+<!--beginarticle-->
+<PRE>Author: zxombie
+Date: 2006-04-26 06:13:56 +0200 (Wed, 26 Apr 2006)
+New Revision: 110
+
+Modified:
+   trunk/src/pkg.c
+   trunk/src/pkg_db_freebsd.c
+   trunk/src/pkg_freebsd.c
+Log:
+Reduce the warnings from Doxygen
+
+
+Modified: trunk/src/pkg.c
+===================================================================
+--- trunk/src/pkg.c	2006-04-25 09:20:40 UTC (rev 109)
++++ trunk/src/pkg.c	2006-04-26 04:13:56 UTC (rev 110)
+@@ -51,7 +51,7 @@
+  * @param control_file A callback to be used by pkg_get_control_file()
+  * @param get_deps A callback to be used by pkg_get_dependencies()
+  * @param free_pkg A call back to be used by pkg_free()
+- * @return A new #pkg object, or NULL on error
++ * @return A new pkg object, or NULL on error
+  */
+ struct pkg *
+ pkg_new(const char *pkg_name,
+@@ -144,6 +144,7 @@
+ /**
+  * @brief Internal function to add callbacks that are used when a package is installed
+  * @param pkg The package returned by pkg_new()
++ * @param install A callback to be used by pkg_install()
+  * @param next_file A callback to be used by pkg_get_next_file()
+  * @param run_script A callback to be used by pkg_run_script()
+  * @return 0 on success, -1 on error.
+@@ -173,13 +174,14 @@
+  * 
+  * These are the publicly availiable package manipulation functions.
+  *
+- * Most functions take a pointer to struct #pkg as the first argument.
++ * Most functions take a pointer to struct pkg as the first argument.
+  * This is the package that is currently being worked on.
+  * @{
+  */
+ 
+ /**
+  * @brief Creates an empty package with no callbacks
++ * @param pkg_name The name of the package
+  *
+  * This is the simplest package constructor.
+  * It is used to create a package with just a name associated with it.
+@@ -212,7 +214,7 @@
+ 
+ /**
+  * @brief Sets the location to install the package to
+- * @param pkg The package to install
++ * @param pkg The package
+  * @param prefix The location in the filesystem to install the package pkg to
+  * 
+  * If the prefix is set and malloc fails the old prefix is kept.
+@@ -243,6 +245,7 @@
+ 
+ /**
+  * @brief Returns the prefix or NULL
++ * @param pkg The package
+  * @return the prefix or NULL if it hasn't been set
+  */
+ const char *
+@@ -256,6 +259,7 @@
+ 
+ /**
+  * @brief Gets the control files from a given package
++ * @param pkg The package
+  * 
+  * @return A null-terminated array of pkg_file's contining the packages control files
+  */
+@@ -275,6 +279,7 @@
+ 
+ /**
+  * @brief Gets a given control file from a package
++ * @param pkg The package
+  * @param pkg_name The name of the file to return
+  * @return The control file with the name pkg_name
+  */
+@@ -292,6 +297,7 @@
+ 
+ /**
+  * @brief Gets all the dependencies for a given package
++ * @param pkg The package
+  *
+  * This retrieves an array of packages that the named package depends on.
+  * @return A NULL terminated array of packages or NULL;
+@@ -309,6 +315,7 @@
+ 
+ /**
+  * @brief Gets the name of a package
++ * @param pkg The package
+  *
+  * @return a sting containing the package name. Do not free this.
+  */
+@@ -322,6 +329,7 @@
+ 
+ /**
+  * @brief Gets the next file in a package.
++ * @param pkg The package
+  *
+  * Ths is used during the instillation of a package to iterate over
+  * all files to be installed in a package
+@@ -343,6 +351,7 @@
+ 
+ /**
+  * @brief Gets a packages origin
++ * @param pkg The package
+  *
+  * This is used to get the package origin from packages that record it.
+  * Not all package formats have an origin.
+@@ -362,6 +371,7 @@
+ 
+ /**
+  * @brief Get the package format version
++ * @param pkg The package
+  *
+  * This retrieves a free form string containing the package format's version.
+  * It is intended to be shown to the user rather than be processed.
+@@ -381,6 +391,8 @@
+ 
+ /**
+  * @brief Runs the named script from the package
++ * @param pkg The package
++ * @param script The script to run
+  * @return The return value of the script, or -1
+  */
+ int
+@@ -397,6 +409,8 @@
+ 
+ /**
+  * @brief Adds a dependency to a given package
++ * @param pkg The package
++ * @param depend The package to depend on
+  * @return 0 on success, -1 on error.
+  */
+ int
+@@ -413,6 +427,8 @@
+ 
+ /**
+  * @brief Adds a file to a given package
++ * @param pkg The package
++ * @param file The file to add to the package
+  * @return 0 on success, -1 on error.
+  */
+ int
+@@ -427,6 +443,26 @@
+ 	return -1;
+ }
+ 
++/**
++ * @brief Installs a package using the given callbacks
++ * @param pkg The package to install
++ * @param reg If true the package will be registered
++ * @param pkg_action A callback to display a message to the user
++ * @param data A pointer to pass to pkg_db_* callbacks
++ * @param db_chdir A callback to change to a new directory
++ * @param install_file A callback to install a file in a database
++ * @param do_exec A callback to execute a script
++ * @param pkg_register A callback to register a package
++ *
++ * pkg_install() is an internal function to the library.
++ * It is designed to seperate the knowledge of packages and
++ * package databases apart.
++ * The package database now only knows how to install the
++ * parts of a package it is given, not the internals of a
++ * given package.
++ * 
++ * @return 0 on success or -1 or error
++ */
+ int
+ pkg_install(struct pkg *pkg, int reg, pkg_db_action * pkg_action, void *data,
+ 		pkg_db_chdir *db_chdir,	pkg_db_install_file *install_file,
+@@ -446,6 +482,7 @@
+ 
+ /**
+  * @brief Frees a NULL terminated array of packages
++ * @param pkgs A NULL terminated array of pkg objects
+  *
+  * This is to be used to free the arrays generated by
+  * pkg_get_dependencies()
+@@ -469,6 +506,7 @@
+ 
+ /**
+  * @brief Frees a given package
++ * @param pkg The package to free
+  * @return 0 on success, -1 on error.
+  */
+ int
+
+Modified: trunk/src/pkg_db_freebsd.c
+===================================================================
+--- trunk/src/pkg_db_freebsd.c	2006-04-25 09:20:40 UTC (rev 109)
++++ trunk/src/pkg_db_freebsd.c	2006-04-26 04:13:56 UTC (rev 110)
+@@ -124,6 +124,7 @@
+  * @brief Callback for pkg_db_install_pkg_action()
+  * @param db The database to install to
+  * @param pkg The package to install
++ * @param reg If true register the package in the database
+  * @param pkg_action A function to call when an action takes place
+  * @param fake Should we actually install the package or just report what would have happened
+  * @todo Run mtree
+@@ -187,7 +188,7 @@
+ 	if (!fake)
+ 		pkg_run_script(pkg, pkg_script_post);
+ 
+-	/** @todo Display contents of @display */
++	/** @todo Display contents of \@display */
+ 
+ 	chdir(cwd);
+ 	return 0;
+@@ -316,6 +317,11 @@
+  * @{
+  */
+ 
++/**
++ * @brief The db_chdir callback of pkg_install() for the FreeBSD package
++ *     database
++ * @return 0 on success or -1 on error
++ */
+ static int
+ freebsd_do_chdir(struct pkg *pkg, pkg_db_action *pkg_action, void *data,
+ 		const char *dir)
+@@ -350,6 +356,11 @@
+ 	return 0;
+ }
+ 
++/**
++ * @brief The install_file callback of pkg_install() for the FreeBSD package
++ *     database
++ * @return 0 on success or -1 on error
++ */
+ static int
+ freebsd_install_file(struct pkg *pkg, pkg_db_action *pkg_action __unused,
+ 		void *data, struct pkg_file *file)
+@@ -372,6 +383,11 @@
+ 	return 0;
+ }
+ 
++/**
++ * @brief The do_chdir callback of pkg_install() for the FreeBSD package
++ *     database
++ * @return 0 on success or -1 on error
++ */
+ static int
+ freebsd_do_exec(struct pkg *pkg, pkg_db_action *pkg_action, void *data,
+ 		const char *cmd)
+@@ -396,6 +412,11 @@
+ 	return 0;
+ }
+ 
++/**
++ * @brief The pkg_register callback of pkg_install() for the FreeBSD package
++ *     database
++ * @return 0 on success or -1 on error
++ */
+ static int
+ freebsd_register(struct pkg *pkg, pkg_db_action *pkg_action, void *data,
+ 		struct pkg_file **control)
+
+Modified: trunk/src/pkg_freebsd.c
+===================================================================
+--- trunk/src/pkg_freebsd.c	2006-04-25 09:20:40 UTC (rev 109)
++++ trunk/src/pkg_freebsd.c	2006-04-26 04:13:56 UTC (rev 110)
+@@ -208,6 +208,7 @@
+ 	return pkg;
+ }
+ 
++#ifndef DOXYGEN_SHOULD_SKIP_THIS
+ /**
+  * @brief Creates an empty FreeBSD package to add files to
+  * @param pkg_name The name of the package
+@@ -235,6 +236,7 @@
+ 	assert(0);
+ 	return NULL;
+ }
++#endif
+ 
+ /**
+  * @}
+@@ -408,6 +410,10 @@
+ 	return NULL;
+ }
+ 
++/**
++ * @brief Callback for pkg_install()
++ * @return 0 on success or -1 on error
++ */
+ static int
+ freebsd_install(struct pkg *pkg, int reg, pkg_db_action *pkg_action, void *data,
+ 		pkg_db_chdir *db_chdir, pkg_db_install_file *install_file,
+@@ -808,6 +814,9 @@
+ 	return fpkg;
+ }
+ 
++/**
++ * @brief Frees a file list
++ */
+ #define FREE_CONTENTS(c) \
+ 	{ \
+ 		int i; \
+
+
+</PRE>
+
+<!--endarticle-->
+    <HR>
+    <P><UL>
+        <!--threads-->
+	<LI>Previous message: <A HREF="000093.html">[Libpkg-svn] r109 - trunk/src
+</A></li>
+	<LI>Next message: <A HREF="000095.html">[Libpkg-svn] r111 - trunk
+</A></li>
+         <LI> <B>Messages sorted by:</B> 
+              <a href="date.html#94">[ date ]</a>
+              <a href="thread.html#94">[ thread ]</a>
+              <a href="subject.html#94">[ subject ]</a>
+              <a href="author.html#94">[ author ]</a>
+         </LI>
+       </UL>
+
+<hr>
+<a href="https://lists.berlios.de/mailman/listinfo/libpkg-svn">More information about the Libpkg-svn
+mailing list</a><br>
+</body></html>

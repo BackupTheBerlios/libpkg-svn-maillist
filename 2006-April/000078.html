@@ -1,0 +1,151 @@
+<!DOCTYPE HTML PUBLIC "-//W3C//DTD HTML 4.01 Transitional//EN">
+<HTML>
+ <HEAD>
+   <TITLE> [Libpkg-svn] r94 - trunk/tools/pkg_add
+   </TITLE>
+   <LINK REL="Index" HREF="http://lists.berlios.de/pipermail/libpkg-svn/2006-April/index.html" >
+   <LINK REL="made" HREF="mailto:libpkg-svn%40lists.berlios.de?Subject=Re%3A%20%5BLibpkg-svn%5D%20r94%20-%20trunk/tools/pkg_add&In-Reply-To=%3C200604132221.k3DMLQni027596%40sheep.berlios.de%3E">
+   <META NAME="robots" CONTENT="index,nofollow">
+   <style type="text/css">
+       pre {
+           white-space: pre-wrap;       /* css-2.1, curent FF, Opera, Safari */
+           }
+   </style>
+   <META http-equiv="Content-Type" content="text/html; charset=us-ascii">
+   <LINK REL="Previous"  HREF="000077.html">
+   <LINK REL="Next"  HREF="000079.html">
+ </HEAD>
+ <BODY BGCOLOR="#ffffff">
+   <H1>[Libpkg-svn] r94 - trunk/tools/pkg_add</H1>
+    <B>zxombie at BerliOS</B> 
+    <A HREF="mailto:libpkg-svn%40lists.berlios.de?Subject=Re%3A%20%5BLibpkg-svn%5D%20r94%20-%20trunk/tools/pkg_add&In-Reply-To=%3C200604132221.k3DMLQni027596%40sheep.berlios.de%3E"
+       TITLE="[Libpkg-svn] r94 - trunk/tools/pkg_add">zxombie at berlios.de
+       </A><BR>
+    <I>Fri Apr 14 00:21:26 CEST 2006</I>
+    <P><UL>
+        <LI>Previous message: <A HREF="000077.html">[Libpkg-svn] r93 - trunk/src
+</A></li>
+        <LI>Next message: <A HREF="000079.html">[Libpkg-svn] r95 - trunk/src
+</A></li>
+         <LI> <B>Messages sorted by:</B> 
+              <a href="date.html#78">[ date ]</a>
+              <a href="thread.html#78">[ thread ]</a>
+              <a href="subject.html#78">[ subject ]</a>
+              <a href="author.html#78">[ author ]</a>
+         </LI>
+       </UL>
+    <HR>  
+<!--beginarticle-->
+<PRE>Author: zxombie
+Date: 2006-04-14 00:21:25 +0200 (Fri, 14 Apr 2006)
+New Revision: 94
+
+Modified:
+   trunk/tools/pkg_add/main.c
+Log:
+Use change 93 to implement the -R flag
+Store the names of installed packages in a linked list. This means the -R and -n runs will only attempt to install each package once
+
+
+Modified: trunk/tools/pkg_add/main.c
+===================================================================
+--- trunk/tools/pkg_add/main.c	2006-04-13 22:18:51 UTC (rev 93)
++++ trunk/tools/pkg_add/main.c	2006-04-13 22:21:25 UTC (rev 94)
+@@ -46,6 +46,14 @@
+ 	char		  chroot[PATH_MAX];
+ };
+ 
++/* A linked list of packages that have been installed */
++struct pkg_list {
++	const char *name;
++	struct pkg_list *next;
++};
++
++struct pkg_list *head = NULL;
++
+ static char options[] = &quot;hvIRfnrp:P:SMt:C:K&quot;;
+ 
+ static void usage(void);
+@@ -95,7 +103,6 @@
+ 			break;
+ 		case 'R':
+ 			add.flags |= no_record_install_flag;
+-			errx(1, &quot;Unsupported argument&quot;);
+ 			break;
+ 		case 'r':
+ 			pkg_repo_free(add.repo);
+@@ -210,12 +217,25 @@
+ 	unsigned int i;
+ 	int ret;
+ 	struct pkg **deps;
++	struct pkg_list *cur;
+ 
+ 	assert(pkg != NULL);
+ 	assert(repo != NULL);
+ 	assert(db != NULL);
+ 
+-	/* Don't install packages twice */
++	/*
++	 * See if the package has been marked as installed in this run.
++	 * If it has don't bother attempting to install it again
++	 */
++	cur = head;
++	while (cur != NULL) {
++		if (strcmp(cur-&gt;name, pkg_get_name(pkg)) == 0) {
++			return 0;
++		}
++		cur = cur-&gt;next;
++	}
++	
++	/* Don't install a package that has been registered in the db */
+ 	if (pkg_db_is_installed(db, pkg) == 0) {
+ 		return 0;
+ 	}
+@@ -246,10 +266,22 @@
+ 	if ((flags &amp; verbosity_flag) == verbosity_flag) {
+ 		printf(&quot;extract: Package name is %s\n&quot;, pkg_get_name(pkg));
+ 		ret = pkg_db_install_pkg_action(db, pkg,
++		    ((flags &amp; no_record_install_flag)!= no_record_install_flag),
+ 		    ((flags &amp; no_run_flag) == no_run_flag), pkg_action);
+ 	} else if ((flags &amp; no_run_flag) == 0) {
+-		ret = pkg_db_install_pkg(db, pkg);
++		ret = pkg_db_install_pkg(db, pkg,
++		    ((flags &amp; no_record_install_flag)!=no_record_install_flag));
+ 	}
++	/*
++	 * Insert the installed package in a linked
++	 * list to stop it being installed again.
++	 */
++	if (ret == 0) {
++		cur = malloc(sizeof(struct pkg_list));
++		cur-&gt;next = head;
++		cur-&gt;name = pkg_get_name(pkg);
++		head = cur;
++	}
+ 	/* XXX Add warning if ret != 0 */
+ 	return ret;
+ }
+
+
+</PRE>
+
+<!--endarticle-->
+    <HR>
+    <P><UL>
+        <!--threads-->
+	<LI>Previous message: <A HREF="000077.html">[Libpkg-svn] r93 - trunk/src
+</A></li>
+	<LI>Next message: <A HREF="000079.html">[Libpkg-svn] r95 - trunk/src
+</A></li>
+         <LI> <B>Messages sorted by:</B> 
+              <a href="date.html#78">[ date ]</a>
+              <a href="thread.html#78">[ thread ]</a>
+              <a href="subject.html#78">[ subject ]</a>
+              <a href="author.html#78">[ author ]</a>
+         </LI>
+       </UL>
+
+<hr>
+<a href="https://lists.berlios.de/mailman/listinfo/libpkg-svn">More information about the Libpkg-svn
+mailing list</a><br>
+</body></html>

@@ -1,0 +1,108 @@
+<!DOCTYPE HTML PUBLIC "-//W3C//DTD HTML 4.01 Transitional//EN">
+<HTML>
+ <HEAD>
+   <TITLE> [Libpkg-svn] r295 - trunk/tools/pkg_info
+   </TITLE>
+   <LINK REL="Index" HREF="http://lists.berlios.de/pipermail/libpkg-svn/2007-March/index.html" >
+   <LINK REL="made" HREF="mailto:libpkg-svn%40lists.berlios.de?Subject=Re%3A%20%5BLibpkg-svn%5D%20r295%20-%20trunk/tools/pkg_info&In-Reply-To=%3C200703162200.l2GM0p75014142%40sheep.berlios.de%3E">
+   <META NAME="robots" CONTENT="index,nofollow">
+   <style type="text/css">
+       pre {
+           white-space: pre-wrap;       /* css-2.1, curent FF, Opera, Safari */
+           }
+   </style>
+   <META http-equiv="Content-Type" content="text/html; charset=us-ascii">
+   <LINK REL="Previous"  HREF="000278.html">
+   <LINK REL="Next"  HREF="000280.html">
+ </HEAD>
+ <BODY BGCOLOR="#ffffff">
+   <H1>[Libpkg-svn] r295 - trunk/tools/pkg_info</H1>
+    <B>zxombie at BerliOS</B> 
+    <A HREF="mailto:libpkg-svn%40lists.berlios.de?Subject=Re%3A%20%5BLibpkg-svn%5D%20r295%20-%20trunk/tools/pkg_info&In-Reply-To=%3C200703162200.l2GM0p75014142%40sheep.berlios.de%3E"
+       TITLE="[Libpkg-svn] r295 - trunk/tools/pkg_info">zxombie at mail.berlios.de
+       </A><BR>
+    <I>Fri Mar 16 23:00:51 CET 2007</I>
+    <P><UL>
+        <LI>Previous message: <A HREF="000278.html">[Libpkg-svn] r294 - trunk/src
+</A></li>
+        <LI>Next message: <A HREF="000280.html">[Libpkg-svn] r296 - in trunk/tools: . pkg_add pkg_delete pkg_info
+</A></li>
+         <LI> <B>Messages sorted by:</B> 
+              <a href="date.html#279">[ date ]</a>
+              <a href="thread.html#279">[ thread ]</a>
+              <a href="subject.html#279">[ subject ]</a>
+              <a href="author.html#279">[ author ]</a>
+         </LI>
+       </UL>
+    <HR>  
+<!--beginarticle-->
+<PRE>Author: zxombie
+Date: 2007-03-16 23:00:50 +0100 (Fri, 16 Mar 2007)
+New Revision: 295
+
+Modified:
+   trunk/tools/pkg_info/Makefile
+   trunk/tools/pkg_info/run.sh
+Log:
+Add tests for pkg_info -V
+
+
+Modified: trunk/tools/pkg_info/Makefile
+===================================================================
+--- trunk/tools/pkg_info/Makefile	2007-03-13 06:18:18 UTC (rev 294)
++++ trunk/tools/pkg_info/Makefile	2007-03-16 22:00:50 UTC (rev 295)
+@@ -19,7 +19,7 @@
+ 
+ .for run in libpkg cvs
+ . for type in mtree stdout stderr
+-.  for i in 1 2 3 4 5 6 7 8 9 10
++.  for i in 1 2 3 4 5 6 7 8 9 10 11 12
+ CLEANFILES	+= ${run}.${type}.${i}
+ .  endfor
+ . endfor
+
+Modified: trunk/tools/pkg_info/run.sh
+===================================================================
+--- trunk/tools/pkg_info/run.sh	2007-03-13 06:18:18 UTC (rev 294)
++++ trunk/tools/pkg_info/run.sh	2007-03-16 22:00:50 UTC (rev 295)
+@@ -64,4 +64,16 @@
+ 	if [ $? -ne 0 ] ; then
+ 		exit 1
+ 	fi
++elif [ ${TESTNO} -eq 11 ] ; then
++	pkg_add ./${PACKAGE}.tbz
++	pkg_info -V ${PACKAGE}
++	if [ $? -ne 0 ] ; then
++		exit 1
++	fi
++elif [ ${TESTNO} -eq 12 ] ; then
++	pkg_add -p /usr/pkg ./${PACKAGE}.tbz
++	pkg_info -V ${PACKAGE}
++	if [ $? -ne 0 ] ; then
++		exit 1
++	fi
+ fi
+
+
+</PRE>
+
+<!--endarticle-->
+    <HR>
+    <P><UL>
+        <!--threads-->
+	<LI>Previous message: <A HREF="000278.html">[Libpkg-svn] r294 - trunk/src
+</A></li>
+	<LI>Next message: <A HREF="000280.html">[Libpkg-svn] r296 - in trunk/tools: . pkg_add pkg_delete pkg_info
+</A></li>
+         <LI> <B>Messages sorted by:</B> 
+              <a href="date.html#279">[ date ]</a>
+              <a href="thread.html#279">[ thread ]</a>
+              <a href="subject.html#279">[ subject ]</a>
+              <a href="author.html#279">[ author ]</a>
+         </LI>
+       </UL>
+
+<hr>
+<a href="https://lists.berlios.de/mailman/listinfo/libpkg-svn">More information about the Libpkg-svn
+mailing list</a><br>
+</body></html>

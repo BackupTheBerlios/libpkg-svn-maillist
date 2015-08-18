@@ -1,0 +1,2983 @@
+From zxombie at mail.berlios.de  Thu Nov  9 05:49:24 2006
+From: zxombie at mail.berlios.de (zxombie at BerliOS)
+Date: Thu, 9 Nov 2006 05:49:24 +0100
+Subject: [Libpkg-svn] r216 - trunk/src
+Message-ID: <200611090449.kA94nOW2021483@sheep.berlios.de>
+
+Author: zxombie
+Date: 2006-11-09 05:49:23 +0100 (Thu, 09 Nov 2006)
+New Revision: 216
+
+Added:
+   trunk/src/pkg_db_match.c
+Modified:
+   trunk/src/Makefile
+   trunk/src/pkg_db.h
+Log:
+Add pkg_db_match_glob and pkg_db_match_regex from pkg_info
+
+
+Modified: trunk/src/Makefile
+===================================================================
+--- trunk/src/Makefile	2006-10-27 07:15:54 UTC (rev 215)
++++ trunk/src/Makefile	2006-11-09 04:49:23 UTC (rev 216)
+@@ -16,7 +16,7 @@
+ 
+ # Package Repository
+ SRCS		+= pkg_repo.c pkg_repo_files.c pkg_repo_ftp.c \
+-			pkg_repo_local_freebsd.c
++			pkg_repo_local_freebsd.c pkg_db_match.c
+ 
+ # Misc functions
+ SRCS		+= pkg_util.c
+
+Modified: trunk/src/pkg_db.h
+===================================================================
+--- trunk/src/pkg_db.h	2006-10-27 07:15:54 UTC (rev 215)
++++ trunk/src/pkg_db.h	2006-11-09 04:49:23 UTC (rev 216)
+@@ -64,6 +64,10 @@
+ 			int, int, pkg_db_action *);
+ int		  pkg_db_free(struct pkg_db *);
+ 
++/* Helper functions that use an internal callback for pkg_db_get_installed_match() */
++struct pkg	**pkg_db_match_regex(struct pkg_db *, const char **, int);
++struct pkg	**pkg_db_match_glob(struct pkg_db *, const char **, int);
++
+ /* Functions to be passed to pkg_db_get_installed_match() */
+ int		  pkg_match_all(struct pkg *, const void *);
+ int		  pkg_match_by_origin(struct pkg *, const void *);
+
+Copied: trunk/src/pkg_db_match.c (from rev 164, trunk/tools/pkg_info/match.c)
+===================================================================
+--- trunk/tools/pkg_info/match.c	2006-07-24 12:17:32 UTC (rev 164)
++++ trunk/src/pkg_db_match.c	2006-11-09 04:49:23 UTC (rev 216)
+@@ -0,0 +1,176 @@
++/*
++ * FreeBSD install - a package for the installation and maintainance
++ * of non-core utilities.
++ *
++ * Redistribution and use in source and binary forms, with or without
++ * modification, are permitted provided that the following conditions
++ * are met:
++ * 1. Redistributions of source code must retain the above copyright
++ *    notice, this list of conditions and the following disclaimer.
++ * 2. Redistributions in binary form must reproduce the above copyright
++ *    notice, this list of conditions and the following disclaimer in the
++ *    documentation and/or other materials provided with the distribution.
++ *
++ * Jordan K. Hubbard
++ * 18 July 1993
++ *
++ * Modified by Andrew Turner 2005, 2006 to use libpkg(3)
++ * 
++ * This is the info module.
++ */
++
++#include "pkg.h"
++#include "pkg_db.h"
++
++#include <assert.h>
++#include <fnmatch.h>
++#include <regex.h>
++#include <stdlib.h>
++
++/* A struct to hold many regex's to be or'ed in pkg_match_regex */
++struct regex_or {
++	unsigned int count;
++	regex_t *rex;
++};
++
++struct glob_or {
++	unsigned int count;
++	const char **patterns;
++};
++
++static int pkg_match_regex(struct pkg *, const void *);
++static int pkg_match_glob(struct pkg *, const void *);
++
++/**
++ * @defgroup PackageDBMatch
++ * @ingroup PackageDB
++ * @brief Functions to get lists of packages
++ *
++ * These functions are used to finds all the installed packages
++ * that match a list of expressions
++ * 
++ * @{
++ */
++
++/**
++ * @brief Finds all installed packages that match on of the given regular expressions
++ * @param db The database to search in
++ * @param regex A NULL terminated array of strings containing the regular expressions
++ * @param type If true use extended regular expressions
++ * @return A sorted NULL terminated array of packages matching one of regex
++ */
++struct pkg **
++pkg_db_match_regex(struct pkg_db *db, const char **regex, int type)
++{
++	struct regex_or rex;
++	unsigned int i;
++	struct pkg **pkgs;
++
++	/* Count the number of regex's */
++	for (rex.count = 0; regex[rex.count] != NULL; rex.count++)
++		continue;
++
++	rex.rex = malloc(rex.count * sizeof(regex_t));
++	if (rex.rex == NULL)
++		return NULL;
++
++	for(i=0; i < rex.count; i++) {
++		regcomp(&rex.rex[i], regex[i], (type ? REG_EXTENDED : REG_BASIC)
++		    | REG_NOSUB);
++	}
++
++	pkgs = pkg_db_get_installed_match(db, pkg_match_regex, &rex);
++
++	for(i=0; i < rex.count; i++) {
++		regfree(&rex.rex[i]);
++	}
++	free(rex.rex);
++
++	return pkgs;
++}
++
++/**
++ * @brief Finds all installed packages that match a given shell like glob
++ * @param db The database to search in
++ * @param regex A NULL terminated array of strings containing the glob
++ * @param type Unused
++ * @return A NULL terminated array of packages matching a shell like glob
++ */
++struct pkg **
++pkg_db_match_glob(struct pkg_db *db, const char **patterns, int type __unused)
++{
++	struct glob_or the_glob;
++	struct pkg **pkgs;
++
++	/* Count the number of regex's */
++	for (the_glob.count = 0; patterns[the_glob.count] != NULL;
++	     the_glob.count++)
++		continue;
++
++	the_glob.patterns = patterns;
++
++	pkgs = pkg_db_get_installed_match(db, pkg_match_glob, &the_glob);
++
++	return pkgs;
++}
++
++/**
++ * @}
++ */
++
++/**
++ * @defgroup PackageDBMatchInternal
++ * @ingroup PackageDBMatch
++ * @brief Internal callbacks for pkg_db_get_installed_match()
++ *
++ * @{
++ */
++
++/**
++ * @brief Function to match one of the given regular expressions
++ * @return  0 if matches
++ * @return -1 otherwise
++ */
++static int
++pkg_match_regex(struct pkg *pkg, const void *data)
++{
++	unsigned int i;
++	const struct regex_or *rex;
++	
++	assert(pkg != NULL);
++	assert(data != NULL);
++
++	rex = data;
++	for(i=0; i < rex->count; i++) {
++		if (regexec(&rex->rex[i], pkg_get_name(pkg), 0, NULL, 0) == 0)
++			return 0;
++	}
++	return -1;
++}
++
++/**
++ * @brief Function to match one of the given shell like globs
++ * @return  0 if matches
++ * @return -1 otherwise
++ */
++static int
++pkg_match_glob(struct pkg *pkg, const void *data)
++{
++	unsigned int i;
++	const struct glob_or *the_glob;
++	
++	assert(pkg != NULL);
++	assert(data != NULL);
++
++	the_glob = data;
++	for(i=0; i < the_glob->count; i++) {
++		/* This should use the csh_match from FreeBSD pkg_info */
++		if (fnmatch(the_glob->patterns[i], pkg_get_name(pkg), 0) == 0)
++			return 0;
++	}
++	return -1;
++}
++
++/**
++ * @}
++ */
+
+
+
+From zxombie at mail.berlios.de  Thu Nov  9 09:10:34 2006
+From: zxombie at mail.berlios.de (zxombie at BerliOS)
+Date: Thu, 9 Nov 2006 09:10:34 +0100
+Subject: [Libpkg-svn] r217 - trunk/src
+Message-ID: <200611090810.kA98AYSI009186@sheep.berlios.de>
+
+Author: zxombie
+Date: 2006-11-09 09:10:34 +0100 (Thu, 09 Nov 2006)
+New Revision: 217
+
+Modified:
+   trunk/src/pkg_db.h
+   trunk/src/pkg_db_match.c
+Log:
+Add support for package matching helpers pkg_db_match_all and pkg_db_match_name
+Add a wrapper to call the appropriate match helper to get the selection logic in a seperate function
+
+
+Modified: trunk/src/pkg_db.h
+===================================================================
+--- trunk/src/pkg_db.h	2006-11-09 04:49:23 UTC (rev 216)
++++ trunk/src/pkg_db.h	2006-11-09 08:10:34 UTC (rev 217)
+@@ -65,6 +65,18 @@
+ int		  pkg_db_free(struct pkg_db *);
+ 
+ /* Helper functions that use an internal callback for pkg_db_get_installed_match() */
++typedef enum {
++	PKG_DB_MATCH_ALL,
++	PKG_DB_MATCH_EXACT,
++	PKG_DB_MATCH_GLOB,
++	PKG_DB_MATCH_EREGEX,
++	PKG_DB_MATCH_REGEX
++} pkg_db_match_t;
++
++struct pkg	**pkg_db_match_by_type(struct pkg_db *, const char **,
++			pkg_db_match_t);
++struct pkg	**pkg_db_match_all(struct pkg_db *, const char **, int);
++struct pkg	**pkg_db_match_name(struct pkg_db *, const char **, int);
+ struct pkg	**pkg_db_match_regex(struct pkg_db *, const char **, int);
+ struct pkg	**pkg_db_match_glob(struct pkg_db *, const char **, int);
+ 
+
+Modified: trunk/src/pkg_db_match.c
+===================================================================
+--- trunk/src/pkg_db_match.c	2006-11-09 04:49:23 UTC (rev 216)
++++ trunk/src/pkg_db_match.c	2006-11-09 08:10:34 UTC (rev 217)
+@@ -25,6 +25,7 @@
+ #include <assert.h>
+ #include <fnmatch.h>
+ #include <regex.h>
++#include <string.h>
+ #include <stdlib.h>
+ 
+ /* A struct to hold many regex's to be or'ed in pkg_match_regex */
+@@ -38,6 +39,7 @@
+ 	const char **patterns;
+ };
+ 
++static int pkg_match_name(struct pkg *, const void *);
+ static int pkg_match_regex(struct pkg *, const void *);
+ static int pkg_match_glob(struct pkg *, const void *);
+ 
+@@ -47,12 +49,83 @@
+  * @brief Functions to get lists of packages
+  *
+  * These functions are used to finds all the installed packages
+- * that match a list of expressions
++ * that match a list of expressions.
++ * All functions (except pkg_db_match_by_type()) are designed
++ * to have a consistant signature so they could be used as a
++ * callback if reqired to.
+  * 
+  * @{
+  */
+ 
++struct pkg **
++pkg_db_match_by_type(struct pkg_db *db, const char **match, pkg_db_match_t type)
++{
++	struct pkg **ret;
++
++	if (db == NULL)
++		return NULL;
++
++	if (match == NULL)
++		return NULL;
++
++	ret = NULL;
++	switch (type) {
++	case PKG_DB_MATCH_ALL:
++		ret = pkg_db_match_all(db, NULL, 0);
++		break;
++	case PKG_DB_MATCH_EXACT:
++		ret = pkg_db_match_name(db, match, 0);
++		break;
++	case PKG_DB_MATCH_GLOB:
++		ret = pkg_db_match_glob(db, match, 0);
++		break;
++	case PKG_DB_MATCH_EREGEX:
++	case PKG_DB_MATCH_REGEX:
++		ret = pkg_db_match_regex(db, match,
++		    (type == PKG_DB_MATCH_EREGEX));
++		break;
++	}
++
++	return ret;
++}
++
+ /**
++ * @brief Finds all installed packages
++ * @param db The database to search in
++ * @param string Unused
++ * @param type Unused
++ *
++ * This is a wrapper around pkg_db_get_installed_match().
++ * @return A sorted NULL terminated array of all packages
++ */
++struct pkg **
++pkg_db_match_all(struct pkg_db *db, const char **string __unused,
++	int type __unused)
++{
++	if (db == NULL)
++		return NULL;
++
++	return pkg_db_get_installed_match(db, pkg_match_all, NULL);
++}
++
++/**
++ * @brief Finds all installed with a given name
++ * @param db The database to search in
++ * @param name A null-terminated list of names
++ * @param type Unused
++ *
++ * @return A sorted NULL terminated array of all packages
++ */
++struct pkg **
++pkg_db_match_name(struct pkg_db *db, const char **name, int type __unused)
++{
++	if (db == NULL)
++		return NULL;
++
++	return pkg_db_get_installed_match(db, pkg_match_name, name);
++}
++
++/**
+  * @brief Finds all installed packages that match on of the given regular expressions
+  * @param db The database to search in
+  * @param regex A NULL terminated array of strings containing the regular expressions
+@@ -66,6 +139,12 @@
+ 	unsigned int i;
+ 	struct pkg **pkgs;
+ 
++	if (db == NULL)
++		return NULL;
++
++	if (regex == NULL)
++		return NULL;
++
+ 	/* Count the number of regex's */
+ 	for (rex.count = 0; regex[rex.count] != NULL; rex.count++)
+ 		continue;
+@@ -102,7 +181,13 @@
+ 	struct glob_or the_glob;
+ 	struct pkg **pkgs;
+ 
+-	/* Count the number of regex's */
++	if (db == NULL)
++		return NULL;
++
++	if (patterns == NULL)
++		return NULL;
++
++	/* Count the number of globs */
+ 	for (the_glob.count = 0; patterns[the_glob.count] != NULL;
+ 	     the_glob.count++)
+ 		continue;
+@@ -123,10 +208,39 @@
+  * @ingroup PackageDBMatch
+  * @brief Internal callbacks for pkg_db_get_installed_match()
+  *
++ * These are callbacks for pkg_db_installed_match().
++ * They have a specific struct passed to them.
+  * @{
+  */
+ 
+ /**
++ * @brief Function to match all packages with one of the given names
++ * @return  0 if the package matches
++ * @return -1 otherwise
++ */
++static int
++pkg_match_name(struct pkg *pkg, const void *data)
++{
++	/** @todo pkg_match_name() can be public as it has no custom struct */
++	int i;
++	/* Use a union as I couldn't cast a const void * to a const char ** */
++	union {
++	    const char **str;
++	    const void *data;
++	} strings;
++
++	assert(pkg != NULL);
++	assert(data != NULL);
++
++	strings.data = data;
++	for(i=0; strings.str[i] != NULL; i++) {
++		if (strcmp(strings.str[i], pkg_get_name(pkg)) == 0)
++			return 0;
++	}
++	return -1;
++}
++
++/**
+  * @brief Function to match one of the given regular expressions
+  * @return  0 if matches
+  * @return -1 otherwise
+@@ -156,6 +270,7 @@
+ static int
+ pkg_match_glob(struct pkg *pkg, const void *data)
+ {
++	/** @todo Fix to just take a null terminated array of strings */
+ 	unsigned int i;
+ 	const struct glob_or *the_glob;
+ 	
+
+
+
+From zxombie at mail.berlios.de  Thu Nov  9 09:13:03 2006
+From: zxombie at mail.berlios.de (zxombie at BerliOS)
+Date: Thu, 9 Nov 2006 09:13:03 +0100
+Subject: [Libpkg-svn] r218 - trunk/src
+Message-ID: <200611090813.kA98D3GZ009318@sheep.berlios.de>
+
+Author: zxombie
+Date: 2006-11-09 09:13:03 +0100 (Thu, 09 Nov 2006)
+New Revision: 218
+
+Modified:
+   trunk/src/pkg.h
+   trunk/src/pkg_db_freebsd.c
+   trunk/src/pkg_private.h
+   trunk/src/pkgfile.c
+Log:
+Add pkgfile_set_cwd to set the fake working directory for a pkgfile
+Use pkgfile_set_cwd when removing an installed file
+
+
+Modified: trunk/src/pkg.h
+===================================================================
+--- trunk/src/pkg.h	2006-11-09 08:10:34 UTC (rev 217)
++++ trunk/src/pkg.h	2006-11-09 08:13:03 UTC (rev 218)
+@@ -55,7 +55,8 @@
+ const char	*pkgfile_get_name(struct pkgfile *);
+ uint64_t	 pkgfile_get_size(struct pkgfile *);
+ const char	*pkgfile_get_data(struct pkgfile *);
+-const char	*pkgfile_get_type_string(struct pkgfile*);
++const char	*pkgfile_get_type_string(struct pkgfile *);
++int		 pkgfile_set_cwd(struct pkgfile *, const char *);
+ int		 pkgfile_set_checksum_md5(struct pkgfile *, const char *);
+ int		 pkgfile_compare_checksum_md5(struct pkgfile *);
+ int		 pkgfile_seek(struct pkgfile *, uint64_t, int);
+
+Modified: trunk/src/pkg_db_freebsd.c
+===================================================================
+--- trunk/src/pkg_db_freebsd.c	2006-11-09 08:10:34 UTC (rev 217)
++++ trunk/src/pkg_db_freebsd.c	2006-11-09 08:13:03 UTC (rev 218)
+@@ -576,26 +576,27 @@
+  * @return -1 on error
+  */
+ static int
+-freebsd_deinstall_file(struct pkg *pkg __unused, pkg_db_action *pkg_action, void *data __unused,
+-	struct pkgfile *file)
++freebsd_deinstall_file(struct pkg *pkg __unused, pkg_db_action *pkg_action,
++	void *data, struct pkgfile *file)
+ {
+-	const char *file_name;
++	struct pkg_install_data *install_data;
+ 
++	assert(pkg != NULL);
++	assert(data != NULL);
+ 	assert(file != NULL);
+ 
+-	file_name = pkgfile_get_name(file);
+-	if (file_name[0] == '/') {
+-		/* We have an absolute file */
+-		pkg_action(PKG_DB_PACKAGE, "Delete %s %s",
+-		    pkgfile_get_type_string(file), file_name);
++	install_data = data;
++
++	pkgfile_set_cwd(file, install_data->directory);
++	pkg_action(PKG_DB_PACKAGE, "Delete %s %s",
++	    pkgfile_get_type_string(file), pkgfile_get_name(file));
++
++	/* Only remove the files if this is a real deinstall */
++	if (install_data->fake) {
++		return 0;
+ 	} else {
+-		char dir[FILENAME_MAX];
+-
+-		getcwd(dir, FILENAME_MAX);
+-		pkg_action(PKG_DB_PACKAGE, "Delete %s %s/%s",
+-		    pkgfile_get_type_string(file), dir, file_name);
++		return pkgfile_unlink(file);
+ 	}
+-	return pkgfile_unlink(file);
+ }
+ /**
+  * @brief The do_chdir callback of pkg_install() for the FreeBSD package
+
+Modified: trunk/src/pkg_private.h
+===================================================================
+--- trunk/src/pkg_private.h	2006-11-09 08:10:34 UTC (rev 217)
++++ trunk/src/pkg_private.h	2006-11-09 08:13:03 UTC (rev 218)
+@@ -55,6 +55,8 @@
+ /** @todo Reorder the struct to remove alignment gaps */
+ struct pkgfile {
+ 	char		*name;
++	char		*cwd;
++	char		*real_name;
+ 	pkgfile_type	 type;
+ 	pkgfile_loc	 loc;
+ 	int		 follow_link;
+
+Modified: trunk/src/pkgfile.c
+===================================================================
+--- trunk/src/pkgfile.c	2006-11-09 08:10:34 UTC (rev 217)
++++ trunk/src/pkgfile.c	2006-11-09 08:13:03 UTC (rev 218)
+@@ -47,6 +47,7 @@
+ static struct pkgfile	*pkgfile_new(const char *, pkgfile_type, pkgfile_loc);
+ static int		 pkgfile_open_fd(struct pkgfile *);
+ static int		 pkgfile_get_type(struct pkgfile *);
++static const char	*pkgfile_real_name(struct pkgfile *);
+ 
+ static const char *pkgfile_types[] =
+ 	{ "none", "file", "hardlink", "symlink", "directory" };
+@@ -77,6 +78,8 @@
+ 		return NULL;
+ 	}
+ 
++	file->cwd = NULL;
++	file->real_name = NULL;
+ 	file->type = type;
+ 	file->loc = location;
+ 	file->follow_link = 0;
+@@ -144,7 +147,7 @@
+ 	if (file->type == pkgfile_none) {
+ 		struct stat sb;
+ 
+-		if (lstat(file->name, &sb) != 0)
++		if (lstat(pkgfile_real_name(file), &sb) != 0)
+ 			return -1;
+ 
+ 		if (S_ISREG(sb.st_mode) ||
+@@ -162,6 +165,24 @@
+ 	return 0;
+ }
+ 
++static const char *
++pkgfile_real_name(struct pkgfile *file)
++{
++	assert(file != NULL);
++	assert(file->name != NULL);
++
++	if (file->real_name == NULL) {
++		if (file->name[0] != '/' && file->cwd != NULL) {
++			asprintf(&file->real_name, "%s/%s", file->cwd,
++			    file->name);
++		} else {
++			return file->name;
++		}
++	}
++
++	return file->real_name;
++}
++
+ /**
+  * @}
+  */
+@@ -300,7 +321,7 @@
+ {
+ 	if (file == NULL)
+ 		return NULL;
+-	return file->name;
++	return pkgfile_real_name(file);
+ }
+ 
+ /**
+@@ -415,6 +436,40 @@
+ }
+ 
+ /**
++ * @brief Sets the current working directory for file access
++ * @return  0 on success
++ * @return -1 on failure
++ */
++int
++pkgfile_set_cwd(struct pkgfile *file, const char *cwd)
++{
++	if (file == NULL)
++		return -1;
++
++	if (cwd == NULL)
++		return -1;
++
++	/* Force the next call to pkgfile_real_name to rebuild the real name */
++	if (file->real_name != NULL) {
++		free(file->real_name);
++		file->real_name = NULL;
++	}
++
++	if (file->cwd != NULL)
++		free(file->cwd);
++
++	if (cwd == NULL) {
++		file->cwd = NULL;
++	} else {
++		file->cwd = strdup(cwd);
++		if (file->cwd == NULL)
++			return -1;
++	}
++
++	return 0;
++}
++
++/**
+  * @brief Sets the expected md5 of a file
+  * @return  0 on success
+  * @return -1 on error
+@@ -500,9 +555,9 @@
+ 
+ 	pkgfile_get_type(file);
+ 	if (file->type == pkgfile_dir) {
+-		return rmdir(file->name);
++		return rmdir(pkgfile_real_name(file));
+ 	} else {
+-		return unlink(file->name);
++		return unlink(pkgfile_real_name(file));
+ 	}
+ }
+ 
+@@ -691,7 +746,7 @@
+ 			FILE *fd;
+ 
+ 			assert(file->fd == NULL);
+-			fd = fopen(file->name, "a");
++			fd = fopen(pkgfile_real_name(file), "a");
+ 			if (fd == NULL) {
+ 				char *dir_name;
+ 
+@@ -699,9 +754,9 @@
+ 				 * The open failed, try running mkdir -p
+ 				 * on the dir and opening again
+ 				 */
+-				dir_name = dirname(file->name);
++				dir_name = dirname(pkgfile_real_name(file));
+ 				pkg_dir_build(dir_name, 0);
+-				fd = fopen(file->name, "a");
++				fd = fopen(pkgfile_real_name(file), "a");
+ 				if (fd == NULL) {
+ 					return -1;
+ 				}
+@@ -752,7 +807,7 @@
+ 			if (errno != ENOENT)
+ 				return -1;
+ 
+-			dir_name = dirname(file->name);
++			dir_name = dirname(pkgfile_real_name(file));
+ 			pkg_dir_build(dir_name, 0);
+ 			if (link(file->data, file->name) != 0)
+ 				return -1;
+@@ -764,14 +819,14 @@
+ 			if (errno != ENOENT)
+ 				return -1;
+ 
+-			dir_name = dirname(file->name);
++			dir_name = dirname(pkgfile_real_name(file));
+ 			pkg_dir_build(dir_name, 0);
+ 			if (symlink(file->data, file->name) != 0)
+ 				return -1;
+ 		}
+ 		break;
+ 	case pkgfile_dir:
+-		if (pkg_dir_build(file->name, file->mode) != 0)
++		if (pkg_dir_build(pkgfile_real_name(file), file->mode) != 0)
+ 			return -1;
+ 		break;
+ 	}
+@@ -792,6 +847,12 @@
+ 	if (file->name != NULL)
+ 		free(file->name);
+ 
++	if (file->cwd != NULL)
++		free(file->cwd);
++
++	if (file->real_name != NULL)
++		free(file->real_name);
++
+ 	if (file->fd != NULL)
+ 		fclose(file->fd);
+ 
+
+
+
+From zxombie at mail.berlios.de  Thu Nov  9 10:26:13 2006
+From: zxombie at mail.berlios.de (zxombie at BerliOS)
+Date: Thu, 9 Nov 2006 10:26:13 +0100
+Subject: [Libpkg-svn] r219 - trunk/src
+Message-ID: <200611090926.kA99QD6L014544@sheep.berlios.de>
+
+Author: zxombie
+Date: 2006-11-09 10:26:12 +0100 (Thu, 09 Nov 2006)
+New Revision: 219
+
+Modified:
+   trunk/src/pkg_db_freebsd.c
+Log:
+Listen to the scripts value in freebsd_deinstall_pkg
+
+
+Modified: trunk/src/pkg_db_freebsd.c
+===================================================================
+--- trunk/src/pkg_db_freebsd.c	2006-11-09 08:13:03 UTC (rev 218)
++++ trunk/src/pkg_db_freebsd.c	2006-11-09 09:26:12 UTC (rev 219)
+@@ -380,8 +380,8 @@
+  * @return -1 on fatal error
+  */
+ static int
+-freebsd_deinstall_pkg(struct pkg_db *db, struct pkg *the_pkg, int scripts __unused, int fake,
+-	pkg_db_action *pkg_action)
++freebsd_deinstall_pkg(struct pkg_db *db, struct pkg *the_pkg, int scripts,
++	int fake, pkg_db_action *pkg_action)
+ {
+ 	struct pkg_install_data deinstall_data;
+ 	struct pkg *real_pkg;
+@@ -440,19 +440,23 @@
+ 		return -1;
+ 	}
+ 
+-	if (pkg_run_script(real_pkg, NULL, pkg_script_require_deinstall) != 0) {
+-		/* XXX */
+-		return -1;
+-	}
++	if (scripts) {
++		if (pkg_run_script(real_pkg, NULL,
++		    pkg_script_require_deinstall) != 0) {
++			/* XXX */
++			return -1;
++		}
+ 
+-	if (pkg_run_script(real_pkg, NULL, pkg_script_pre_deinstall) != 0) {
+-		/* XXX */
+-		return -1;
+-	}
++		if (pkg_run_script(real_pkg, NULL, pkg_script_pre_deinstall)
++		    != 0) {
++			/* XXX */
++			return -1;
++		}
+ 
+-	if (pkg_run_script(real_pkg, NULL, pkg_script_deinstall) != 0) {
+-		/* XXX */
+-		return -1;
++		if (pkg_run_script(real_pkg, NULL, pkg_script_deinstall) != 0) {
++			/* XXX */
++			return -1;
++		}
+ 	}
+ 
+ 	/* Remove the reverse dependencies */
+@@ -479,13 +483,16 @@
+ 		return -1;
+ 	}
+ 
+-	/** @todo Run +POST-DEINSTALL <pkg-name>/+DEINSTALL <pkg-name> POST-DEINSTALL */
+-	if (pkg_run_script(real_pkg, NULL, pkg_script_post_deinstall) != 0) {
+-		/* XXX */
+-		return -1;
++	if (scripts) {
++		/** @todo Run +POST-DEINSTALL <pkg-name>/+DEINSTALL <pkg-name> POST-DEINSTALL */
++		if (pkg_run_script(real_pkg, NULL, pkg_script_post_deinstall)
++		    != 0) {
++			/* XXX */
++			return -1;
++		}
+ 	}
+ 
+-	return -1;
++	return 0;
+ }
+ /**
+  * @}
+
+
+
+From zxombie at mail.berlios.de  Thu Nov  9 10:33:14 2006
+From: zxombie at mail.berlios.de (zxombie at BerliOS)
+Date: Thu, 9 Nov 2006 10:33:14 +0100
+Subject: [Libpkg-svn] r220 - trunk/tools/pkg_delete
+Message-ID: <200611090933.kA99XEDt015177@sheep.berlios.de>
+
+Author: zxombie
+Date: 2006-11-09 10:33:14 +0100 (Thu, 09 Nov 2006)
+New Revision: 220
+
+Modified:
+   trunk/tools/pkg_delete/Makefile
+   trunk/tools/pkg_delete/main.c
+   trunk/tools/pkg_delete/run.sh
+   trunk/tools/pkg_delete/test.sh
+Log:
+Add a test for pkg_delete -n and pkg_delete -D
+Clean up after all pkg_delete tests
+Add a flag for all possible command line options that require one
+Save the prefix to deinstall from
+Use the pkg_db_match_by_type function
+Test if the run is fake and if scripts are to be run before running the deinstall
+Use a variable for the pkg_action callback to simplify the logic
+
+
+Modified: trunk/tools/pkg_delete/Makefile
+===================================================================
+--- trunk/tools/pkg_delete/Makefile	2006-11-09 09:26:12 UTC (rev 219)
++++ trunk/tools/pkg_delete/Makefile	2006-11-09 09:33:14 UTC (rev 220)
+@@ -19,7 +19,7 @@
+ 
+ .for run in libpkg cvs
+ . for type in mtree stdout stderr
+-.  for i in 1
++.  for i in 1 2 3 4
+ CLEANFILES	+= ${run}.${type}.${i}
+ .  endfor
+ . endfor
+
+Modified: trunk/tools/pkg_delete/main.c
+===================================================================
+--- trunk/tools/pkg_delete/main.c	2006-11-09 09:26:12 UTC (rev 219)
++++ trunk/tools/pkg_delete/main.c	2006-11-09 09:33:14 UTC (rev 220)
+@@ -32,17 +32,19 @@
+ #include <unistd.h>
+ 
+ #define verbosity_flag		(1)
+-//#define keep_file_flag		(1<<1)
+-//#define no_run_flag		(1<<2)
+-//#define force_flag		(1<<3)
+-//#define no_run_script_flag	(1<<4)
+-//#define no_record_install_flag	(1<<5)
++#define no_run_flag		(1<<1)
++#define force_flag		(1<<2)
++#define no_run_script_flag	(1<<3)
++#define remove_empty_dirs_flag	(1<<4)
++#define interactive_flag	(1<<5)
++#define recursive_flag		(1<<6)
+ 
+ struct pkg_delete {
+ 	struct pkg_db	 *db;
+ 	struct pkg	**pkgs;
+ 	int		  flags;
+-//	char		 *prefix;
++	pkg_db_match_t	  match_type;
++	char		 *prefix;
+ };
+ 
+ static char options[] = "adDfGhinp:rvxX";
+@@ -56,40 +58,55 @@
+ 	char ch;
+ 	struct pkg_delete delete;
+ 	int ret;
+-	int i, j;
++	int i;
+ 
+ 	delete.db = NULL;
+ 	delete.pkgs = NULL;
+ 	delete.flags = 0;
+-	//delete.chroot[0] = '\0';
+-	//delete.base_prefix = NULL;
+-	//delete.prefix = NULL;
++	delete.match_type = PKG_DB_MATCH_GLOB;
++	delete.prefix = NULL;
+ 	while ((ch = getopt(argc, argv, options)) != -1) {
+ 		switch(ch) {
+ 		case 'a':
++			delete.match_type = PKG_DB_MATCH_ALL;
+ 			break;
+ 		case 'd':
++			delete.flags |= remove_empty_dirs_flag;
++			assert(0);
+ 			break;
+ 		case 'D':
++			delete.flags |= no_run_script_flag;
+ 			break;
+ 		case 'f':
++			delete.flags |= force_flag;
++			assert(0);
+ 			break;
+ 		case 'G':
++			delete.match_type = PKG_DB_MATCH_EXACT;
+ 			break;
+ 		case 'i':
++			delete.flags |= interactive_flag;
++			assert(0);
+ 			break;
+ 		case 'n':
++			delete.flags |= no_run_flag;
+ 			break;
+ 		case 'p':
++			delete.prefix = optarg;
++			assert(0);
+ 			break;
+ 		case 'r':
++			delete.flags |= recursive_flag;
++			assert(0);
+ 			break;
+ 		case 'v':
+ 			delete.flags |= verbosity_flag;
+ 			break;
+ 		case 'x':
++			delete.match_type = PKG_DB_MATCH_REGEX;
+ 			break;
+ 		case 'X':
++			delete.match_type = PKG_DB_MATCH_EREGEX;
+ 			break;
+ 		case 'h':
+ 		case '?':
+@@ -105,24 +122,14 @@
+ 		delete.db = pkg_db_open_freebsd("/");
+ 	}
+ 
+-	delete.pkgs = malloc(sizeof(struct pkg*) * (argc + 1));
++	delete.pkgs = NULL;
++	delete.pkgs = pkg_db_match_by_type(delete.db, (const char **)argv,
++	    delete.match_type);
++
+ 	if (delete.pkgs == NULL) {
+-		perror("pkg_delete");
+-		return 1;
+-	}
+-
+-	/* Create an array of all packages to delete */
+-	for (i = 0, j = 0; i < argc; i++) {
+-		delete.pkgs[j] = pkg_db_get_package(delete.db, argv[i]);
+-		if (delete.pkgs[j] != NULL)
+-			j++;
+-		else
+-			fprintf(stderr,
+-			    "pkg_delete: no such package '%s' installed\n",
+-			    argv[i]);
+-	}
+-	if (delete.pkgs[0] == NULL) {
+ 		ret = 1;
++	} else if (delete.pkgs[0] == NULL) {
++		ret = 1;
+ 	} else {
+ 		/* Perform the deinstallation */
+ 		ret = pkg_delete(delete);
+@@ -165,19 +172,21 @@
+ static int
+ pkg_delete(struct pkg_delete delete)
+ {
+-	int i;
++	pkg_db_action *action;
++	int i, fake, scripts;
+ 
+ 	assert(delete.db != NULL);
+ 	assert(delete.pkgs != NULL);
+ 
++	fake = ((delete.flags & no_run_flag) == no_run_flag);
++	scripts = !((delete.flags & no_run_script_flag) == no_run_script_flag);
++	action = NULL;
++	if ((delete.flags & verbosity_flag) == verbosity_flag || fake)
++		action = pkg_action;
++
+ 	for (i = 0; delete.pkgs[i] != NULL; i++) {
+-		if ((delete.flags & verbosity_flag) == verbosity_flag) {
+-			pkg_db_delete_package_action(delete.db, delete.pkgs[i],
+-			    0, 0, pkg_action);
+-		} else {
+-			pkg_db_delete_package_action(delete.db, delete.pkgs[i],
+-			    0, 0, NULL);
+-		}
++		pkg_db_delete_package_action(delete.db, delete.pkgs[i],
++		    scripts, fake, action);
+ 	}
+ 	return 1;
+ }
+
+Modified: trunk/tools/pkg_delete/run.sh
+===================================================================
+--- trunk/tools/pkg_delete/run.sh	2006-11-09 09:26:12 UTC (rev 219)
++++ trunk/tools/pkg_delete/run.sh	2006-11-09 09:33:14 UTC (rev 220)
+@@ -18,4 +18,18 @@
+ 	fi
+ 	pkg_delete -v ${PACKAGE}
+ 	exit $?
++elif [ ${TESTNO} -eq 3 ] ; then
++	pkg_add ./${PACKAGE}.tbz
++	if [ $? -ne 0 ] ; then
++		exit 1
++	fi
++	pkg_delete -n ${PACKAGE}
++	exit $?
++elif [ ${TESTNO} -eq 4 ] ; then
++	pkg_add ./${PACKAGE}.tbz
++	if [ $? -ne 0 ] ; then
++		exit 1
++	fi
++	pkg_delete -D ${PACKAGE}
++	exit $?
+ fi
+
+Modified: trunk/tools/pkg_delete/test.sh
+===================================================================
+--- trunk/tools/pkg_delete/test.sh	2006-11-09 09:26:12 UTC (rev 219)
++++ trunk/tools/pkg_delete/test.sh	2006-11-09 09:33:14 UTC (rev 220)
+@@ -7,7 +7,7 @@
+ 	RUN=$1
+ 
+ 	i=1
+-	while [ $i -le 2 ] ; do
++	while [ $i -le 4 ] ; do
+ 		chroot ${BASE_DIR}/base /run.sh ${PACKAGE} ${i} > ${RUN}.stdout.${i} 2> ${RUN}.stderr.${i}
+ 		# Get the mtree file to use to compare the filesystems
+ 		mtree -c -p ${BASE_DIR}/base | grep -v "^\#[[:space:]]*date:" | sed "s/time=[^ ]*//" > ${RUN}.mtree.${i}
+
+
+
+From zxombie at mail.berlios.de  Thu Nov  9 12:41:43 2006
+From: zxombie at mail.berlios.de (zxombie at BerliOS)
+Date: Thu, 9 Nov 2006 12:41:43 +0100
+Subject: [Libpkg-svn] r221 - trunk/src
+Message-ID: <200611091141.kA9Bfh7h018728@sheep.berlios.de>
+
+Author: zxombie
+Date: 2006-11-09 12:41:42 +0100 (Thu, 09 Nov 2006)
+New Revision: 221
+
+Modified:
+   trunk/src/pkg_db_freebsd.c
+Log:
+Stop more code running when the deinstall is being faked
+
+
+Modified: trunk/src/pkg_db_freebsd.c
+===================================================================
+--- trunk/src/pkg_db_freebsd.c	2006-11-09 09:33:14 UTC (rev 220)
++++ trunk/src/pkg_db_freebsd.c	2006-11-09 11:41:42 UTC (rev 221)
+@@ -440,7 +440,7 @@
+ 		return -1;
+ 	}
+ 
+-	if (scripts) {
++	if (!fake && scripts) {
+ 		if (pkg_run_script(real_pkg, NULL,
+ 		    pkg_script_require_deinstall) != 0) {
+ 			/* XXX */
+@@ -459,6 +459,7 @@
+ 		}
+ 	}
+ 
++	if (!fake) {
+ 	/* Remove the reverse dependencies */
+ 	deps = pkg_db_get_installed_match(db, pkg_db_freebsd_match_rdep,
+ 	    pkg_get_name(real_pkg));
+@@ -471,6 +472,7 @@
+ 			pkgfile_remove_line(file, pkg_get_name(real_pkg));
+ 		}
+ 	}
++	}
+ 
+ 	/* Do the deinstall */
+ 	deinstall_data.db = db;
+@@ -483,7 +485,7 @@
+ 		return -1;
+ 	}
+ 
+-	if (scripts) {
++	if (!fake && scripts) {
+ 		/** @todo Run +POST-DEINSTALL <pkg-name>/+DEINSTALL <pkg-name> POST-DEINSTALL */
+ 		if (pkg_run_script(real_pkg, NULL, pkg_script_post_deinstall)
+ 		    != 0) {
+@@ -713,7 +715,9 @@
+ 	assert(control[0] != NULL);
+ 	/* Remove the control files */
+ 	for (pos = 0; control[pos] != NULL; pos++) {
+-		pkgfile_unlink(control[pos]);
++		if (!install_data->fake) {
++			pkgfile_unlink(control[pos]);
++		}
+ 	}
+ 
+ 	snprintf(db_dir, FILENAME_MAX, "%s" DB_LOCATION "/%s/",
+@@ -722,7 +726,11 @@
+ 	dir = pkgfile_new_from_disk(db_dir, 0);
+ 	if (dir == NULL)
+ 		return -1;
+-	return pkgfile_unlink(dir);
++	if (install_data->fake) {
++		return 0;
++	} else {
++		return pkgfile_unlink(dir);
++	}
+ }
+ 
+ #ifdef DEAD
+
+
+
+From zxombie at mail.berlios.de  Thu Nov  9 13:13:30 2006
+From: zxombie at mail.berlios.de (zxombie at BerliOS)
+Date: Thu, 9 Nov 2006 13:13:30 +0100
+Subject: [Libpkg-svn] r222 - trunk/src
+Message-ID: <200611091213.kA9CDUSh019906@sheep.berlios.de>
+
+Author: zxombie
+Date: 2006-11-09 13:13:27 +0100 (Thu, 09 Nov 2006)
+New Revision: 222
+
+Modified:
+   trunk/src/pkg_db_freebsd.c
+Log:
+Save the current directory and compare it to the new directory in freebsd_do_chdir
+When the new directory's name is "." just print that instead of real name
+Tell the user what is happening when removing reverse dependencies
+
+
+Modified: trunk/src/pkg_db_freebsd.c
+===================================================================
+--- trunk/src/pkg_db_freebsd.c	2006-11-09 11:41:42 UTC (rev 221)
++++ trunk/src/pkg_db_freebsd.c	2006-11-09 12:13:27 UTC (rev 222)
+@@ -51,6 +51,7 @@
+ struct pkg_install_data {
+ 	int fake;
+ 	struct pkg_db *db;
++	const char *last_dir;
+ 	char last_file[FILENAME_MAX];
+ 	char directory[MAXPATHLEN];
+ };
+@@ -227,6 +228,7 @@
+ 	/* Do the Install */
+ 	install_data.db = db;
+ 	install_data.fake = fake;
++	install_data.last_dir = NULL;
+ 	install_data.last_file[0] = '\0';
+ 	install_data.directory[0] = '\0';
+ 	if (pkg_install(pkg, prefix, reg, pkg_action, &install_data,
+@@ -459,7 +461,6 @@
+ 		}
+ 	}
+ 
+-	if (!fake) {
+ 	/* Remove the reverse dependencies */
+ 	deps = pkg_db_get_installed_match(db, pkg_db_freebsd_match_rdep,
+ 	    pkg_get_name(real_pkg));
+@@ -468,15 +469,22 @@
+ 		for (pos = 0; deps[pos] != NULL; pos++) {
+ 			struct pkgfile *file;
+ 
+-			file = pkg_get_control_file(deps[pos], "+REQUIRED_BY");
+-			pkgfile_remove_line(file, pkg_get_name(real_pkg));
++			pkg_action(PKG_DB_INFO, "Trying to remove dependency "
++			    "on package '%s' with '%s' origin.",
++			    pkg_get_name(deps[pos]), pkg_get_origin(deps[pos]));
++			if (!fake) {
++				file = pkg_get_control_file(deps[pos],
++				    "+REQUIRED_BY");
++				pkgfile_remove_line(file,
++				    pkg_get_name(real_pkg));
++			}
+ 		}
+ 	}
+-	}
+ 
+ 	/* Do the deinstall */
+ 	deinstall_data.db = db;
+ 	deinstall_data.fake = fake;
++	deinstall_data.last_dir = NULL;
+ 	deinstall_data.last_file[0] = '\0';
+ 	deinstall_data.directory[0] = '\0';
+ 	if (pkg_deinstall(real_pkg, pkg_action, &deinstall_data,
+@@ -530,6 +538,13 @@
+ 	assert(db != NULL);
+ 	assert(db->db_base != NULL);
+ 
++	/* If we are currently in the correct dir don't attempt to change */
++	if (install_data->last_dir != NULL &&
++	    strcmp(dir, install_data->last_dir) == 0) {
++		return 0;
++	}
++	install_data->last_dir = dir;
++
+ 	if (strcmp(dir, ".") == 0) {
+ 		snprintf(install_data->directory, MAXPATHLEN,
+ 		    "%s" DB_LOCATION "/%s", db->db_base, pkg_get_name(pkg));
+@@ -539,8 +554,12 @@
+ 	}
+ 	pkg_remove_extra_slashes(install_data->directory);
+ 
+-	pkg_action(PKG_DB_PACKAGE, "Change working directory to %s",
+-	    install_data->directory);
++	if (strcmp(dir, ".") == 0) {
++		pkg_action(PKG_DB_PACKAGE, "Change working directory to .");
++	} else {
++		pkg_action(PKG_DB_PACKAGE, "Change working directory to %s",
++		    install_data->directory);
++	}
+ 
+ 	if (!install_data->fake) {
+ 		pkg_dir_build(install_data->directory, 0);
+
+
+
+From zxombie at mail.berlios.de  Wed Nov 15 09:30:39 2006
+From: zxombie at mail.berlios.de (zxombie at BerliOS)
+Date: Wed, 15 Nov 2006 09:30:39 +0100
+Subject: [Libpkg-svn] r223 - trunk/tools/pkg_delete
+Message-ID: <200611150830.kAF8UdfR001115@sheep.berlios.de>
+
+Author: zxombie
+Date: 2006-11-15 09:30:38 +0100 (Wed, 15 Nov 2006)
+New Revision: 223
+
+Modified:
+   trunk/tools/pkg_delete/test.sh
+Log:
+Remove pkg_delete from the mtree output as it is known it will be different
+
+
+Modified: trunk/tools/pkg_delete/test.sh
+===================================================================
+--- trunk/tools/pkg_delete/test.sh	2006-11-09 12:13:27 UTC (rev 222)
++++ trunk/tools/pkg_delete/test.sh	2006-11-15 08:30:38 UTC (rev 223)
+@@ -10,7 +10,7 @@
+ 	while [ $i -le 4 ] ; do
+ 		chroot ${BASE_DIR}/base /run.sh ${PACKAGE} ${i} > ${RUN}.stdout.${i} 2> ${RUN}.stderr.${i}
+ 		# Get the mtree file to use to compare the filesystems
+-		mtree -c -p ${BASE_DIR}/base | grep -v "^\#[[:space:]]*date:" | sed "s/time=[^ ]*//" > ${RUN}.mtree.${i}
++		mtree -c -p ${BASE_DIR}/base | grep -v "^\#[[:space:]]*date:" | sed "s/time=[^ ]*//" | grep -v "^[ ]*pkg_delete" > ${RUN}.mtree.${i}
+ 		# Create a tarball of the important dir's to compare later
+ 		rm ${BASE_DIR}/${RUN}-${i}.tar
+ 		tar -cf ${BASE_DIR}/${RUN}-${i}.tar ${BASE_DIR}/base/var/db/pkg ${BASE_DIR}/base/usr/local
+
+
+
+From zxombie at mail.berlios.de  Wed Nov 15 09:40:16 2006
+From: zxombie at mail.berlios.de (zxombie at BerliOS)
+Date: Wed, 15 Nov 2006 09:40:16 +0100
+Subject: [Libpkg-svn] r224 - trunk/tools/pkg_delete
+Message-ID: <200611150840.kAF8eG4D001785@sheep.berlios.de>
+
+Author: zxombie
+Date: 2006-11-15 09:40:15 +0100 (Wed, 15 Nov 2006)
+New Revision: 224
+
+Modified:
+   trunk/tools/pkg_delete/main.c
+Log:
+Replace assert with errx on the unsupported arguments
+
+
+Modified: trunk/tools/pkg_delete/main.c
+===================================================================
+--- trunk/tools/pkg_delete/main.c	2006-11-15 08:30:38 UTC (rev 223)
++++ trunk/tools/pkg_delete/main.c	2006-11-15 08:40:15 UTC (rev 224)
+@@ -72,32 +72,32 @@
+ 			break;
+ 		case 'd':
+ 			delete.flags |= remove_empty_dirs_flag;
+-			assert(0);
++			errx(1, "Unsupported argument");
+ 			break;
+ 		case 'D':
+ 			delete.flags |= no_run_script_flag;
+ 			break;
+ 		case 'f':
+ 			delete.flags |= force_flag;
+-			assert(0);
++			errx(1, "Unsupported argument");
+ 			break;
+ 		case 'G':
+ 			delete.match_type = PKG_DB_MATCH_EXACT;
+ 			break;
+ 		case 'i':
+ 			delete.flags |= interactive_flag;
+-			assert(0);
++			errx(1, "Unsupported argument");
+ 			break;
+ 		case 'n':
+ 			delete.flags |= no_run_flag;
+ 			break;
+ 		case 'p':
+ 			delete.prefix = optarg;
+-			assert(0);
++			errx(1, "Unsupported argument");
+ 			break;
+ 		case 'r':
+ 			delete.flags |= recursive_flag;
+-			assert(0);
++			errx(1, "Unsupported argument");
+ 			break;
+ 		case 'v':
+ 			delete.flags |= verbosity_flag;
+
+
+
+From zxombie at mail.berlios.de  Wed Nov 15 09:53:28 2006
+From: zxombie at mail.berlios.de (zxombie at BerliOS)
+Date: Wed, 15 Nov 2006 09:53:28 +0100
+Subject: [Libpkg-svn] r225 - trunk/src
+Message-ID: <200611150853.kAF8rSKA002732@sheep.berlios.de>
+
+Author: zxombie
+Date: 2006-11-15 09:53:26 +0100 (Wed, 15 Nov 2006)
+New Revision: 225
+
+Modified:
+   trunk/src/pkg_db.c
+   trunk/src/pkg_db.h
+   trunk/src/pkg_db_freebsd.c
+   trunk/src/pkg_db_private.h
+Log:
+Add a force argument to pkg_db_delete_package(_action)
+
+
+Modified: trunk/src/pkg_db.c
+===================================================================
+--- trunk/src/pkg_db.c	2006-11-15 08:40:15 UTC (rev 224)
++++ trunk/src/pkg_db.c	2006-11-15 08:53:26 UTC (rev 225)
+@@ -279,9 +279,10 @@
+  * @param fake If true don't deinstall but run through the procedure
+  */
+ int
+-pkg_db_delete_package(struct pkg_db *db, struct pkg *pkg, int scripts, int fake)
++pkg_db_delete_package(struct pkg_db *db, struct pkg *pkg, int scripts, int fake,
++	int force)
+ {
+-	return pkg_db_delete_package_action(db, pkg, scripts, fake, NULL);
++	return pkg_db_delete_package_action(db, pkg, scripts, fake, force,NULL);
+ }
+ 
+ /**
+@@ -297,7 +298,7 @@
+  */
+ int
+ pkg_db_delete_package_action(struct pkg_db *db, struct pkg *pkg, int scripts,
+-	int fake, pkg_db_action *action)
++	int fake, int force, pkg_db_action *action)
+ {
+ 	if (db == NULL || pkg == NULL)
+ 		return -1;
+@@ -306,7 +307,7 @@
+ 		action = pkg_action_null;
+ 
+ 	if (db->pkg_deinstall != NULL)
+-		return db->pkg_deinstall(db, pkg, scripts, fake, action);
++		return db->pkg_deinstall(db, pkg, scripts, fake, force, action);
+ 	return -1;
+ }
+ 
+
+Modified: trunk/src/pkg_db.h
+===================================================================
+--- trunk/src/pkg_db.h	2006-11-15 08:40:15 UTC (rev 224)
++++ trunk/src/pkg_db.h	2006-11-15 08:53:26 UTC (rev 225)
+@@ -59,9 +59,10 @@
+ struct pkg	**pkg_db_get_installed_match_count(struct pkg_db *,
+ 			pkg_db_match *, unsigned int, const void *);
+ struct pkg	 *pkg_db_get_package(struct pkg_db *, const char *);
+-int		  pkg_db_delete_package(struct pkg_db *, struct pkg *, int,int);
++int		  pkg_db_delete_package(struct pkg_db *, struct pkg *, int,
++			int, int);
+ int		  pkg_db_delete_package_action(struct pkg_db *, struct pkg *,
+-			int, int, pkg_db_action *);
++			int, int, int, pkg_db_action *);
+ int		  pkg_db_free(struct pkg_db *);
+ 
+ /* Helper functions that use an internal callback for pkg_db_get_installed_match() */
+
+Modified: trunk/src/pkg_db_freebsd.c
+===================================================================
+--- trunk/src/pkg_db_freebsd.c	2006-11-15 08:40:15 UTC (rev 224)
++++ trunk/src/pkg_db_freebsd.c	2006-11-15 08:53:26 UTC (rev 225)
+@@ -78,7 +78,7 @@
+ 				pkg_db_match *, unsigned int, const void *);
+ static struct pkg	 *freebsd_get_package(struct pkg_db *, const char *);
+ static int		  freebsd_deinstall_pkg(struct pkg_db *, struct pkg *,
+-				int, int, pkg_db_action *);
++				int, int, int, pkg_db_action *);
+ 
+ /* pkg_(install|deinstall) callbacks */
+ static int	freebsd_do_chdir(struct pkg *, pkg_db_action *, void *,
+@@ -383,7 +383,7 @@
+  */
+ static int
+ freebsd_deinstall_pkg(struct pkg_db *db, struct pkg *the_pkg, int scripts,
+-	int fake, pkg_db_action *pkg_action)
++	int fake, int force, pkg_db_action *pkg_action)
+ {
+ 	struct pkg_install_data deinstall_data;
+ 	struct pkg *real_pkg;
+@@ -392,6 +392,9 @@
+ 	assert(db != NULL);
+ 	assert(the_pkg != NULL);
+ 
++	/** @todo listen to the force flag correctly */
++	assert(force == 0);
++
+ 	/* Get the real package. The one supplyed may be an empty one */
+ 	/** @todo Check if the package suplyed is a valid package or not */
+ 	real_pkg = freebsd_get_package(db, pkg_get_name(the_pkg));
+
+Modified: trunk/src/pkg_db_private.h
+===================================================================
+--- trunk/src/pkg_db_private.h	2006-11-15 08:40:15 UTC (rev 224)
++++ trunk/src/pkg_db_private.h	2006-11-15 08:53:26 UTC (rev 225)
+@@ -38,7 +38,7 @@
+ typedef struct pkg	**pkg_db_get_installed_match_callback(struct pkg_db *,
+ 				pkg_db_match *, unsigned int, const void *);
+ typedef int	pkg_db_deinstall_pkg_callback(struct pkg_db *, struct pkg *,
+-			int, int, pkg_db_action *);
++			int, int, int, pkg_db_action *);
+ 
+ 
+ struct pkg_db	*pkg_db_open(const char *, pkg_db_install_pkg_callback *,
+
+
+
+From zxombie at mail.berlios.de  Wed Nov 15 09:55:16 2006
+From: zxombie at mail.berlios.de (zxombie at BerliOS)
+Date: Wed, 15 Nov 2006 09:55:16 +0100
+Subject: [Libpkg-svn] r226 - trunk/tools/pkg_delete
+Message-ID: <200611150855.kAF8tG9K002861@sheep.berlios.de>
+
+Author: zxombie
+Date: 2006-11-15 09:55:15 +0100 (Wed, 15 Nov 2006)
+New Revision: 226
+
+Modified:
+   trunk/tools/pkg_delete/main.c
+Log:
+Update pkg_delete to set the force to 0
+
+
+Modified: trunk/tools/pkg_delete/main.c
+===================================================================
+--- trunk/tools/pkg_delete/main.c	2006-11-15 08:53:26 UTC (rev 225)
++++ trunk/tools/pkg_delete/main.c	2006-11-15 08:55:15 UTC (rev 226)
+@@ -173,20 +173,21 @@
+ pkg_delete(struct pkg_delete delete)
+ {
+ 	pkg_db_action *action;
+-	int i, fake, scripts;
++	int i, fake, scripts, force;
+ 
+ 	assert(delete.db != NULL);
+ 	assert(delete.pkgs != NULL);
+ 
+ 	fake = ((delete.flags & no_run_flag) == no_run_flag);
+ 	scripts = !((delete.flags & no_run_script_flag) == no_run_script_flag);
++	force = 0;
+ 	action = NULL;
+ 	if ((delete.flags & verbosity_flag) == verbosity_flag || fake)
+ 		action = pkg_action;
+ 
+ 	for (i = 0; delete.pkgs[i] != NULL; i++) {
+ 		pkg_db_delete_package_action(delete.db, delete.pkgs[i],
+-		    scripts, fake, action);
++		    scripts, fake, force, action);
+ 	}
+ 	return 1;
+ }
+
+
+
+From zxombie at mail.berlios.de  Wed Nov 15 10:03:55 2006
+From: zxombie at mail.berlios.de (zxombie at BerliOS)
+Date: Wed, 15 Nov 2006 10:03:55 +0100
+Subject: [Libpkg-svn] r227 - trunk/src
+Message-ID: <200611150903.kAF93tfw003585@sheep.berlios.de>
+
+Author: zxombie
+Date: 2006-11-15 10:03:55 +0100 (Wed, 15 Nov 2006)
+New Revision: 227
+
+Modified:
+   trunk/src/pkg_db_freebsd.c
+Log:
+First cut at listening to the force flags in freebsd_deinstall_pkg
+
+
+Modified: trunk/src/pkg_db_freebsd.c
+===================================================================
+--- trunk/src/pkg_db_freebsd.c	2006-11-15 08:55:15 UTC (rev 226)
++++ trunk/src/pkg_db_freebsd.c	2006-11-15 09:03:55 UTC (rev 227)
+@@ -392,9 +392,6 @@
+ 	assert(db != NULL);
+ 	assert(the_pkg != NULL);
+ 
+-	/** @todo listen to the force flag correctly */
+-	assert(force == 0);
+-
+ 	/* Get the real package. The one supplyed may be an empty one */
+ 	/** @todo Check if the package suplyed is a valid package or not */
+ 	real_pkg = freebsd_get_package(db, pkg_get_name(the_pkg));
+@@ -437,28 +434,44 @@
+ 			strlcat(buf, "\n", buf_size);
+ 			buf_used += len + 1;
+ 		}
+-		pkg_action(PKG_DB_INFO,
+-		    "package '%s' is required by these other packages "
+-		    "and may not be deinstalled:\n%s",
+-		    pkg_get_name(real_pkg), buf);
++
++		/*
++		 * There is a sligntly different
++		 * message when the force flag is set
++		 */
++		if (force) {
++			pkg_action(PKG_DB_INFO,
++			    "package '%s' is required by these other packages "
++			    "and may not be deinstalled (but I'll delete it "
++			    "anyway):\n%s", pkg_get_name(real_pkg), buf);
++		} else {
++			pkg_action(PKG_DB_INFO,
++			    "package '%s' is required by these other packages "
++			    "and may not be deinstalled:\n%s",
++			    pkg_get_name(real_pkg), buf);
++		}
+ 		free(buf);
+-		return -1;
++
++		/* Only return when the not being forced to */
++		if (!force)
++			return -1;
+ 	}
+ 
+ 	if (!fake && scripts) {
+ 		if (pkg_run_script(real_pkg, NULL,
+-		    pkg_script_require_deinstall) != 0) {
++		    pkg_script_require_deinstall) != 0 && !force) {
+ 			/* XXX */
+ 			return -1;
+ 		}
+ 
+ 		if (pkg_run_script(real_pkg, NULL, pkg_script_pre_deinstall)
+-		    != 0) {
++		    != 0  && !force) {
+ 			/* XXX */
+ 			return -1;
+ 		}
+ 
+-		if (pkg_run_script(real_pkg, NULL, pkg_script_deinstall) != 0) {
++		if (pkg_run_script(real_pkg, NULL, pkg_script_deinstall) != 0
++		    && !force) {
+ 			/* XXX */
+ 			return -1;
+ 		}
+@@ -492,14 +505,14 @@
+ 	deinstall_data.directory[0] = '\0';
+ 	if (pkg_deinstall(real_pkg, pkg_action, &deinstall_data,
+ 	    freebsd_do_chdir, freebsd_deinstall_file,
+-	    freebsd_do_exec, freebsd_deregister) != 0) {
++	    freebsd_do_exec, freebsd_deregister) != 0 && !force) {
+ 		return -1;
+ 	}
+ 
+ 	if (!fake && scripts) {
+ 		/** @todo Run +POST-DEINSTALL <pkg-name>/+DEINSTALL <pkg-name> POST-DEINSTALL */
+ 		if (pkg_run_script(real_pkg, NULL, pkg_script_post_deinstall)
+-		    != 0) {
++		    != 0 && !force) {
+ 			/* XXX */
+ 			return -1;
+ 		}
+
+
+
+From zxombie at mail.berlios.de  Wed Nov 15 10:17:21 2006
+From: zxombie at mail.berlios.de (zxombie at BerliOS)
+Date: Wed, 15 Nov 2006 10:17:21 +0100
+Subject: [Libpkg-svn] r228 - trunk/tools/pkg_delete
+Message-ID: <200611150917.kAF9HL8K004524@sheep.berlios.de>
+
+Author: zxombie
+Date: 2006-11-15 10:17:21 +0100 (Wed, 15 Nov 2006)
+New Revision: 228
+
+Modified:
+   trunk/tools/pkg_delete/main.c
+Log:
+Listen to the pkg_delete -f flag
+
+
+Modified: trunk/tools/pkg_delete/main.c
+===================================================================
+--- trunk/tools/pkg_delete/main.c	2006-11-15 09:03:55 UTC (rev 227)
++++ trunk/tools/pkg_delete/main.c	2006-11-15 09:17:21 UTC (rev 228)
+@@ -79,7 +79,6 @@
+ 			break;
+ 		case 'f':
+ 			delete.flags |= force_flag;
+-			errx(1, "Unsupported argument");
+ 			break;
+ 		case 'G':
+ 			delete.match_type = PKG_DB_MATCH_EXACT;
+@@ -179,8 +178,12 @@
+ 	assert(delete.pkgs != NULL);
+ 
+ 	fake = ((delete.flags & no_run_flag) == no_run_flag);
++	/*
++	 * The scripts flag logic is reversed as
++	 * it is set for no scripts to be run
++	 */
+ 	scripts = !((delete.flags & no_run_script_flag) == no_run_script_flag);
+-	force = 0;
++	force = ((delete.flags & force_flag) == force_flag);
+ 	action = NULL;
+ 	if ((delete.flags & verbosity_flag) == verbosity_flag || fake)
+ 		action = pkg_action;
+
+
+
+From zxombie at mail.berlios.de  Wed Nov 15 10:31:09 2006
+From: zxombie at mail.berlios.de (zxombie at BerliOS)
+Date: Wed, 15 Nov 2006 10:31:09 +0100
+Subject: [Libpkg-svn] r229 - trunk/src
+Message-ID: <200611150931.kAF9V9od005511@sheep.berlios.de>
+
+Author: zxombie
+Date: 2006-11-15 10:31:08 +0100 (Wed, 15 Nov 2006)
+New Revision: 229
+
+Modified:
+   trunk/src/pkg_db.c
+   trunk/src/pkg_db.h
+Log:
+Change the pkg_action callbasck to use an enum rather then a group of #define's
+
+
+Modified: trunk/src/pkg_db.c
+===================================================================
+--- trunk/src/pkg_db.c	2006-11-15 09:17:21 UTC (rev 228)
++++ trunk/src/pkg_db.c	2006-11-15 09:31:08 UTC (rev 229)
+@@ -115,7 +115,8 @@
+  * It is used for a pkg_action when no output is required
+  */
+ static void
+-pkg_action_null(int level __unused, const char *fmt __unused, ...)
++pkg_action_null(enum pkg_action_level level __unused, const char *fmt __unused,
++	...)
+ {
+ }
+ 
+
+Modified: trunk/src/pkg_db.h
+===================================================================
+--- trunk/src/pkg_db.h	2006-11-15 09:17:21 UTC (rev 228)
++++ trunk/src/pkg_db.h	2006-11-15 09:31:08 UTC (rev 229)
+@@ -42,10 +42,12 @@
+  */
+ typedef		  int pkg_db_match(struct pkg *, const void *);
+ 
+-#define PKG_DB_ERROR	1 /* Error messages */
+-#define PKG_DB_INFO	2 /* General info */
+-#define PKG_DB_PACKAGE	3 /* Specific info from the package */
+-typedef		  void pkg_db_action(int, const char *, ...);
++enum pkg_action_level {
++	PKG_DB_ERROR,	/* Error messages */
++	PKG_DB_INFO,	/* General info */
++	PKG_DB_PACKAGE,	/* Specific info from the package */
++};
++typedef		  void pkg_db_action(enum pkg_action_level, const char *, ...);
+ 
+ struct pkg_db	 *pkg_db_open_freebsd(const char *);
+ int		  pkg_db_install_pkg(struct pkg_db *, struct pkg *,
+
+
+
+From zxombie at mail.berlios.de  Wed Nov 15 10:32:07 2006
+From: zxombie at mail.berlios.de (zxombie at BerliOS)
+Date: Wed, 15 Nov 2006 10:32:07 +0100
+Subject: [Libpkg-svn] r230 - in trunk/tools: pkg_add pkg_delete
+Message-ID: <200611150932.kAF9W73U005601@sheep.berlios.de>
+
+Author: zxombie
+Date: 2006-11-15 10:32:07 +0100 (Wed, 15 Nov 2006)
+New Revision: 230
+
+Modified:
+   trunk/tools/pkg_add/main.c
+   trunk/tools/pkg_delete/main.c
+Log:
+Update pkg_(add|delete) to use the enum in pkg_action
+
+
+Modified: trunk/tools/pkg_add/main.c
+===================================================================
+--- trunk/tools/pkg_add/main.c	2006-11-15 09:31:08 UTC (rev 229)
++++ trunk/tools/pkg_add/main.c	2006-11-15 09:32:07 UTC (rev 230)
+@@ -232,7 +232,7 @@
+  * Only used when -v is set
+  */
+ static void
+-pkg_action(int level, const char *fmt, ...)
++pkg_action(enum pkg_action_level level, const char *fmt, ...)
+ {
+ 	va_list ap;
+ 
+
+Modified: trunk/tools/pkg_delete/main.c
+===================================================================
+--- trunk/tools/pkg_delete/main.c	2006-11-15 09:31:08 UTC (rev 229)
++++ trunk/tools/pkg_delete/main.c	2006-11-15 09:32:07 UTC (rev 230)
+@@ -155,7 +155,7 @@
+  * Only used when -v is set
+  */
+ static void
+-pkg_action(int level __unused, const char *fmt, ...)
++pkg_action(enum pkg_action_level level __unused, const char *fmt, ...)
+ {
+ 	va_list ap;
+ 
+
+
+
+From zxombie at mail.berlios.de  Wed Nov 15 11:34:43 2006
+From: zxombie at mail.berlios.de (zxombie at BerliOS)
+Date: Wed, 15 Nov 2006 11:34:43 +0100
+Subject: [Libpkg-svn] r231 - trunk/src
+Message-ID: <200611151034.kAFAYhvI009637@sheep.berlios.de>
+
+Author: zxombie
+Date: 2006-11-15 11:34:43 +0100 (Wed, 15 Nov 2006)
+New Revision: 231
+
+Modified:
+   trunk/src/pkg_db.c
+   trunk/src/pkg_db.h
+   trunk/src/pkg_db_freebsd.c
+Log:
+Remove pkg_db_delete_package
+Make pkg_db_action tage an interactive argument. It is set to true if the string is a boolean question
+Make pkg_action_null non static
+
+
+Modified: trunk/src/pkg_db.c
+===================================================================
+--- trunk/src/pkg_db.c	2006-11-15 09:32:07 UTC (rev 230)
++++ trunk/src/pkg_db.c	2006-11-15 10:34:43 UTC (rev 231)
+@@ -109,15 +109,17 @@
+ }
+ 
+ /**
+- * @brief The package action used when NULL is passed in
++ * @brief The package action used when no output is required
++ * @todo Change to follow the interactive flag
+  * 
+  * This is a function that does nothing.
+- * It is used for a pkg_action when no output is required
++ * It can be used for a pkg_action when no output is required
+  */
+-static void
+-pkg_action_null(enum pkg_action_level level __unused, const char *fmt __unused,
+-	...)
++int
++pkg_action_null(enum pkg_action_level level __unused, int interactive __unused,
++	const char *fmt __unused, ...)
+ {
++	return 0;
+ }
+ 
+ /**
+@@ -139,22 +141,6 @@
+  * @brief Installs a package to the database
+  * @param db The database to install to
+  * @param pkg The package to install
+- * @param prefix The prefix to use to install the package or NULL
+- * @param reg If true register the package's installation
+- * @param scripts If true run the packages scripts
+- * @return 0 on success, -1 on error
+- */
+-int
+-pkg_db_install_pkg(struct pkg_db *db, struct pkg *pkg, const char *prefix,
+-	int reg, int scripts)
+-{
+-	return pkg_db_install_pkg_action(db, pkg, prefix, reg, scripts, 0,NULL);
+-}
+-
+-/**
+- * @brief Installs a package to the database
+- * @param db The database to install to
+- * @param pkg The package to install
+  * @param prefix If not NULL override the package's prefix
+  * @param reg If true register the package
+  * @param scripts If true run the package's scripts
+@@ -181,7 +167,7 @@
+ 	}
+ 
+ 	if (action == NULL)
+-		action = pkg_action_null;
++		return -1;
+ 
+ 	return db->pkg_install(db, pkg, prefix, reg, scripts, fake, action);
+ }
+@@ -273,20 +259,6 @@
+ }
+ 
+ /**
+- * @brief Removes a package from the package database and filesystem
+- * @param db The database to deinstall from
+- * @param pkg The package to deinstall
+- * @param scripts If true run the package's scripts
+- * @param fake If true don't deinstall but run through the procedure
+- */
+-int
+-pkg_db_delete_package(struct pkg_db *db, struct pkg *pkg, int scripts, int fake,
+-	int force)
+-{
+-	return pkg_db_delete_package_action(db, pkg, scripts, fake, force,NULL);
+-}
+-
+-/**
+  * @brief Removes a package and it's files from a database
+  * @param db The database to deinstall from
+  * @param pkg The package to deinstall
+@@ -305,7 +277,7 @@
+ 		return -1;
+ 
+ 	if (action == NULL)
+-		action = pkg_action_null;
++		return -1;
+ 
+ 	if (db->pkg_deinstall != NULL)
+ 		return db->pkg_deinstall(db, pkg, scripts, fake, force, action);
+
+Modified: trunk/src/pkg_db.h
+===================================================================
+--- trunk/src/pkg_db.h	2006-11-15 09:32:07 UTC (rev 230)
++++ trunk/src/pkg_db.h	2006-11-15 10:34:43 UTC (rev 231)
+@@ -47,11 +47,9 @@
+ 	PKG_DB_INFO,	/* General info */
+ 	PKG_DB_PACKAGE,	/* Specific info from the package */
+ };
+-typedef		  void pkg_db_action(enum pkg_action_level, const char *, ...);
++typedef		  int pkg_db_action(enum pkg_action_level, int, const char *,				...);
+ 
+ struct pkg_db	 *pkg_db_open_freebsd(const char *);
+-int		  pkg_db_install_pkg(struct pkg_db *, struct pkg *,
+-			const char *, int, int);
+ int		  pkg_db_install_pkg_action(struct pkg_db *, struct pkg *,
+ 			const char *, int, int, int, pkg_db_action *);
+ int		  pkg_db_is_installed(struct pkg_db *, struct pkg *);
+@@ -61,8 +59,6 @@
+ struct pkg	**pkg_db_get_installed_match_count(struct pkg_db *,
+ 			pkg_db_match *, unsigned int, const void *);
+ struct pkg	 *pkg_db_get_package(struct pkg_db *, const char *);
+-int		  pkg_db_delete_package(struct pkg_db *, struct pkg *, int,
+-			int, int);
+ int		  pkg_db_delete_package_action(struct pkg_db *, struct pkg *,
+ 			int, int, int, pkg_db_action *);
+ int		  pkg_db_free(struct pkg_db *);
+@@ -83,6 +79,8 @@
+ struct pkg	**pkg_db_match_regex(struct pkg_db *, const char **, int);
+ struct pkg	**pkg_db_match_glob(struct pkg_db *, const char **, int);
+ 
++int		  pkg_action_null(enum pkg_action_level, int, const char *,...);
++
+ /* Functions to be passed to pkg_db_get_installed_match() */
+ int		  pkg_match_all(struct pkg *, const void *);
+ int		  pkg_match_by_origin(struct pkg *, const void *);
+
+Modified: trunk/src/pkg_db_freebsd.c
+===================================================================
+--- trunk/src/pkg_db_freebsd.c	2006-11-15 09:32:07 UTC (rev 230)
++++ trunk/src/pkg_db_freebsd.c	2006-11-15 10:34:43 UTC (rev 231)
+@@ -205,10 +205,10 @@
+ 	} else
+ 		setenv("PKG_PREFIX", prefix, 1);
+ 
+-	pkg_action(PKG_DB_PACKAGE, "Package name is %s", pkg_get_name(pkg));
++	pkg_action(PKG_DB_PACKAGE, 0, "Package name is %s", pkg_get_name(pkg));
+ 
+ 	/* Run +REQUIRE */
+-	pkg_action(PKG_DB_INFO, "Running ... for %s..",
++	pkg_action(PKG_DB_INFO, 0, "Running ... for %s..",
+ 	    pkg_get_name(pkg));
+ 
+ 	if (!fake) {
+@@ -219,7 +219,7 @@
+ 	}
+ 
+ 	/* Run Pre-install */
+-	pkg_action(PKG_DB_INFO, "Running pre-install for %s..",
++	pkg_action(PKG_DB_INFO, 0, "Running pre-install for %s..",
+ 	    pkg_get_name(pkg));
+ 
+ 	if (!fake && scripts)
+@@ -238,13 +238,13 @@
+ 	}
+ 
+ 	/* Extract the +MTREE */
+-	pkg_action(PKG_DB_INFO, "Running mtree for %s..", pkg_get_name(pkg));
++	pkg_action(PKG_DB_INFO, 0, "Running mtree for %s..", pkg_get_name(pkg));
+ 
+ 	if (!fake)
+ 		pkg_run_script(pkg, prefix, pkg_script_mtree);
+ 
+ 	/* Run post-install */
+-	pkg_action(PKG_DB_INFO, "Running post-install for %s..",
++	pkg_action(PKG_DB_INFO, 0, "Running post-install for %s..",
+ 	    pkg_get_name(pkg));
+ 
+ 	if (!fake && scripts)
+@@ -397,7 +397,7 @@
+ 	real_pkg = freebsd_get_package(db, pkg_get_name(the_pkg));
+ 	/* Check if the package is installed */
+ 	if (real_pkg == NULL) {
+-		pkg_action(PKG_DB_INFO, "No such package '%s' installed",
++		pkg_action(PKG_DB_INFO, 0, "No such package '%s' installed",
+ 		    pkg_get_name(the_pkg));
+ 		return -1;
+ 	}
+@@ -414,7 +414,7 @@
+ 		buf_size = 1024;
+ 		buf = malloc(buf_size);
+ 		if (buf == NULL) {
+-			pkg_action(PKG_DB_INFO,
++			pkg_action(PKG_DB_INFO, 0,
+ 			    "package '%s' is required by other packages and "
+ 			    "may not be deinstalled however an error occured "
+ 			    "while retrieving the list of packages",
+@@ -440,12 +440,12 @@
+ 		 * message when the force flag is set
+ 		 */
+ 		if (force) {
+-			pkg_action(PKG_DB_INFO,
++			pkg_action(PKG_DB_INFO, 0,
+ 			    "package '%s' is required by these other packages "
+ 			    "and may not be deinstalled (but I'll delete it "
+ 			    "anyway):\n%s", pkg_get_name(real_pkg), buf);
+ 		} else {
+-			pkg_action(PKG_DB_INFO,
++			pkg_action(PKG_DB_INFO, 0,
+ 			    "package '%s' is required by these other packages "
+ 			    "and may not be deinstalled:\n%s",
+ 			    pkg_get_name(real_pkg), buf);
+@@ -485,8 +485,8 @@
+ 		for (pos = 0; deps[pos] != NULL; pos++) {
+ 			struct pkgfile *file;
+ 
+-			pkg_action(PKG_DB_INFO, "Trying to remove dependency "
+-			    "on package '%s' with '%s' origin.",
++			pkg_action(PKG_DB_INFO, 0, "Trying to remove "
++			    "dependency on package '%s' with '%s' origin.",
+ 			    pkg_get_name(deps[pos]), pkg_get_origin(deps[pos]));
+ 			if (!fake) {
+ 				file = pkg_get_control_file(deps[pos],
+@@ -571,9 +571,9 @@
+ 	pkg_remove_extra_slashes(install_data->directory);
+ 
+ 	if (strcmp(dir, ".") == 0) {
+-		pkg_action(PKG_DB_PACKAGE, "Change working directory to .");
++		pkg_action(PKG_DB_PACKAGE, 0, "Change working directory to .");
+ 	} else {
+-		pkg_action(PKG_DB_PACKAGE, "Change working directory to %s",
++		pkg_action(PKG_DB_PACKAGE, 0, "Change working directory to %s",
+ 		    install_data->directory);
+ 	}
+ 
+@@ -606,7 +606,7 @@
+ 	snprintf(install_data->last_file, FILENAME_MAX, "%s",
+ 	    pkgfile_get_name(file));
+ 
+-	pkg_action(PKG_DB_PACKAGE, "%s/%s", install_data->directory,
++	pkg_action(PKG_DB_PACKAGE, 0, "%s/%s", install_data->directory,
+ 	    pkgfile_get_name(file));
+ 	if (!install_data->fake)
+ 		return pkgfile_write(file);
+@@ -632,7 +632,7 @@
+ 	install_data = data;
+ 
+ 	pkgfile_set_cwd(file, install_data->directory);
+-	pkg_action(PKG_DB_PACKAGE, "Delete %s %s",
++	pkg_action(PKG_DB_PACKAGE, 0, "Delete %s %s",
+ 	    pkgfile_get_type_string(file), pkgfile_get_name(file));
+ 
+ 	/* Only remove the files if this is a real deinstall */
+@@ -664,7 +664,7 @@
+ 	freebsd_format_cmd(the_cmd, FILENAME_MAX, cmd, install_data->directory,
+ 	    install_data->last_file);
+ 
+-	pkg_action(PKG_DB_PACKAGE, "Execute '%s'", the_cmd);
++	pkg_action(PKG_DB_PACKAGE, 0, "Execute '%s'", the_cmd);
+ 	if (!install_data->fake) {
+ 		return pkg_exec(the_cmd);
+ 	}
+@@ -695,7 +695,7 @@
+ 	assert(install_data->db);
+ 	db = install_data->db;
+ 
+-	pkg_action(PKG_DB_INFO,
++	pkg_action(PKG_DB_INFO, 0,
+ 	    "Attempting to record package into " DB_LOCATION "/%s..",
+ 	    pkg_get_name(pkg));
+ 	for (pos = 0; control[pos] != NULL; pos++) {
+@@ -723,8 +723,8 @@
+ 	}
+ 	pkg_list_free(deps);
+ 	
+-	pkg_action(PKG_DB_INFO, "Package %s registered in %s" DB_LOCATION "/%s",
+-	    pkg_get_name(pkg), db->db_base, pkg_get_name(pkg));
++	pkg_action(PKG_DB_INFO, 0, "Package %s registered in %s" DB_LOCATION
++	    "/%s", pkg_get_name(pkg), db->db_base, pkg_get_name(pkg));
+ 	return -1;
+ }
+ 
+
+
+
+From zxombie at mail.berlios.de  Wed Nov 15 11:37:31 2006
+From: zxombie at mail.berlios.de (zxombie at BerliOS)
+Date: Wed, 15 Nov 2006 11:37:31 +0100
+Subject: [Libpkg-svn] r232 - in trunk/tools: pkg_add pkg_delete
+Message-ID: <200611151037.kAFAbVt4009794@sheep.berlios.de>
+
+Author: zxombie
+Date: 2006-11-15 11:37:30 +0100 (Wed, 15 Nov 2006)
+New Revision: 232
+
+Modified:
+   trunk/tools/pkg_add/main.c
+   trunk/tools/pkg_delete/main.c
+Log:
+Update pkg_(add|delete) to use the change in pkg_db_action and the removal of pkg_db_(install|delete)_package
+Redice the amount of code in pkg_add predetermining the pkg_db_install_package_action arguments
+
+
+Modified: trunk/tools/pkg_add/main.c
+===================================================================
+--- trunk/tools/pkg_add/main.c	2006-11-15 10:34:43 UTC (rev 231)
++++ trunk/tools/pkg_add/main.c	2006-11-15 10:37:30 UTC (rev 232)
+@@ -231,17 +231,22 @@
+  * Print the message from fmt
+  * Only used when -v is set
+  */
+-static void
+-pkg_action(enum pkg_action_level level, const char *fmt, ...)
++static int
++pkg_action(enum pkg_action_level level, int interactive, const char *fmt, ...)
+ {
+ 	va_list ap;
+ 
++	/* The interactive flag is ignored for now */
++	assert(interactive == 0);
++
+ 	va_start(ap, fmt);
+ 	if (level == PKG_DB_PACKAGE)
+ 		printf("extract: ");
+ 	vprintf(fmt, ap);
+ 	putchar('\n');
+ 	va_end(ap);
++
++	return 0;
+ }
+ 
+ /*
+@@ -252,7 +257,8 @@
+ 		const char *base_prefix, const char *prefix, int flags)
+ {
+ 	unsigned int i;
+-	int ret;
++	int ret, run, scripts, record, verbose;
++	pkg_db_action *action;
+ 	struct pkg **deps;
+ 	struct pkg_list *cur;
+ 
+@@ -277,6 +283,25 @@
+ 		return 0;
+ 	}
+ 
++	record = ((flags & no_record_install_flag) != no_record_install_flag);
++	scripts = ((flags & no_run_script_flag) == no_run_script_flag);
++	run = ((flags & no_run_flag) != no_run_flag);
++	verbose = (flags & verbosity_flag) == verbosity_flag;
++
++	/*
++	 * Deside which pkg_db_action to use. If neither is
++	 * set then we won't be installing any packages
++	 * (ie. nothing will happen with !verbose and !run)
++	 */
++	action = NULL;
++	if (verbose) {
++		/* Use our pkg_db_action */
++		action = pkg_action;
++	} else if (run) {
++		/* Use the no output pkg_action */
++		action = pkg_action_null;
++	}
++
+ 	/* Get the package's dependencies */
+ 	deps = pkg_get_dependencies(pkg);
+ 	for (i=0; deps[i] != NULL; i++) {
+@@ -304,17 +329,13 @@
+ 
+ 	ret = -1;
+ 	/* Install the package */
+-	if ((flags & verbosity_flag) == verbosity_flag) {
+-		/* Install with a verbose output */
+-		printf("extract: Package name is %s\n", pkg_get_name(pkg));
+-		ret = pkg_db_install_pkg_action(db, pkg, base_prefix,
+-		    ((flags & no_record_install_flag)!= no_record_install_flag),
+-		    ((flags & no_run_script_flag) == no_run_script_flag),
+-		    ((flags & no_run_flag) != no_run_flag), pkg_action);
+-	} else if ((flags & no_run_flag) == 0) {
+-		ret = pkg_db_install_pkg(db, pkg, base_prefix,
+-		    ((flags & no_record_install_flag)!=no_record_install_flag),
+-		    ((flags & no_run_script_flag) != no_run_script_flag));
++	if (action != NULL) {
++		if (verbose) {
++			printf("extract: Package name is %s\n",
++			    pkg_get_name(pkg));
++		}
++		ret = pkg_db_install_pkg_action(db, pkg, base_prefix, record,
++		    scripts, run, action);
+ 	}
+ 	/*
+ 	 * Insert the installed package in a linked
+
+Modified: trunk/tools/pkg_delete/main.c
+===================================================================
+--- trunk/tools/pkg_delete/main.c	2006-11-15 10:34:43 UTC (rev 231)
++++ trunk/tools/pkg_delete/main.c	2006-11-15 10:37:30 UTC (rev 232)
+@@ -154,15 +154,21 @@
+  * Print the message from fmt
+  * Only used when -v is set
+  */
+-static void
+-pkg_action(enum pkg_action_level level __unused, const char *fmt, ...)
++static int
++pkg_action(enum pkg_action_level level __unused, int interactive,
++	const char *fmt, ...)
+ {
+ 	va_list ap;
+ 
++	/* The interactive flag is ignored for now */
++	assert(interactive == 0);
++
+ 	va_start(ap, fmt);
+ 	vprintf(fmt, ap);
+ 	putchar('\n');
+ 	va_end(ap);
++
++	return 0;
+ }
+ 
+ /*
+
+
+
+From zxombie at mail.berlios.de  Wed Nov 15 11:59:39 2006
+From: zxombie at mail.berlios.de (zxombie at BerliOS)
+Date: Wed, 15 Nov 2006 11:59:39 +0100
+Subject: [Libpkg-svn] r233 - trunk/tools/pkg_delete
+Message-ID: <200611151059.kAFAxd8F011861@sheep.berlios.de>
+
+Author: zxombie
+Date: 2006-11-15 11:59:38 +0100 (Wed, 15 Nov 2006)
+New Revision: 233
+
+Modified:
+   trunk/tools/pkg_delete/main.c
+Log:
+Implement the interactive part of the pkg_delete pkg_action
+
+
+Modified: trunk/tools/pkg_delete/main.c
+===================================================================
+--- trunk/tools/pkg_delete/main.c	2006-11-15 10:37:30 UTC (rev 232)
++++ trunk/tools/pkg_delete/main.c	2006-11-15 10:59:38 UTC (rev 233)
+@@ -160,14 +160,28 @@
+ {
+ 	va_list ap;
+ 
+-	/* The interactive flag is ignored for now */
+-	assert(interactive == 0);
+-
+ 	va_start(ap, fmt);
+ 	vprintf(fmt, ap);
+ 	putchar('\n');
+ 	va_end(ap);
+ 
++	if (interactive) {
++		int first, ch;
++
++		/* Read the first character in the string */
++		first = getchar();
++		ch = first;
++
++		/* Read the rest of the line and ignore it */
++		while (ch != '\n' && ch != EOF) {
++			ch = getchar();
++		}
++
++		if (tolower(first) == 'y') {
++			return 1;
++		}
++	}
++
+ 	return 0;
+ }
+ 
+
+
+
+From zxombie at mail.berlios.de  Wed Nov 15 12:12:37 2006
+From: zxombie at mail.berlios.de (zxombie at BerliOS)
+Date: Wed, 15 Nov 2006 12:12:37 +0100
+Subject: [Libpkg-svn] r234 - trunk/src
+Message-ID: <200611151112.kAFBCbsA014077@sheep.berlios.de>
+
+Author: zxombie
+Date: 2006-11-15 12:12:36 +0100 (Wed, 15 Nov 2006)
+New Revision: 234
+
+Modified:
+   trunk/src/pkg_db.h
+   trunk/src/pkg_db_freebsd.c
+Log:
+Remove pkg_db_action's interactive flag as it turns out to be unneeded
+
+
+Modified: trunk/src/pkg_db.h
+===================================================================
+--- trunk/src/pkg_db.h	2006-11-15 10:59:38 UTC (rev 233)
++++ trunk/src/pkg_db.h	2006-11-15 11:12:36 UTC (rev 234)
+@@ -47,7 +47,7 @@
+ 	PKG_DB_INFO,	/* General info */
+ 	PKG_DB_PACKAGE,	/* Specific info from the package */
+ };
+-typedef		  int pkg_db_action(enum pkg_action_level, int, const char *,				...);
++typedef		  int pkg_db_action(enum pkg_action_level, const char *, ...);
+ 
+ struct pkg_db	 *pkg_db_open_freebsd(const char *);
+ int		  pkg_db_install_pkg_action(struct pkg_db *, struct pkg *,
+
+Modified: trunk/src/pkg_db_freebsd.c
+===================================================================
+--- trunk/src/pkg_db_freebsd.c	2006-11-15 10:59:38 UTC (rev 233)
++++ trunk/src/pkg_db_freebsd.c	2006-11-15 11:12:36 UTC (rev 234)
+@@ -205,10 +205,10 @@
+ 	} else
+ 		setenv("PKG_PREFIX", prefix, 1);
+ 
+-	pkg_action(PKG_DB_PACKAGE, 0, "Package name is %s", pkg_get_name(pkg));
++	pkg_action(PKG_DB_PACKAGE, "Package name is %s", pkg_get_name(pkg));
+ 
+ 	/* Run +REQUIRE */
+-	pkg_action(PKG_DB_INFO, 0, "Running ... for %s..",
++	pkg_action(PKG_DB_INFO, "Running ... for %s..",
+ 	    pkg_get_name(pkg));
+ 
+ 	if (!fake) {
+@@ -219,7 +219,7 @@
+ 	}
+ 
+ 	/* Run Pre-install */
+-	pkg_action(PKG_DB_INFO, 0, "Running pre-install for %s..",
++	pkg_action(PKG_DB_INFO, "Running pre-install for %s..",
+ 	    pkg_get_name(pkg));
+ 
+ 	if (!fake && scripts)
+@@ -238,13 +238,13 @@
+ 	}
+ 
+ 	/* Extract the +MTREE */
+-	pkg_action(PKG_DB_INFO, 0, "Running mtree for %s..", pkg_get_name(pkg));
++	pkg_action(PKG_DB_INFO, "Running mtree for %s..", pkg_get_name(pkg));
+ 
+ 	if (!fake)
+ 		pkg_run_script(pkg, prefix, pkg_script_mtree);
+ 
+ 	/* Run post-install */
+-	pkg_action(PKG_DB_INFO, 0, "Running post-install for %s..",
++	pkg_action(PKG_DB_INFO, "Running post-install for %s..",
+ 	    pkg_get_name(pkg));
+ 
+ 	if (!fake && scripts)
+@@ -397,7 +397,7 @@
+ 	real_pkg = freebsd_get_package(db, pkg_get_name(the_pkg));
+ 	/* Check if the package is installed */
+ 	if (real_pkg == NULL) {
+-		pkg_action(PKG_DB_INFO, 0, "No such package '%s' installed",
++		pkg_action(PKG_DB_INFO, "No such package '%s' installed",
+ 		    pkg_get_name(the_pkg));
+ 		return -1;
+ 	}
+@@ -414,7 +414,7 @@
+ 		buf_size = 1024;
+ 		buf = malloc(buf_size);
+ 		if (buf == NULL) {
+-			pkg_action(PKG_DB_INFO, 0,
++			pkg_action(PKG_DB_INFO,
+ 			    "package '%s' is required by other packages and "
+ 			    "may not be deinstalled however an error occured "
+ 			    "while retrieving the list of packages",
+@@ -440,12 +440,12 @@
+ 		 * message when the force flag is set
+ 		 */
+ 		if (force) {
+-			pkg_action(PKG_DB_INFO, 0,
++			pkg_action(PKG_DB_INFO,
+ 			    "package '%s' is required by these other packages "
+ 			    "and may not be deinstalled (but I'll delete it "
+ 			    "anyway):\n%s", pkg_get_name(real_pkg), buf);
+ 		} else {
+-			pkg_action(PKG_DB_INFO, 0,
++			pkg_action(PKG_DB_INFO,
+ 			    "package '%s' is required by these other packages "
+ 			    "and may not be deinstalled:\n%s",
+ 			    pkg_get_name(real_pkg), buf);
+@@ -485,7 +485,7 @@
+ 		for (pos = 0; deps[pos] != NULL; pos++) {
+ 			struct pkgfile *file;
+ 
+-			pkg_action(PKG_DB_INFO, 0, "Trying to remove "
++			pkg_action(PKG_DB_INFO, "Trying to remove "
+ 			    "dependency on package '%s' with '%s' origin.",
+ 			    pkg_get_name(deps[pos]), pkg_get_origin(deps[pos]));
+ 			if (!fake) {
+@@ -571,9 +571,9 @@
+ 	pkg_remove_extra_slashes(install_data->directory);
+ 
+ 	if (strcmp(dir, ".") == 0) {
+-		pkg_action(PKG_DB_PACKAGE, 0, "Change working directory to .");
++		pkg_action(PKG_DB_PACKAGE, "Change working directory to .");
+ 	} else {
+-		pkg_action(PKG_DB_PACKAGE, 0, "Change working directory to %s",
++		pkg_action(PKG_DB_PACKAGE, "Change working directory to %s",
+ 		    install_data->directory);
+ 	}
+ 
+@@ -606,7 +606,7 @@
+ 	snprintf(install_data->last_file, FILENAME_MAX, "%s",
+ 	    pkgfile_get_name(file));
+ 
+-	pkg_action(PKG_DB_PACKAGE, 0, "%s/%s", install_data->directory,
++	pkg_action(PKG_DB_PACKAGE, "%s/%s", install_data->directory,
+ 	    pkgfile_get_name(file));
+ 	if (!install_data->fake)
+ 		return pkgfile_write(file);
+@@ -632,7 +632,7 @@
+ 	install_data = data;
+ 
+ 	pkgfile_set_cwd(file, install_data->directory);
+-	pkg_action(PKG_DB_PACKAGE, 0, "Delete %s %s",
++	pkg_action(PKG_DB_PACKAGE, "Delete %s %s",
+ 	    pkgfile_get_type_string(file), pkgfile_get_name(file));
+ 
+ 	/* Only remove the files if this is a real deinstall */
+@@ -664,7 +664,7 @@
+ 	freebsd_format_cmd(the_cmd, FILENAME_MAX, cmd, install_data->directory,
+ 	    install_data->last_file);
+ 
+-	pkg_action(PKG_DB_PACKAGE, 0, "Execute '%s'", the_cmd);
++	pkg_action(PKG_DB_PACKAGE, "Execute '%s'", the_cmd);
+ 	if (!install_data->fake) {
+ 		return pkg_exec(the_cmd);
+ 	}
+@@ -695,7 +695,7 @@
+ 	assert(install_data->db);
+ 	db = install_data->db;
+ 
+-	pkg_action(PKG_DB_INFO, 0,
++	pkg_action(PKG_DB_INFO,
+ 	    "Attempting to record package into " DB_LOCATION "/%s..",
+ 	    pkg_get_name(pkg));
+ 	for (pos = 0; control[pos] != NULL; pos++) {
+@@ -723,7 +723,7 @@
+ 	}
+ 	pkg_list_free(deps);
+ 	
+-	pkg_action(PKG_DB_INFO, 0, "Package %s registered in %s" DB_LOCATION
++	pkg_action(PKG_DB_INFO, "Package %s registered in %s" DB_LOCATION
+ 	    "/%s", pkg_get_name(pkg), db->db_base, pkg_get_name(pkg));
+ 	return -1;
+ }
+
+
+
+From zxombie at mail.berlios.de  Wed Nov 15 12:16:25 2006
+From: zxombie at mail.berlios.de (zxombie at BerliOS)
+Date: Wed, 15 Nov 2006 12:16:25 +0100
+Subject: [Libpkg-svn] r235 - in trunk/tools: pkg_add pkg_delete
+Message-ID: <200611151116.kAFBGP9U014381@sheep.berlios.de>
+
+Author: zxombie
+Date: 2006-11-15 12:16:24 +0100 (Wed, 15 Nov 2006)
+New Revision: 235
+
+Modified:
+   trunk/tools/pkg_add/main.c
+   trunk/tools/pkg_delete/main.c
+Log:
+Remove the interactive flag from the pkg_db_action callbacks
+Implement the -i flag in pkg_delete
+
+
+Modified: trunk/tools/pkg_add/main.c
+===================================================================
+--- trunk/tools/pkg_add/main.c	2006-11-15 11:12:36 UTC (rev 234)
++++ trunk/tools/pkg_add/main.c	2006-11-15 11:16:24 UTC (rev 235)
+@@ -232,13 +232,10 @@
+  * Only used when -v is set
+  */
+ static int
+-pkg_action(enum pkg_action_level level, int interactive, const char *fmt, ...)
++pkg_action(enum pkg_action_level level, const char *fmt, ...)
+ {
+ 	va_list ap;
+ 
+-	/* The interactive flag is ignored for now */
+-	assert(interactive == 0);
+-
+ 	va_start(ap, fmt);
+ 	if (level == PKG_DB_PACKAGE)
+ 		printf("extract: ");
+
+Modified: trunk/tools/pkg_delete/main.c
+===================================================================
+--- trunk/tools/pkg_delete/main.c	2006-11-15 11:12:36 UTC (rev 234)
++++ trunk/tools/pkg_delete/main.c	2006-11-15 11:16:24 UTC (rev 235)
+@@ -85,7 +85,6 @@
+ 			break;
+ 		case 'i':
+ 			delete.flags |= interactive_flag;
+-			errx(1, "Unsupported argument");
+ 			break;
+ 		case 'n':
+ 			delete.flags |= no_run_flag;
+@@ -154,9 +153,8 @@
+  * Print the message from fmt
+  * Only used when -v is set
+  */
+-static int
+-pkg_action(enum pkg_action_level level __unused, int interactive,
+-	const char *fmt, ...)
++static void
++pkg_action(enum pkg_action_level level __unused, const char *fmt, ...)
+ {
+ 	va_list ap;
+ 
+@@ -164,25 +162,6 @@
+ 	vprintf(fmt, ap);
+ 	putchar('\n');
+ 	va_end(ap);
+-
+-	if (interactive) {
+-		int first, ch;
+-
+-		/* Read the first character in the string */
+-		first = getchar();
+-		ch = first;
+-
+-		/* Read the rest of the line and ignore it */
+-		while (ch != '\n' && ch != EOF) {
+-			ch = getchar();
+-		}
+-
+-		if (tolower(first) == 'y') {
+-			return 1;
+-		}
+-	}
+-
+-	return 0;
+ }
+ 
+ /*
+@@ -209,6 +188,10 @@
+ 		action = pkg_action;
+ 
+ 	for (i = 0; delete.pkgs[i] != NULL; i++) {
++		if (((delete.flags & interactive_flag) == interactive_flag)) {
++			fprintf(stderr, "delete %s? ",
++			    pkg_get_name(delete.pkgs[i]));
++		}
+ 		pkg_db_delete_package_action(delete.db, delete.pkgs[i],
+ 		    scripts, fake, force, action);
+ 	}
+
+
+
+From zxombie at mail.berlios.de  Wed Nov 15 20:21:36 2006
+From: zxombie at mail.berlios.de (zxombie at BerliOS)
+Date: Wed, 15 Nov 2006 20:21:36 +0100
+Subject: [Libpkg-svn] r236 - in trunk: src tools/pkg_add
+Message-ID: <200611151921.kAFJLa8r004541@sheep.berlios.de>
+
+Author: zxombie
+Date: 2006-11-15 20:21:36 +0100 (Wed, 15 Nov 2006)
+New Revision: 236
+
+Modified:
+   trunk/src/pkg_db.c
+   trunk/src/pkg_db.h
+   trunk/tools/pkg_add/main.c
+Log:
+Finish removint the interactive flag in pkg_db_action
+
+
+Modified: trunk/src/pkg_db.c
+===================================================================
+--- trunk/src/pkg_db.c	2006-11-15 11:16:24 UTC (rev 235)
++++ trunk/src/pkg_db.c	2006-11-15 19:21:36 UTC (rev 236)
+@@ -115,11 +115,10 @@
+  * This is a function that does nothing.
+  * It can be used for a pkg_action when no output is required
+  */
+-int
+-pkg_action_null(enum pkg_action_level level __unused, int interactive __unused,
+-	const char *fmt __unused, ...)
++void
++pkg_action_null(enum pkg_action_level level __unused, const char *fmt __unused,
++	...)
+ {
+-	return 0;
+ }
+ 
+ /**
+
+Modified: trunk/src/pkg_db.h
+===================================================================
+--- trunk/src/pkg_db.h	2006-11-15 11:16:24 UTC (rev 235)
++++ trunk/src/pkg_db.h	2006-11-15 19:21:36 UTC (rev 236)
+@@ -47,7 +47,7 @@
+ 	PKG_DB_INFO,	/* General info */
+ 	PKG_DB_PACKAGE,	/* Specific info from the package */
+ };
+-typedef		  int pkg_db_action(enum pkg_action_level, const char *, ...);
++typedef		  void pkg_db_action(enum pkg_action_level, const char *, ...);
+ 
+ struct pkg_db	 *pkg_db_open_freebsd(const char *);
+ int		  pkg_db_install_pkg_action(struct pkg_db *, struct pkg *,
+@@ -79,7 +79,7 @@
+ struct pkg	**pkg_db_match_regex(struct pkg_db *, const char **, int);
+ struct pkg	**pkg_db_match_glob(struct pkg_db *, const char **, int);
+ 
+-int		  pkg_action_null(enum pkg_action_level, int, const char *,...);
++void		  pkg_action_null(enum pkg_action_level, const char *, ...);
+ 
+ /* Functions to be passed to pkg_db_get_installed_match() */
+ int		  pkg_match_all(struct pkg *, const void *);
+
+Modified: trunk/tools/pkg_add/main.c
+===================================================================
+--- trunk/tools/pkg_add/main.c	2006-11-15 11:16:24 UTC (rev 235)
++++ trunk/tools/pkg_add/main.c	2006-11-15 19:21:36 UTC (rev 236)
+@@ -231,7 +231,7 @@
+  * Print the message from fmt
+  * Only used when -v is set
+  */
+-static int
++static void
+ pkg_action(enum pkg_action_level level, const char *fmt, ...)
+ {
+ 	va_list ap;
+@@ -242,8 +242,6 @@
+ 	vprintf(fmt, ap);
+ 	putchar('\n');
+ 	va_end(ap);
+-
+-	return 0;
+ }
+ 
+ /*
+
+
+
+From zxombie at mail.berlios.de  Thu Nov 16 00:53:39 2006
+From: zxombie at mail.berlios.de (zxombie at BerliOS)
+Date: Thu, 16 Nov 2006 00:53:39 +0100
+Subject: [Libpkg-svn] r237 - trunk/src
+Message-ID: <200611152353.kAFNrdjG004400@sheep.berlios.de>
+
+Author: zxombie
+Date: 2006-11-16 00:53:35 +0100 (Thu, 16 Nov 2006)
+New Revision: 237
+
+Modified:
+   trunk/src/pkgfile.c
+Log:
+If a file is empty return NULL in pkgfile_get_data
+
+
+Modified: trunk/src/pkgfile.c
+===================================================================
+--- trunk/src/pkgfile.c	2006-11-15 19:21:36 UTC (rev 236)
++++ trunk/src/pkgfile.c	2006-11-15 23:53:35 UTC (rev 237)
+@@ -405,7 +405,7 @@
+ 	case pkgfile_regular:
+ 		if (file->loc == pkgfile_loc_disk) {
+ 			/* Load the file to the data pointer */
+-			if (file->data == NULL) {
++			if (file->data == NULL && file->length > 0) {
+ 				file->data = malloc(file->length);
+ 				if (file->data == NULL)
+ 					return NULL;
+
+
+
+From zxombie at mail.berlios.de  Mon Nov 20 09:48:19 2006
+From: zxombie at mail.berlios.de (zxombie at BerliOS)
+Date: Mon, 20 Nov 2006 09:48:19 +0100
+Subject: [Libpkg-svn] r238 - trunk/src
+Message-ID: <200611200848.kAK8mJdZ003159@sheep.berlios.de>
+
+Author: zxombie
+Date: 2006-11-20 09:48:19 +0100 (Mon, 20 Nov 2006)
+New Revision: 238
+
+Modified:
+   trunk/src/pkg_freebsd.c
+Log:
+Only attempt to process the reverse dependencies when the contents is not NULL
+
+
+Modified: trunk/src/pkg_freebsd.c
+===================================================================
+--- trunk/src/pkg_freebsd.c	2006-11-15 23:53:35 UTC (rev 237)
++++ trunk/src/pkg_freebsd.c	2006-11-20 08:48:19 UTC (rev 238)
+@@ -904,21 +904,24 @@
+ 	}
+ 
+ 		data = pkgfile_get_data(control[pos]);
+-		str1 = data;
+-		while ((str2 = strchr(str1, '\n')) != NULL) {
+-			unsigned int len = str2-str1;
+-			strncpy(pkg_name, str1, len);
+-			pkg_name[len] = '\0';
+-			addPkg(pkg_name);
+-			str1 = str2+1;
+-		}
++		if (data != NULL) {
++			str1 = data;
++			/* @todo Write comment on what this does */
++			while ((str2 = strchr(str1, '\n')) != NULL) {
++				unsigned int len = str2-str1;
++				strncpy(pkg_name, str1, len);
++				pkg_name[len] = '\0';
++				addPkg(pkg_name);
++				str1 = str2+1;
++			}
+ 
+-		size = pkgfile_get_size(control[pos]);
+-		if ((unsigned int)(str1 - data) != size) {
+-			unsigned int len = data + size - str1;
+-			strncpy(pkg_name, str1, len);
+-			pkg_name[len] = '\0';
+-			addPkg(pkg_name);
++			size = pkgfile_get_size(control[pos]);
++			if ((unsigned int)(str1 - data) != size) {
++				unsigned int len = data + size - str1;
++				strncpy(pkg_name, str1, len);
++				pkg_name[len] = '\0';
++				addPkg(pkg_name);
++			}
+ 		}
+ #undef addPkg
+ 		return ret;
+
+
+
+From zxombie at mail.berlios.de  Mon Nov 20 09:53:55 2006
+From: zxombie at mail.berlios.de (zxombie at BerliOS)
+Date: Mon, 20 Nov 2006 09:53:55 +0100
+Subject: [Libpkg-svn] r239 - trunk/tools/pkg_delete
+Message-ID: <200611200853.kAK8rtAe003620@sheep.berlios.de>
+
+Author: zxombie
+Date: 2006-11-20 09:53:54 +0100 (Mon, 20 Nov 2006)
+New Revision: 239
+
+Modified:
+   trunk/tools/pkg_delete/Makefile
+   trunk/tools/pkg_delete/main.c
+   trunk/tools/pkg_delete/run.sh
+   trunk/tools/pkg_delete/test.sh
+Log:
+Add support for pkg_delete -r
+
+
+Modified: trunk/tools/pkg_delete/Makefile
+===================================================================
+--- trunk/tools/pkg_delete/Makefile	2006-11-20 08:48:19 UTC (rev 238)
++++ trunk/tools/pkg_delete/Makefile	2006-11-20 08:53:54 UTC (rev 239)
+@@ -19,7 +19,7 @@
+ 
+ .for run in libpkg cvs
+ . for type in mtree stdout stderr
+-.  for i in 1 2 3 4
++.  for i in 1 2 3 4 5
+ CLEANFILES	+= ${run}.${type}.${i}
+ .  endfor
+ . endfor
+
+Modified: trunk/tools/pkg_delete/main.c
+===================================================================
+--- trunk/tools/pkg_delete/main.c	2006-11-20 08:48:19 UTC (rev 238)
++++ trunk/tools/pkg_delete/main.c	2006-11-20 08:53:54 UTC (rev 239)
+@@ -95,7 +95,6 @@
+ 			break;
+ 		case 'r':
+ 			delete.flags |= recursive_flag;
+-			errx(1, "Unsupported argument");
+ 			break;
+ 		case 'v':
+ 			delete.flags |= verbosity_flag;
+@@ -183,17 +182,51 @@
+ 	 */
+ 	scripts = !((delete.flags & no_run_script_flag) == no_run_script_flag);
+ 	force = ((delete.flags & force_flag) == force_flag);
+-	action = NULL;
++	action = pkg_action_null;
+ 	if ((delete.flags & verbosity_flag) == verbosity_flag || fake)
+ 		action = pkg_action;
+ 
+ 	for (i = 0; delete.pkgs[i] != NULL; i++) {
++		if (pkg_db_is_installed(delete.db, delete.pkgs[i]) != 0)
++			continue;
++
++		/* Delete the packages that depend on this package */
++		if ((delete.flags & recursive_flag) == recursive_flag) {
++			struct pkg *real_pkg;
++			struct pkg **deps;
++			int ret = 0;
++
++			/* Find the packages to delete */
++			real_pkg = pkg_db_get_package(delete.db,
++			    pkg_get_name(delete.pkgs[i]));
++			deps = pkg_get_reverse_dependencies(real_pkg);
++
++			/* Copy the packages and deinstall them */
++			if (deps != NULL && deps[0] != NULL) {
++				struct pkg_delete new_delete;
++
++				memcpy(&new_delete, &delete,
++				    sizeof(struct pkg_delete));
++
++				new_delete.pkgs = deps;
++				if (pkg_delete(new_delete) != 0) {
++					ret = 1;
++					break;
++				}
++			}
++			pkg_free(real_pkg);
++
++			/* The delete failed so return a failure */
++			if (ret != 0)
++				return ret;
++		}
+ 		if (((delete.flags & interactive_flag) == interactive_flag)) {
+ 			fprintf(stderr, "delete %s? ",
+ 			    pkg_get_name(delete.pkgs[i]));
+ 		}
+-		pkg_db_delete_package_action(delete.db, delete.pkgs[i],
+-		    scripts, fake, force, action);
++		if (pkg_db_delete_package_action(delete.db, delete.pkgs[i],
++		    scripts, fake, force, action) != 0)
++			return 1;
+ 	}
+-	return 1;
++	return 0;
+ }
+
+Modified: trunk/tools/pkg_delete/run.sh
+===================================================================
+--- trunk/tools/pkg_delete/run.sh	2006-11-20 08:48:19 UTC (rev 238)
++++ trunk/tools/pkg_delete/run.sh	2006-11-20 08:53:54 UTC (rev 239)
+@@ -32,4 +32,11 @@
+ 	fi
+ 	pkg_delete -D ${PACKAGE}
+ 	exit $?
++elif [ ${TESTNO} -eq 5 ] ; then
++	pkg_add ./${PACKAGE}.tbz
++	if [ $? -ne 0 ] ; then
++		exit 1
++	fi
++	pkg_delete -r libiconv-1.9.2_1
++	exit $?
+ fi
+
+Modified: trunk/tools/pkg_delete/test.sh
+===================================================================
+--- trunk/tools/pkg_delete/test.sh	2006-11-20 08:48:19 UTC (rev 238)
++++ trunk/tools/pkg_delete/test.sh	2006-11-20 08:53:54 UTC (rev 239)
+@@ -7,7 +7,7 @@
+ 	RUN=$1
+ 
+ 	i=1
+-	while [ $i -le 4 ] ; do
++	while [ $i -le 5 ] ; do
+ 		chroot ${BASE_DIR}/base /run.sh ${PACKAGE} ${i} > ${RUN}.stdout.${i} 2> ${RUN}.stderr.${i}
+ 		# Get the mtree file to use to compare the filesystems
+ 		mtree -c -p ${BASE_DIR}/base | grep -v "^\#[[:space:]]*date:" | sed "s/time=[^ ]*//" | grep -v "^[ ]*pkg_delete" > ${RUN}.mtree.${i}
+
+
+
+From zxombie at mail.berlios.de  Mon Nov 20 10:43:36 2006
+From: zxombie at mail.berlios.de (zxombie at BerliOS)
+Date: Mon, 20 Nov 2006 10:43:36 +0100
+Subject: [Libpkg-svn] r240 - in trunk: src tools/pkg_delete
+Message-ID: <200611200943.kAK9haha007032@sheep.berlios.de>
+
+Author: zxombie
+Date: 2006-11-20 10:43:35 +0100 (Mon, 20 Nov 2006)
+New Revision: 240
+
+Modified:
+   trunk/src/pkg_db.c
+   trunk/src/pkg_db.h
+   trunk/src/pkg_db_freebsd.c
+   trunk/src/pkg_db_private.h
+   trunk/tools/pkg_delete/main.c
+Log:
+Add a flag to remove empty directories when removing packages
+
+
+Modified: trunk/src/pkg_db.c
+===================================================================
+--- trunk/src/pkg_db.c	2006-11-20 08:53:54 UTC (rev 239)
++++ trunk/src/pkg_db.c	2006-11-20 09:43:35 UTC (rev 240)
+@@ -263,6 +263,8 @@
+  * @param pkg The package to deinstall
+  * @param scripts If true run the package's scripts
+  * @param fake If true don't deinstall but run through the removal procedure
++ * @param force Force the removal even if parts fail
++ * @param clean_dir Remove any empty directories when removing files
+  * @param action A callback that is used to inform the user the status
+  *     of the installation
+  * @return  0 on success
+@@ -270,7 +272,7 @@
+  */
+ int
+ pkg_db_delete_package_action(struct pkg_db *db, struct pkg *pkg, int scripts,
+-	int fake, int force, pkg_db_action *action)
++	int fake, int force, int clean_dirs, pkg_db_action *action)
+ {
+ 	if (db == NULL || pkg == NULL)
+ 		return -1;
+@@ -279,7 +281,8 @@
+ 		return -1;
+ 
+ 	if (db->pkg_deinstall != NULL)
+-		return db->pkg_deinstall(db, pkg, scripts, fake, force, action);
++		return db->pkg_deinstall(db, pkg, scripts, fake, force,
++		    clean_dirs, action);
+ 	return -1;
+ }
+ 
+
+Modified: trunk/src/pkg_db.h
+===================================================================
+--- trunk/src/pkg_db.h	2006-11-20 08:53:54 UTC (rev 239)
++++ trunk/src/pkg_db.h	2006-11-20 09:43:35 UTC (rev 240)
+@@ -60,7 +60,7 @@
+ 			pkg_db_match *, unsigned int, const void *);
+ struct pkg	 *pkg_db_get_package(struct pkg_db *, const char *);
+ int		  pkg_db_delete_package_action(struct pkg_db *, struct pkg *,
+-			int, int, int, pkg_db_action *);
++			int, int, int, int, pkg_db_action *);
+ int		  pkg_db_free(struct pkg_db *);
+ 
+ /* Helper functions that use an internal callback for pkg_db_get_installed_match() */
+
+Modified: trunk/src/pkg_db_freebsd.c
+===================================================================
+--- trunk/src/pkg_db_freebsd.c	2006-11-20 08:53:54 UTC (rev 239)
++++ trunk/src/pkg_db_freebsd.c	2006-11-20 09:43:35 UTC (rev 240)
+@@ -78,7 +78,7 @@
+ 				pkg_db_match *, unsigned int, const void *);
+ static struct pkg	 *freebsd_get_package(struct pkg_db *, const char *);
+ static int		  freebsd_deinstall_pkg(struct pkg_db *, struct pkg *,
+-				int, int, int, pkg_db_action *);
++				int, int, int, int, pkg_db_action *);
+ 
+ /* pkg_(install|deinstall) callbacks */
+ static int	freebsd_do_chdir(struct pkg *, pkg_db_action *, void *,
+@@ -383,7 +383,7 @@
+  */
+ static int
+ freebsd_deinstall_pkg(struct pkg_db *db, struct pkg *the_pkg, int scripts,
+-	int fake, int force, pkg_db_action *pkg_action)
++	int fake, int force, int clean_dirs, pkg_db_action *pkg_action)
+ {
+ 	struct pkg_install_data deinstall_data;
+ 	struct pkg *real_pkg;
+@@ -392,6 +392,8 @@
+ 	assert(db != NULL);
+ 	assert(the_pkg != NULL);
+ 
++	assert(clean_dirs == 0);
++
+ 	/* Get the real package. The one supplyed may be an empty one */
+ 	/** @todo Check if the package suplyed is a valid package or not */
+ 	real_pkg = freebsd_get_package(db, pkg_get_name(the_pkg));
+
+Modified: trunk/src/pkg_db_private.h
+===================================================================
+--- trunk/src/pkg_db_private.h	2006-11-20 08:53:54 UTC (rev 239)
++++ trunk/src/pkg_db_private.h	2006-11-20 09:43:35 UTC (rev 240)
+@@ -38,7 +38,7 @@
+ typedef struct pkg	**pkg_db_get_installed_match_callback(struct pkg_db *,
+ 				pkg_db_match *, unsigned int, const void *);
+ typedef int	pkg_db_deinstall_pkg_callback(struct pkg_db *, struct pkg *,
+-			int, int, int, pkg_db_action *);
++			int, int, int, int, pkg_db_action *);
+ 
+ 
+ struct pkg_db	*pkg_db_open(const char *, pkg_db_install_pkg_callback *,
+
+Modified: trunk/tools/pkg_delete/main.c
+===================================================================
+--- trunk/tools/pkg_delete/main.c	2006-11-20 08:53:54 UTC (rev 239)
++++ trunk/tools/pkg_delete/main.c	2006-11-20 09:43:35 UTC (rev 240)
+@@ -170,7 +170,7 @@
+ pkg_delete(struct pkg_delete delete)
+ {
+ 	pkg_db_action *action;
+-	int i, fake, scripts, force;
++	int i, fake, scripts, force, empty_dirs;
+ 
+ 	assert(delete.db != NULL);
+ 	assert(delete.pkgs != NULL);
+@@ -182,6 +182,8 @@
+ 	 */
+ 	scripts = !((delete.flags & no_run_script_flag) == no_run_script_flag);
+ 	force = ((delete.flags & force_flag) == force_flag);
++	empty_dirs = ((delete.flags & remove_empty_dirs_flag) ==
++	    remove_empty_dirs_flag);
+ 	action = pkg_action_null;
+ 	if ((delete.flags & verbosity_flag) == verbosity_flag || fake)
+ 		action = pkg_action;
+@@ -225,7 +227,7 @@
+ 			    pkg_get_name(delete.pkgs[i]));
+ 		}
+ 		if (pkg_db_delete_package_action(delete.db, delete.pkgs[i],
+-		    scripts, fake, force, action) != 0)
++		    scripts, fake, force, empty_dirs, action) != 0)
+ 			return 1;
+ 	}
+ 	return 0;
+
+
+

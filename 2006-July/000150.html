@@ -1,0 +1,184 @@
+<!DOCTYPE HTML PUBLIC "-//W3C//DTD HTML 4.01 Transitional//EN">
+<HTML>
+ <HEAD>
+   <TITLE> [Libpkg-svn] r166 - in trunk: src tools/pkg_add
+   </TITLE>
+   <LINK REL="Index" HREF="http://lists.berlios.de/pipermail/libpkg-svn/2006-July/index.html" >
+   <LINK REL="made" HREF="mailto:libpkg-svn%40lists.berlios.de?Subject=Re%3A%20%5BLibpkg-svn%5D%20r166%20-%20in%20trunk%3A%20src%20tools/pkg_add&In-Reply-To=%3C200607301147.k6UBlHJF021690%40sheep.berlios.de%3E">
+   <META NAME="robots" CONTENT="index,nofollow">
+   <style type="text/css">
+       pre {
+           white-space: pre-wrap;       /* css-2.1, curent FF, Opera, Safari */
+           }
+   </style>
+   <META http-equiv="Content-Type" content="text/html; charset=us-ascii">
+   <LINK REL="Previous"  HREF="000149.html">
+   <LINK REL="Next"  HREF="000151.html">
+ </HEAD>
+ <BODY BGCOLOR="#ffffff">
+   <H1>[Libpkg-svn] r166 - in trunk: src tools/pkg_add</H1>
+    <B>zxombie at BerliOS</B> 
+    <A HREF="mailto:libpkg-svn%40lists.berlios.de?Subject=Re%3A%20%5BLibpkg-svn%5D%20r166%20-%20in%20trunk%3A%20src%20tools/pkg_add&In-Reply-To=%3C200607301147.k6UBlHJF021690%40sheep.berlios.de%3E"
+       TITLE="[Libpkg-svn] r166 - in trunk: src tools/pkg_add">zxombie at mail.berlios.de
+       </A><BR>
+    <I>Sun Jul 30 13:47:17 CEST 2006</I>
+    <P><UL>
+        <LI>Previous message: <A HREF="000149.html">[Libpkg-svn] r165 - trunk/src
+</A></li>
+        <LI>Next message: <A HREF="000151.html">[Libpkg-svn] r167 - trunk/src
+</A></li>
+         <LI> <B>Messages sorted by:</B> 
+              <a href="date.html#150">[ date ]</a>
+              <a href="thread.html#150">[ thread ]</a>
+              <a href="subject.html#150">[ subject ]</a>
+              <a href="author.html#150">[ author ]</a>
+         </LI>
+       </UL>
+    <HR>  
+<!--beginarticle-->
+<PRE>Author: zxombie
+Date: 2006-07-30 13:47:15 +0200 (Sun, 30 Jul 2006)
+New Revision: 166
+
+Modified:
+   trunk/src/pkg_repo_ftp.c
+   trunk/tools/pkg_add/main.c
+Log:
+Change the ftp repo to allow an http repo
+In the ftp repo, if the last directory in a path is All or Latest remove it and let the automagic detector select the correct one
+Adjust a comment to make it fit in an 80 char window
+
+
+Modified: trunk/src/pkg_repo_ftp.c
+===================================================================
+--- trunk/src/pkg_repo_ftp.c	2006-07-27 06:00:27 UTC (rev 165)
++++ trunk/src/pkg_repo_ftp.c	2006-07-30 11:47:15 UTC (rev 166)
+@@ -32,6 +32,7 @@
+ #include &lt;sys/utsname.h&gt;
+ 
+ #include &lt;assert.h&gt;
++#include &lt;libgen.h&gt;
+ #include &lt;stdio.h&gt;
+ #include &lt;stdlib.h&gt;
+ #include &lt;string.h&gt;
+@@ -109,8 +110,8 @@
+  * @brief Creates a pkg_repo with the given sie and path
+  * @param site The ftp site to use. If NULL will use ftp.freebsd.org
+  * @param path The path to the top level of the packages
+- * @param cached_dir The directory to save a copy of each package file in or NULL
+- *     If NULL will use the default path
++ * @param cached_dir The directory to save a copy of each package file in or
++ *     NULL. If NULL will use the default path
+  * @return A pkg_repo object or NULL
+  */
+ struct pkg_repo *
+@@ -250,7 +251,7 @@
+ 	else
+ 		ext = &quot;.tbz&quot;;
+ 
+-	asprintf(&amp;ftpname, &quot;<A HREF="ftp://%s/%s/%s/%s%s">ftp://%s/%s/%s/%s%s</A>&quot;, f_repo-&gt;site, f_repo-&gt;path,
++	asprintf(&amp;ftpname, &quot;%s/%s/%s/%s%s&quot;, f_repo-&gt;site, f_repo-&gt;path,
+ 	    subdir, pkg_name, ext);
+ 	if (!ftpname) {
+ 		return NULL;
+@@ -261,7 +262,7 @@
+ 	/* Try the alternate subdir if the primary one fails. */
+ 	if (fd == NULL) {
+ 		free(ftpname);
+-		asprintf(&amp;ftpname, &quot;<A HREF="ftp://%s/%s/%s/%s%s">ftp://%s/%s/%s/%s%s</A>&quot;, f_repo-&gt;site,
++		asprintf(&amp;ftpname, &quot;%s/%s/%s/%s%s&quot;, f_repo-&gt;site,
+ 		    f_repo-&gt;path, fallback_subdir, pkg_name, ext);
+ 		if (!ftpname) {
+ 			return NULL;
+@@ -295,7 +296,7 @@
+ 
+ 	/* Figure out the site */
+ 	if (!site)
+-		f_repo-&gt;site = strdup(&quot;ftp.freebsd.org&quot;);
++		f_repo-&gt;site = strdup(&quot;<A HREF="ftp://ftp.freebsd.org">ftp://ftp.freebsd.org</A>&quot;);
+ 	else
+ 		f_repo-&gt;site = strdup(site);
+ 
+@@ -326,8 +327,17 @@
+ 			}
+ 		}
+ 
+-	} else
+-		f_repo-&gt;path = strdup(path);
++	} else {
++		/* If the path ends with Latest or All strip it out */
++		const char *last_dir;
++		last_dir = basename(path);
++		if (strcmp(last_dir, &quot;All&quot;) == 0 ||
++		    strcmp(last_dir, &quot;Latest&quot;) == 0) {
++			f_repo-&gt;path = strdup(dirname(path));
++			printf(&quot;%s\n&quot;, f_repo-&gt;path);
++		} else
++			f_repo-&gt;path = strdup(path);
++	}
+ 
+ 	if (!f_repo-&gt;path) {
+ 		return NULL;
+
+Modified: trunk/tools/pkg_add/main.c
+===================================================================
+--- trunk/tools/pkg_add/main.c	2006-07-27 06:00:27 UTC (rev 165)
++++ trunk/tools/pkg_add/main.c	2006-07-30 11:47:15 UTC (rev 166)
+@@ -134,11 +134,31 @@
+ 	argv += optind;
+ 
+ 	if (remote != 0) {
++		char *site, *path;
++		char *pkg_site;
++
++		site = NULL;
++		path = NULL;
++		if ((pkg_site = getenv(&quot;PACKAGESITE&quot;)) != NULL) {
++			if (strncmp(&quot;<A HREF="http://">http://</A>&quot;, pkg_site, 7) == 0 ||
++			    strncmp(&quot;<A HREF="ftp://">ftp://</A>&quot;, pkg_site, 6) == 0) {
++				site = pkg_site;
++			}
++			if (site != NULL) {
++				/* Find the first / after the :// */
++				path = strstr(site, &quot;://&quot;);
++				path = strchr(path + 3, '/');
++				path[0] = '\0';
++				path++;
++			}
++			printf(&quot;%s %s\n&quot;, site, path);
++		}
++
+ 		pkg_repo_free(add.repo);
+ 		if ((add.flags &amp; keep_file_flag) == keep_file_flag)
+-			add.repo = pkg_repo_new_ftp(NULL, NULL, NULL);
++			add.repo = pkg_repo_new_ftp(site, path, NULL);
+ 		else
+-			add.repo = pkg_repo_new_ftp(NULL, NULL, &quot;.&quot;);
++			add.repo = pkg_repo_new_ftp(site, path, &quot;.&quot;);
+ 	}
+ 	/* There are no packages to install. just quit now */
+ 	if (argc == 0) {
+
+
+</PRE>
+
+<!--endarticle-->
+    <HR>
+    <P><UL>
+        <!--threads-->
+	<LI>Previous message: <A HREF="000149.html">[Libpkg-svn] r165 - trunk/src
+</A></li>
+	<LI>Next message: <A HREF="000151.html">[Libpkg-svn] r167 - trunk/src
+</A></li>
+         <LI> <B>Messages sorted by:</B> 
+              <a href="date.html#150">[ date ]</a>
+              <a href="thread.html#150">[ thread ]</a>
+              <a href="subject.html#150">[ subject ]</a>
+              <a href="author.html#150">[ author ]</a>
+         </LI>
+       </UL>
+
+<hr>
+<a href="https://lists.berlios.de/mailman/listinfo/libpkg-svn">More information about the Libpkg-svn
+mailing list</a><br>
+</body></html>

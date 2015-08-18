@@ -1,0 +1,115 @@
+<!DOCTYPE HTML PUBLIC "-//W3C//DTD HTML 4.01 Transitional//EN">
+<HTML>
+ <HEAD>
+   <TITLE> [Libpkg-svn] r290 - trunk/tools/pkg_info
+   </TITLE>
+   <LINK REL="Index" HREF="http://lists.berlios.de/pipermail/libpkg-svn/2007-March/index.html" >
+   <LINK REL="made" HREF="mailto:libpkg-svn%40lists.berlios.de?Subject=Re%3A%20%5BLibpkg-svn%5D%20r290%20-%20trunk/tools/pkg_info&In-Reply-To=%3C200703120604.l2C64Mh0012801%40sheep.berlios.de%3E">
+   <META NAME="robots" CONTENT="index,nofollow">
+   <style type="text/css">
+       pre {
+           white-space: pre-wrap;       /* css-2.1, curent FF, Opera, Safari */
+           }
+   </style>
+   <META http-equiv="Content-Type" content="text/html; charset=us-ascii">
+   <LINK REL="Previous"  HREF="000273.html">
+   <LINK REL="Next"  HREF="000275.html">
+ </HEAD>
+ <BODY BGCOLOR="#ffffff">
+   <H1>[Libpkg-svn] r290 - trunk/tools/pkg_info</H1>
+    <B>zxombie at BerliOS</B> 
+    <A HREF="mailto:libpkg-svn%40lists.berlios.de?Subject=Re%3A%20%5BLibpkg-svn%5D%20r290%20-%20trunk/tools/pkg_info&In-Reply-To=%3C200703120604.l2C64Mh0012801%40sheep.berlios.de%3E"
+       TITLE="[Libpkg-svn] r290 - trunk/tools/pkg_info">zxombie at mail.berlios.de
+       </A><BR>
+    <I>Mon Mar 12 07:04:22 CET 2007</I>
+    <P><UL>
+        <LI>Previous message: <A HREF="000273.html">[Libpkg-svn] r289 - trunk/tools/pkg_info
+</A></li>
+        <LI>Next message: <A HREF="000275.html">[Libpkg-svn] r291 - trunk/tools/pkg_info
+</A></li>
+         <LI> <B>Messages sorted by:</B> 
+              <a href="date.html#274">[ date ]</a>
+              <a href="thread.html#274">[ thread ]</a>
+              <a href="subject.html#274">[ subject ]</a>
+              <a href="author.html#274">[ author ]</a>
+         </LI>
+       </UL>
+    <HR>  
+<!--beginarticle-->
+<PRE>Author: zxombie
+Date: 2007-03-12 07:04:21 +0100 (Mon, 12 Mar 2007)
+New Revision: 290
+
+Modified:
+   trunk/tools/pkg_info/test.sh
+Log:
+Remove output files that are the same from a test
+
+
+Modified: trunk/tools/pkg_info/test.sh
+===================================================================
+--- trunk/tools/pkg_info/test.sh	2007-03-12 06:03:30 UTC (rev 289)
++++ trunk/tools/pkg_info/test.sh	2007-03-12 06:04:21 UTC (rev 290)
+@@ -10,7 +10,7 @@
+ TEST_NO=$1
+ shift
+ 
+-TEST_MAX=6
++TEST_MAX=10
+ TOOL_NAME=pkg_info
+ 
+ # Runs the tests for either the libpkg or cvs version of pkg_add
+@@ -33,11 +33,27 @@
+ 	if [ &quot;X${TEST_NO}&quot; != &quot;X&quot; ] ; then
+ 		do_test $TEST_NO cvs
+ 		do_test $TEST_NO libpkg true
++		for file in stdout stderr mtree; do
++			diff cvs.${file}.${TEST_NO} libpkg.${file}.${TEST_NO} &gt; /dev/null 2&gt;&amp;1
++			if [ $? -eq 0 ]; then
++				rm cvs.${file}.${TEST_NO} libpkg.${file}.${TEST_NO}
++			fi
++		done
+ 	else
+-		# Get the reference data from the FreeBSD cvs pkg_add
++		# Get the reference data from the FreeBSD cvs pkg_info
+ 		do_tests cvs
+-		# Get the test data from out pkg_add
++		# Get the test data from out pkg_info
+ 		do_tests libpkg true
++		i=1
++		while [ $i -le $TEST_MAX ] ; do
++			for file in stdout stderr mtree; do
++				diff cvs.${file}.${i} libpkg.${file}.${i} &gt; /dev/null 2&gt;&amp;1
++				if [ $? -eq 0 ]; then
++					rm cvs.${file}.${i} libpkg.${file}.${i}
++				fi
++			done
++			i=$((i+1))
++		done
+ 	fi
+ }
+ 
+
+
+</PRE>
+
+<!--endarticle-->
+    <HR>
+    <P><UL>
+        <!--threads-->
+	<LI>Previous message: <A HREF="000273.html">[Libpkg-svn] r289 - trunk/tools/pkg_info
+</A></li>
+	<LI>Next message: <A HREF="000275.html">[Libpkg-svn] r291 - trunk/tools/pkg_info
+</A></li>
+         <LI> <B>Messages sorted by:</B> 
+              <a href="date.html#274">[ date ]</a>
+              <a href="thread.html#274">[ thread ]</a>
+              <a href="subject.html#274">[ subject ]</a>
+              <a href="author.html#274">[ author ]</a>
+         </LI>
+       </UL>
+
+<hr>
+<a href="https://lists.berlios.de/mailman/listinfo/libpkg-svn">More information about the Libpkg-svn
+mailing list</a><br>
+</body></html>

@@ -1,0 +1,176 @@
+<!DOCTYPE HTML PUBLIC "-//W3C//DTD HTML 4.01 Transitional//EN">
+<HTML>
+ <HEAD>
+   <TITLE> r328 - trunk/src
+   </TITLE>
+   <LINK REL="Index" HREF="http://lists.berlios.de/pipermail/libpkg-svn/2009-January/index.html" >
+   <LINK REL="made" HREF="mailto:libpkg-svn%40lists.berlios.de?Subject=Re%3A%20r328%20-%20trunk/src&In-Reply-To=%3C200901040123.n041NVMi013059%40sheep.berlios.de%3E">
+   <META NAME="robots" CONTENT="index,nofollow">
+   <style type="text/css">
+       pre {
+           white-space: pre-wrap;       /* css-2.1, curent FF, Opera, Safari */
+           }
+   </style>
+   <META http-equiv="Content-Type" content="text/html; charset=us-ascii">
+   <LINK REL="Previous"  HREF="000311.html">
+   <LINK REL="Next"  HREF="000313.html">
+ </HEAD>
+ <BODY BGCOLOR="#ffffff">
+   <H1>r328 - trunk/src</H1>
+    <B>zxombie at users.berlios.de</B> 
+    <A HREF="mailto:libpkg-svn%40lists.berlios.de?Subject=Re%3A%20r328%20-%20trunk/src&In-Reply-To=%3C200901040123.n041NVMi013059%40sheep.berlios.de%3E"
+       TITLE="r328 - trunk/src">zxombie at users.berlios.de
+       </A><BR>
+    <I>Sun Jan  4 02:23:31 CET 2009</I>
+    <P><UL>
+        <LI>Previous message: <A HREF="000311.html">r327 - trunk/src
+</A></li>
+        <LI>Next message: <A HREF="000313.html">r329 - trunk/src
+</A></li>
+         <LI> <B>Messages sorted by:</B> 
+              <a href="date.html#312">[ date ]</a>
+              <a href="thread.html#312">[ thread ]</a>
+              <a href="subject.html#312">[ subject ]</a>
+              <a href="author.html#312">[ author ]</a>
+         </LI>
+       </UL>
+    <HR>  
+<!--beginarticle-->
+<PRE>Author: zxombie
+Date: 2009-01-04 02:23:31 +0100 (Sun, 04 Jan 2009)
+New Revision: 328
+
+Modified:
+   trunk/src/pkg_freebsd.c
+Log:
+Remove the need for the old FreeBSD contents from freebsd_get_next_file
+
+Modified: trunk/src/pkg_freebsd.c
+===================================================================
+--- trunk/src/pkg_freebsd.c	2009-01-04 01:20:54 UTC (rev 327)
++++ trunk/src/pkg_freebsd.c	2009-01-04 01:23:31 UTC (rev 328)
+@@ -746,6 +746,7 @@
+ static struct pkgfile *
+ freebsd_get_next_file(struct pkg *pkg)
+ {
++	struct pkg_manifest_item **items;
+ 	struct freebsd_package *fpkg;
+ 	struct pkgfile *file;
+ 
+@@ -765,43 +766,75 @@
+ 		fpkg-&gt;next_file = NULL;
+ 	} else if (fpkg-&gt;archive == NULL)  {
+ 		/* Read the file from disk */
+-		freebsd_parse_contents(fpkg);
+-		while (fpkg-&gt;line &lt; fpkg-&gt;contents-&gt;line_count) {
+-			if (fpkg-&gt;contents-&gt;lines[fpkg-&gt;line].line_type ==
+-			    PKG_LINE_CWD) {
++		items = pkg_manifest_get_items(pkg-&gt;pkg_manifest);
++		for (; items[fpkg-&gt;line] != NULL; fpkg-&gt;line++) {
++			switch(pkg_manifest_item_get_type(items[fpkg-&gt;line])) {
++			/* Unused item types */
++			case pmt_comment:
++			case pmt_dir:
++			case pmt_dirlist:
++			case pmt_output:
++			case pmt_execute:
++				break;
++			case pmt_chdir:
++			{
++				const char *dir;
+ 				if (fpkg-&gt;curdir != NULL)
+ 					free(fpkg-&gt;curdir);
+-				fpkg-&gt;curdir = strdup(
+-				    fpkg-&gt;contents-&gt;lines[fpkg-&gt;line].data);
++				dir = pkg_manifest_item_get_data(
++				    items[fpkg-&gt;line]);
++				fpkg-&gt;curdir = strdup(dir);
++				break;
+ 			}
+-			if (fpkg-&gt;contents-&gt;lines[fpkg-&gt;line].line_type ==
+-			    PKG_LINE_FILE) {
++			case pmt_file:
++			{
++				const char *file_name, *md5;
+ 				char the_file[FILENAME_MAX + 1];
+ 
++				/*
++				 * We will always return from
++				 * this so increment the line
++				 * now to stop an infinite loop
++				*/
++				fpkg-&gt;line++;
++
++				/* Get the file's absolute name */
++				file_name = pkg_manifest_item_get_data(
++				    items[fpkg-&gt;line]);
+ 				snprintf(the_file, FILENAME_MAX, &quot;%s/%s&quot;,
+-				    fpkg-&gt;curdir,
+-				    fpkg-&gt;contents-&gt;lines[fpkg-&gt;line].line);
++				    fpkg-&gt;curdir, file_name);
+ 				/* Remove extra slashes from the path */
+ 				pkg_remove_extra_slashes(the_file);
+ 
++				/* Open the file */
+ 				file = pkgfile_new_from_disk(the_file, 1);
+ 
+ 				if (file == NULL)
+ 					return NULL;
+-				fpkg-&gt;line++;
+ 
+ 				/* Add the recorded md5 to the file */
+-				if (fpkg-&gt;contents-&gt;lines[fpkg-&gt;line].line_type
+-				  == PKG_LINE_COMMENT) {
+-					strncpy(file-&gt;md5,
+-					    fpkg-&gt;contents-&gt;lines[fpkg-&gt;line].data + 4,
+-					    32);
++				md5 = pkg_manifest_item_get_attr(
++				    items[fpkg-&gt;line], pmia_md5);
++				if (md5 != NULL) {
++					strncpy(file-&gt;md5, md5, 32);
+ 					file-&gt;md5[33] = '\0';
+ 				}
+ 				return file;
+ 			}
+-			fpkg-&gt;line++;
++			case pmt_other:
++			case pmt_error:
++				/*
++				 * This should never happen as
++				 * pmt_other and pmt_error don't
++				 * appear in pkg_freebsd_parser.y
++				 */
++				abort();
++				break;
++			}
+ 		}
++
++
++		/* If we are here there must be no more files in the manifest */
+ 		fpkg-&gt;line = 0;
+ 		return NULL;
+ 	} else {
+
+
+</PRE>
+
+<!--endarticle-->
+    <HR>
+    <P><UL>
+        <!--threads-->
+	<LI>Previous message: <A HREF="000311.html">r327 - trunk/src
+</A></li>
+	<LI>Next message: <A HREF="000313.html">r329 - trunk/src
+</A></li>
+         <LI> <B>Messages sorted by:</B> 
+              <a href="date.html#312">[ date ]</a>
+              <a href="thread.html#312">[ thread ]</a>
+              <a href="subject.html#312">[ subject ]</a>
+              <a href="author.html#312">[ author ]</a>
+         </LI>
+       </UL>
+
+<hr>
+<a href="https://lists.berlios.de/mailman/listinfo/libpkg-svn">More information about the Libpkg-svn
+mailing list</a><br>
+</body></html>

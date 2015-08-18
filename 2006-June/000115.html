@@ -1,0 +1,209 @@
+<!DOCTYPE HTML PUBLIC "-//W3C//DTD HTML 4.01 Transitional//EN">
+<HTML>
+ <HEAD>
+   <TITLE> [Libpkg-svn] r131 - in trunk: src tools/pkg_info
+   </TITLE>
+   <LINK REL="Index" HREF="http://lists.berlios.de/pipermail/libpkg-svn/2006-June/index.html" >
+   <LINK REL="made" HREF="mailto:libpkg-svn%40lists.berlios.de?Subject=Re%3A%20%5BLibpkg-svn%5D%20r131%20-%20in%20trunk%3A%20src%20tools/pkg_info&In-Reply-To=%3C200606240813.k5O8DwLl010416%40sheep.berlios.de%3E">
+   <META NAME="robots" CONTENT="index,nofollow">
+   <style type="text/css">
+       pre {
+           white-space: pre-wrap;       /* css-2.1, curent FF, Opera, Safari */
+           }
+   </style>
+   <META http-equiv="Content-Type" content="text/html; charset=us-ascii">
+   <LINK REL="Previous"  HREF="000114.html">
+   <LINK REL="Next"  HREF="000116.html">
+ </HEAD>
+ <BODY BGCOLOR="#ffffff">
+   <H1>[Libpkg-svn] r131 - in trunk: src tools/pkg_info</H1>
+    <B>zxombie at BerliOS</B> 
+    <A HREF="mailto:libpkg-svn%40lists.berlios.de?Subject=Re%3A%20%5BLibpkg-svn%5D%20r131%20-%20in%20trunk%3A%20src%20tools/pkg_info&In-Reply-To=%3C200606240813.k5O8DwLl010416%40sheep.berlios.de%3E"
+       TITLE="[Libpkg-svn] r131 - in trunk: src tools/pkg_info">zxombie at berlios.de
+       </A><BR>
+    <I>Sat Jun 24 10:13:58 CEST 2006</I>
+    <P><UL>
+        <LI>Previous message: <A HREF="000114.html">[Libpkg-svn] r130 - trunk/src
+</A></li>
+        <LI>Next message: <A HREF="000116.html">[Libpkg-svn] r132 - trunk/tools/pkg_info
+</A></li>
+         <LI> <B>Messages sorted by:</B> 
+              <a href="date.html#115">[ date ]</a>
+              <a href="thread.html#115">[ thread ]</a>
+              <a href="subject.html#115">[ subject ]</a>
+              <a href="author.html#115">[ author ]</a>
+         </LI>
+       </UL>
+    <HR>  
+<!--beginarticle-->
+<PRE>Author: zxombie
+Date: 2006-06-24 10:13:58 +0200 (Sat, 24 Jun 2006)
+New Revision: 131
+
+Modified:
+   trunk/src/pkg_freebsd.c
+   trunk/tools/pkg_info/show.c
+Log:
+Support pkg_get_next_file for installed FreeBSD packages
+Use pkg_get_next_file to implement pkg_info -L
+
+
+Modified: trunk/src/pkg_freebsd.c
+===================================================================
+--- trunk/src/pkg_freebsd.c	2006-06-24 07:44:43 UTC (rev 130)
++++ trunk/src/pkg_freebsd.c	2006-06-24 08:13:58 UTC (rev 131)
+@@ -88,6 +88,8 @@
+ 	struct pkgfile **control;
+ 	struct pkg_freebsd_contents *contents;
+ 	struct pkgfile *next_file;
++	unsigned int line;
++	char *curdir;
+ 	freebsd_type pkg_type;
+ };
+ 
+@@ -191,6 +193,7 @@
+ 	if (pkg == NULL)
+ 		return NULL;
+ 	pkg_add_callbacks_data(pkg, freebsd_get_version, freebsd_get_origin);
++	pkg_add_callbacks_install(pkg, NULL, freebsd_get_next_file, NULL);
+ 
+ 	fpkg = freebsd_package_new();
+ 	if (fpkg == NULL) {
+@@ -581,20 +584,40 @@
+ 	assert(pkg != NULL);
+ 	fpkg = pkg-&gt;data;
+ 	assert(fpkg != NULL);
+-	assert(fpkg-&gt;pkg_type == fpkg_from_file);
+ 
+-	if (fpkg-&gt;next_file) {
+-		struct pkgfile *pkgfile = fpkg-&gt;next_file;
++	file = NULL;
++	if (fpkg-&gt;next_file != NULL) {
++		file = fpkg-&gt;next_file;
+ 		fpkg-&gt;next_file = NULL;
+-		return pkgfile;
+-	}
+-	if (fpkg-&gt;archive == NULL)
++	} else if (fpkg-&gt;archive == NULL)  {
++		freebsd_parse_contents(fpkg);
++		while (fpkg-&gt;line &lt; fpkg-&gt;contents-&gt;line_count) {
++			if (fpkg-&gt;contents-&gt;lines[fpkg-&gt;line].line_type ==
++			    PKG_LINE_CWD) {
++				if (fpkg-&gt;curdir != NULL)
++					free(fpkg-&gt;curdir);
++				fpkg-&gt;curdir = strdup(
++				    fpkg-&gt;contents-&gt;lines[fpkg-&gt;line].data);
++			}
++			if (fpkg-&gt;contents-&gt;lines[fpkg-&gt;line].line_type == PKG_LINE_FILE) {
++				char the_file[FILENAME_MAX + 1];
++
++				snprintf(the_file, FILENAME_MAX, &quot;%s/%s&quot;,
++				    fpkg-&gt;curdir,
++				    fpkg-&gt;contents-&gt;lines[fpkg-&gt;line].line);
++				file = pkgfile_new_from_disk(the_file, 1);
++				fpkg-&gt;line++;
++				return file;
++			}
++			fpkg-&gt;line++;
++		}
+ 		return NULL;
+-
+-	file = freebsd_get_next_entry(fpkg-&gt;archive);
+-	if (file == NULL) {
+-		archive_read_finish(fpkg-&gt;archive);
+-		fpkg-&gt;archive = NULL;
++	} else {
++		file = freebsd_get_next_entry(fpkg-&gt;archive);
++		if (file == NULL) {
++			archive_read_finish(fpkg-&gt;archive);
++			fpkg-&gt;archive = NULL;
++		}
+ 	}
+ 	return file;
+ }
+@@ -775,6 +798,8 @@
+ 		if (fpkg-&gt;contents != NULL)
+ 			pkg_freebsd_contents_free(fpkg-&gt;contents);
+ 
++		if (fpkg-&gt;curdir != NULL)
++			free(fpkg-&gt;curdir);
+ 
+ 		free(fpkg);
+ 	}
+@@ -824,6 +849,8 @@
+ 	fpkg-&gt;origin = NULL;
+ 	fpkg-&gt;version = NULL;
+ 	fpkg-&gt;next_file = NULL;
++	fpkg-&gt;line = 0;
++	fpkg-&gt;curdir = NULL;
+ 	fpkg-&gt;pkg_type = fpkg_unknown;
+ 
+ 	return fpkg;
+
+Modified: trunk/tools/pkg_info/show.c
+===================================================================
+--- trunk/tools/pkg_info/show.c	2006-06-24 07:44:43 UTC (rev 130)
++++ trunk/tools/pkg_info/show.c	2006-06-24 08:13:58 UTC (rev 131)
+@@ -31,6 +31,7 @@
+ 
+ static void	show_cksum(struct pkg *, const char *, int);
+ static void	show_file(struct pkgfile *, const char *, int);
++static void	show_files(struct pkg *, const char *, int);
+ static void	show_fmtrev(struct pkg *, const char *, int);
+ static void	show_index(struct pkg *);
+ static void	show_origin(struct pkg *, const char *, int);
+@@ -117,7 +118,7 @@
+ 		show_plist(pkg, &quot;Prefix(s):\n&quot;, quiet, PKG_LINE_CWD);
+ 	}
+ 	if (flags &amp; SHOW_FILES) {
+-	//    show_files(&quot;Files:\n&quot;, &amp;plist);
++		show_files(pkg, &quot;Files:\n&quot;, quiet);
+ 	}
+ 	if ((flags &amp; SHOW_SIZE) &amp;&amp;
+ 	    pkg_db_is_installed(db, pkg) == 0) {
+@@ -168,6 +169,21 @@
+ }
+ 
+ static void
++show_files(struct pkg *pkg __unused, const char *title, int quiet)
++{
++	struct pkgfile *file;
++	assert(pkg != NULL);
++	if (!quiet)
++		printf(&quot;%s\n&quot;, title);
++	file = pkg_get_next_file(pkg);
++	while (file != NULL) {
++		printf(&quot;%s\n&quot;, pkgfile_get_name(file));
++		pkgfile_free(file);
++		file = pkg_get_next_file(pkg);
++	}
++}
++
++static void
+ show_fmtrev(struct pkg* pkg, const char *title, int quiet)
+ {
+ 	const char *version;
+
+
+</PRE>
+
+<!--endarticle-->
+    <HR>
+    <P><UL>
+        <!--threads-->
+	<LI>Previous message: <A HREF="000114.html">[Libpkg-svn] r130 - trunk/src
+</A></li>
+	<LI>Next message: <A HREF="000116.html">[Libpkg-svn] r132 - trunk/tools/pkg_info
+</A></li>
+         <LI> <B>Messages sorted by:</B> 
+              <a href="date.html#115">[ date ]</a>
+              <a href="thread.html#115">[ thread ]</a>
+              <a href="subject.html#115">[ subject ]</a>
+              <a href="author.html#115">[ author ]</a>
+         </LI>
+       </UL>
+
+<hr>
+<a href="https://lists.berlios.de/mailman/listinfo/libpkg-svn">More information about the Libpkg-svn
+mailing list</a><br>
+</body></html>

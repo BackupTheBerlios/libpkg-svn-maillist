@@ -1,0 +1,138 @@
+<!DOCTYPE HTML PUBLIC "-//W3C//DTD HTML 4.01 Transitional//EN">
+<HTML>
+ <HEAD>
+   <TITLE> [Libpkg-svn] r244 - trunk/src
+   </TITLE>
+   <LINK REL="Index" HREF="http://lists.berlios.de/pipermail/libpkg-svn/2007-January/index.html" >
+   <LINK REL="made" HREF="mailto:libpkg-svn%40lists.berlios.de?Subject=Re%3A%20%5BLibpkg-svn%5D%20r244%20-%20trunk/src&In-Reply-To=%3C200701150446.l0F4kT1j017665%40sheep.berlios.de%3E">
+   <META NAME="robots" CONTENT="index,nofollow">
+   <style type="text/css">
+       pre {
+           white-space: pre-wrap;       /* css-2.1, curent FF, Opera, Safari */
+           }
+   </style>
+   <META http-equiv="Content-Type" content="text/html; charset=us-ascii">
+   <LINK REL="Previous"  HREF="000227.html">
+   <LINK REL="Next"  HREF="000229.html">
+ </HEAD>
+ <BODY BGCOLOR="#ffffff">
+   <H1>[Libpkg-svn] r244 - trunk/src</H1>
+    <B>zxombie at BerliOS</B> 
+    <A HREF="mailto:libpkg-svn%40lists.berlios.de?Subject=Re%3A%20%5BLibpkg-svn%5D%20r244%20-%20trunk/src&In-Reply-To=%3C200701150446.l0F4kT1j017665%40sheep.berlios.de%3E"
+       TITLE="[Libpkg-svn] r244 - trunk/src">zxombie at mail.berlios.de
+       </A><BR>
+    <I>Mon Jan 15 05:46:29 CET 2007</I>
+    <P><UL>
+        <LI>Previous message: <A HREF="000227.html">[Libpkg-svn] r243 - trunk/tools/pkg_add
+</A></li>
+        <LI>Next message: <A HREF="000229.html">[Libpkg-svn] r245 - trunk/src
+</A></li>
+         <LI> <B>Messages sorted by:</B> 
+              <a href="date.html#228">[ date ]</a>
+              <a href="thread.html#228">[ thread ]</a>
+              <a href="subject.html#228">[ subject ]</a>
+              <a href="author.html#228">[ author ]</a>
+         </LI>
+       </UL>
+    <HR>  
+<!--beginarticle-->
+<PRE>Author: zxombie
+Date: 2007-01-15 05:46:28 +0100 (Mon, 15 Jan 2007)
+New Revision: 244
+
+Modified:
+   trunk/src/pkg_private.h
+   trunk/src/pkg_util.c
+Log:
+Add pkg_dir_clean to remove empty dir's from a tree
+
+
+Modified: trunk/src/pkg_private.h
+===================================================================
+--- trunk/src/pkg_private.h	2007-01-15 04:35:54 UTC (rev 243)
++++ trunk/src/pkg_private.h	2007-01-15 04:46:28 UTC (rev 244)
+@@ -163,6 +163,7 @@
+ };
+ 
+ int pkg_dir_build(const char *, mode_t);
++int pkg_dir_clean(const char *);
+ int pkg_exec(const char *, ...);
+ FILE *pkg_cached_file(FILE *, const char *);
+ 
+
+Modified: trunk/src/pkg_util.c
+===================================================================
+--- trunk/src/pkg_util.c	2007-01-15 04:35:54 UTC (rev 243)
++++ trunk/src/pkg_util.c	2007-01-15 04:46:28 UTC (rev 244)
+@@ -34,8 +34,10 @@
+ #include &lt;sys/stat.h&gt;
+ 
+ #include &lt;assert.h&gt;
++#include &lt;dirent.h&gt;
+ #include &lt;err.h&gt;
+ #include &lt;errno.h&gt;
++#include &lt;libgen.h&gt;
+ #include &lt;md5.h&gt;
+ #include &lt;stdarg.h&gt;
+ #include &lt;stdio.h&gt;
+@@ -110,6 +112,36 @@
+ }
+ 
+ /**
++ * @brief Walks from the a child directory to the root removing all empty directories
++ * @param child The directory to start from
++ * @return  0 on success
++ * @return -1 on failure
++ */
++int
++pkg_dir_clean(const char *child)
++{
++	char cur_dir[MAXPATHLEN];
++
++	assert(child[0] == '/');
++
++	strlcpy(cur_dir, child, MAXPATHLEN);
++
++	/* Remove all empty directories */
++	errno = 0;
++	while(strcmp(cur_dir, &quot;/&quot;) != 0) {
++		if (rmdir(cur_dir) != 0)
++			break;
++
++		/* Move to the parent directory */
++		strlcpy(cur_dir, dirname(cur_dir), MAXPATHLEN);
++	}
++	if (errno != 0 &amp;&amp; errno != ENOTEMPTY)
++		return -1;
++
++	return 0;
++}
++
++/**
+  * @brief Creates an absolute pathname from a relative name
+  *
+  * Creates an absolute path, additionally removing all .'s, ..'s, and extraneous
+
+
+</PRE>
+
+<!--endarticle-->
+    <HR>
+    <P><UL>
+        <!--threads-->
+	<LI>Previous message: <A HREF="000227.html">[Libpkg-svn] r243 - trunk/tools/pkg_add
+</A></li>
+	<LI>Next message: <A HREF="000229.html">[Libpkg-svn] r245 - trunk/src
+</A></li>
+         <LI> <B>Messages sorted by:</B> 
+              <a href="date.html#228">[ date ]</a>
+              <a href="thread.html#228">[ thread ]</a>
+              <a href="subject.html#228">[ subject ]</a>
+              <a href="author.html#228">[ author ]</a>
+         </LI>
+       </UL>
+
+<hr>
+<a href="https://lists.berlios.de/mailman/listinfo/libpkg-svn">More information about the Libpkg-svn
+mailing list</a><br>
+</body></html>

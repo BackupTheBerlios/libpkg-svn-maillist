@@ -1,0 +1,254 @@
+<!DOCTYPE HTML PUBLIC "-//W3C//DTD HTML 4.01 Transitional//EN">
+<HTML>
+ <HEAD>
+   <TITLE> [Libpkg-svn] r186 - trunk/tests
+   </TITLE>
+   <LINK REL="Index" HREF="http://lists.berlios.de/pipermail/libpkg-svn/2006-September/index.html" >
+   <LINK REL="made" HREF="mailto:libpkg-svn%40lists.berlios.de?Subject=Re%3A%20%5BLibpkg-svn%5D%20r186%20-%20trunk/tests&In-Reply-To=%3C200609022325.k82NPGrt031590%40sheep.berlios.de%3E">
+   <META NAME="robots" CONTENT="index,nofollow">
+   <style type="text/css">
+       pre {
+           white-space: pre-wrap;       /* css-2.1, curent FF, Opera, Safari */
+           }
+   </style>
+   <META http-equiv="Content-Type" content="text/html; charset=us-ascii">
+   <LINK REL="Previous"  HREF="000169.html">
+   <LINK REL="Next"  HREF="000171.html">
+ </HEAD>
+ <BODY BGCOLOR="#ffffff">
+   <H1>[Libpkg-svn] r186 - trunk/tests</H1>
+    <B>zxombie at BerliOS</B> 
+    <A HREF="mailto:libpkg-svn%40lists.berlios.de?Subject=Re%3A%20%5BLibpkg-svn%5D%20r186%20-%20trunk/tests&In-Reply-To=%3C200609022325.k82NPGrt031590%40sheep.berlios.de%3E"
+       TITLE="[Libpkg-svn] r186 - trunk/tests">zxombie at mail.berlios.de
+       </A><BR>
+    <I>Sun Sep  3 01:25:16 CEST 2006</I>
+    <P><UL>
+        <LI>Previous message: <A HREF="000169.html">[Libpkg-svn] r185 - trunk/tests
+</A></li>
+        <LI>Next message: <A HREF="000171.html">[Libpkg-svn] r187 - trunk/tests
+</A></li>
+         <LI> <B>Messages sorted by:</B> 
+              <a href="date.html#170">[ date ]</a>
+              <a href="thread.html#170">[ thread ]</a>
+              <a href="subject.html#170">[ subject ]</a>
+              <a href="author.html#170">[ author ]</a>
+         </LI>
+       </UL>
+    <HR>  
+<!--beginarticle-->
+<PRE>Author: zxombie
+Date: 2006-09-03 01:24:06 +0200 (Sun, 03 Sep 2006)
+New Revision: 186
+
+Modified:
+   trunk/tests/pkgfile.c
+Log:
+Add tests to check if pkgfile_write will fail when a file exists
+Add tests to check if pkgfile_write will create the required parent directories
+
+
+Modified: trunk/tests/pkgfile.c
+===================================================================
+--- trunk/tests/pkgfile.c	2006-09-02 23:06:32 UTC (rev 185)
++++ trunk/tests/pkgfile.c	2006-09-02 23:24:06 UTC (rev 186)
+@@ -95,8 +95,8 @@
+ 
+ 	/* Test the data */
+ 	fail_unless(pkgfile_get_data(file) != NULL, NULL);
+-	fail_unless(strcmp(pkgfile_get_data(file), &quot;0123456789&quot;) == 0, NULL);
+-	fail_unless(strcmp(file-&gt;data, &quot;0123456789&quot;) == 0, NULL);
++	fail_unless(strncmp(pkgfile_get_data(file), &quot;0123456789&quot;, 10)== 0,NULL);
++	fail_unless(strncmp(file-&gt;data, &quot;0123456789&quot;, 10) == 0, NULL);
+ 
+ 	/* The md5 of 0123456789 string is 781e5e245d69b566979b86e28d23f2c7 */
+ 	fail_unless(pkgfile_set_checksum_md5(file,
+@@ -139,6 +139,71 @@
+ }
+ END_TEST
+ 
++START_TEST(pkgfile_regular_existing_test)
++{
++	struct pkgfile *file;
++	FILE *fd;
++	char buf[6];
++
++	/* Test if pkgfile_write will fail with a regular file */
++	file = pkgfile_new_regular(&quot;testdir/Foo&quot;, &quot;0123456789&quot;, 10);
++	SETUP_TESTDIR();
++	system(&quot;echo Hello &gt; testdir/Foo&quot;);
++	fail_unless(pkgfile_write(file) == -1, NULL);
++	fd = fopen(&quot;testdir/Foo&quot;, &quot;r&quot;);
++	fread(buf, 5, 1, fd);
++	/* Check the file has not been touched */
++	fail_unless(strcmp(buf, &quot;Hello&quot;) == 0, NULL);
++	fclose(fd);
++	system(&quot;rm testdir/Foo&quot;);
++	CLEANUP_TESTDIR();
++	pkgfile_free(file);
++
++	/* Test if pkgfile_write will fail with a symlink */
++	file = pkgfile_new_regular(&quot;testdir/Foo&quot;, &quot;0123456789&quot;, 10);
++	SETUP_TESTDIR();
++	symlink(&quot;testdir/Bar&quot;, &quot;testdir/Foo&quot;);
++	fail_unless(pkgfile_write(file) == -1, NULL);
++	system(&quot;rm testdir/Foo&quot;);
++	CLEANUP_TESTDIR();
++	pkgfile_free(file);
++
++	/* Test if pkgfile_write will fail with a directory */
++	file = pkgfile_new_regular(&quot;testdir/Foo&quot;, &quot;0123456789&quot;, 10);
++	SETUP_TESTDIR();
++	system(&quot;mkdir testdir/Foo&quot;);
++	fail_unless(pkgfile_write(file) == -1, NULL);
++	system(&quot;rmdir testdir/Foo&quot;);
++	CLEANUP_TESTDIR();
++	pkgfile_free(file);
++}
++END_TEST
++
++/*
++ * A test to make sure the pkgfile_write will
++ * create the parent directories required
++ */
++START_TEST(pkgfile_regular_depth_test)
++{
++	struct pkgfile *file;
++	FILE *fd;
++	char buf[11];
++
++	file = pkgfile_new_regular(&quot;testdir/foo/bar&quot;, &quot;0123456789&quot;, 10);
++	SETUP_TESTDIR();
++	fail_unless(pkgfile_write(file) == 0, NULL);
++	fd = fopen(&quot;testdir/foo/bar&quot;, &quot;r&quot;);
++	fread(buf, 10, 1, fd);
++	/* Check the file has been written correctly */
++	fail_unless(strcmp(buf, &quot;0123456789&quot;) == 0, NULL);
++	fclose(fd);
++	system(&quot;rm testdir/foo/bar&quot;);
++	system(&quot;rmdir testdir/foo&quot;);
++	CLEANUP_TESTDIR();
++	pkgfile_free(file);
++}
++END_TEST
++
+ /* Tests on creating a symlink from a buffer */
+ START_TEST(pkgfile_symlink_bad_test)
+ {
+@@ -196,6 +261,79 @@
+ }
+ END_TEST
+ 
++START_TEST(pkgfile_symlink_existing_test)
++{
++	struct pkgfile *file;
++	FILE *fd;
++	char buf[6];
++
++	/* Test if pkgfile_write will fail with a regular file */
++	file = pkgfile_new_symlink(&quot;testdir/Foo&quot;, &quot;0123456789&quot;);
++	SETUP_TESTDIR();
++	system(&quot;echo Hello &gt; testdir/Foo&quot;);
++	fail_unless(pkgfile_write(file) == -1, NULL);
++	fd = fopen(&quot;testdir/Foo&quot;, &quot;r&quot;);
++	fread(buf, 5, 1, fd);
++	/* Check the file has not been touched */
++	fail_unless(strcmp(buf, &quot;Hello&quot;) == 0, NULL);
++	fclose(fd);
++	system(&quot;rm testdir/Foo&quot;);
++	CLEANUP_TESTDIR();
++	pkgfile_free(file);
++
++	/* Test if pkgfile_write will fail with a symlink */
++	file = pkgfile_new_symlink(&quot;testdir/Foo&quot;, &quot;0123456789&quot;);
++	SETUP_TESTDIR();
++	symlink(&quot;testdir/Bar&quot;, &quot;testdir/Foo&quot;);
++	fail_unless(pkgfile_write(file) == -1, NULL);
++	system(&quot;rm testdir/Foo&quot;);
++	CLEANUP_TESTDIR();
++	pkgfile_free(file);
++
++	/* Test if pkgfile_write will fail with a directory */
++	file = pkgfile_new_symlink(&quot;testdir/Foo&quot;, &quot;0123456789&quot;);
++	SETUP_TESTDIR();
++	system(&quot;mkdir testdir/Foo&quot;);
++	fail_unless(pkgfile_write(file) == -1, NULL);
++	system(&quot;rmdir testdir/Foo&quot;);
++	CLEANUP_TESTDIR();
++	pkgfile_free(file);
++}
++END_TEST
++
++/*
++ * A test to make sure the pkgfile_write will
++ * create the parent directories required
++ */
++START_TEST(pkgfile_symlink_depth_test)
++{
++	struct pkgfile *file;
++	struct stat sb;
++
++	file = pkgfile_new_symlink(&quot;testdir/foo/bar&quot;, &quot;0123456789&quot;);
++	SETUP_TESTDIR();
++	fail_unless(pkgfile_write(file) == 0, NULL);
++	fail_unless(lstat(&quot;testdir/foo/bar&quot;, &amp;sb) == 0, NULL);
++	fail_unless(S_ISLNK(sb.st_mode), NULL);
++	system(&quot;rm testdir/foo/bar&quot;);
++	system(&quot;rmdir testdir/foo&quot;);
++	CLEANUP_TESTDIR();
++	pkgfile_free(file);
++
++	/*
++	 * Check pkgfile_write fails when there
++	 * is already a file named testdir/foo
++	 */
++	file = pkgfile_new_symlink(&quot;testdir/foo/bar&quot;, &quot;0123456789&quot;);
++	SETUP_TESTDIR();
++	system(&quot;touch testdir/foo&quot;);
++	fail_unless(pkgfile_write(file) == -1, NULL);
++	system(&quot;rm testdir/foo&quot;);
++	CLEANUP_TESTDIR();
++	pkgfile_free(file);
++}
++END_TEST
++
+ /* Tests on creating a hardlink from a buffer */
+ START_TEST(pkgfile_hardlink_bad_test)
+ {
+@@ -311,9 +449,13 @@
+ 	tcase_add_test(tc_regular, pkgfile_regular_bad_test);
+ 	tcase_add_test(tc_regular, pkgfile_regular_empty_test);
+ 	tcase_add_test(tc_regular, pkgfile_regular_data_test);
++	tcase_add_test(tc_regular, pkgfile_regular_existing_test);
++	tcase_add_test(tc_regular, pkgfile_regular_depth_test);
+ 
+ 	tcase_add_test(tc_symlink, pkgfile_symlink_bad_test);
+ 	tcase_add_test(tc_symlink, pkgfile_symlink_good_test);
++	tcase_add_test(tc_symlink, pkgfile_symlink_existing_test);
++	tcase_add_test(tc_symlink, pkgfile_symlink_depth_test);
+ 
+ 	tcase_add_test(tc_hardlink, pkgfile_hardlink_bad_test);
+ 	tcase_add_test(tc_hardlink, pkgfile_hardlink_test);
+
+
+</PRE>
+
+<!--endarticle-->
+    <HR>
+    <P><UL>
+        <!--threads-->
+	<LI>Previous message: <A HREF="000169.html">[Libpkg-svn] r185 - trunk/tests
+</A></li>
+	<LI>Next message: <A HREF="000171.html">[Libpkg-svn] r187 - trunk/tests
+</A></li>
+         <LI> <B>Messages sorted by:</B> 
+              <a href="date.html#170">[ date ]</a>
+              <a href="thread.html#170">[ thread ]</a>
+              <a href="subject.html#170">[ subject ]</a>
+              <a href="author.html#170">[ author ]</a>
+         </LI>
+       </UL>
+
+<hr>
+<a href="https://lists.berlios.de/mailman/listinfo/libpkg-svn">More information about the Libpkg-svn
+mailing list</a><br>
+</body></html>

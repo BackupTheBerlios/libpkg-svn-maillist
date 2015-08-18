@@ -1,0 +1,259 @@
+<!DOCTYPE HTML PUBLIC "-//W3C//DTD HTML 4.01 Transitional//EN">
+<HTML>
+ <HEAD>
+   <TITLE> [Libpkg-svn] r79 - trunk/src
+   </TITLE>
+   <LINK REL="Index" HREF="http://lists.berlios.de/pipermail/libpkg-svn/2006-March/index.html" >
+   <LINK REL="made" HREF="mailto:libpkg-svn%40lists.berlios.de?Subject=Re%3A%20%5BLibpkg-svn%5D%20r79%20-%20trunk/src&In-Reply-To=%3C200603230941.k2N9fdLq025090%40sheep.berlios.de%3E">
+   <META NAME="robots" CONTENT="index,nofollow">
+   <style type="text/css">
+       pre {
+           white-space: pre-wrap;       /* css-2.1, curent FF, Opera, Safari */
+           }
+   </style>
+   <META http-equiv="Content-Type" content="text/html; charset=us-ascii">
+   <LINK REL="Previous"  HREF="000062.html">
+   <LINK REL="Next"  HREF="000064.html">
+ </HEAD>
+ <BODY BGCOLOR="#ffffff">
+   <H1>[Libpkg-svn] r79 - trunk/src</H1>
+    <B>zxombie at BerliOS</B> 
+    <A HREF="mailto:libpkg-svn%40lists.berlios.de?Subject=Re%3A%20%5BLibpkg-svn%5D%20r79%20-%20trunk/src&In-Reply-To=%3C200603230941.k2N9fdLq025090%40sheep.berlios.de%3E"
+       TITLE="[Libpkg-svn] r79 - trunk/src">zxombie at berlios.de
+       </A><BR>
+    <I>Thu Mar 23 10:41:39 CET 2006</I>
+    <P><UL>
+        <LI>Previous message: <A HREF="000062.html">[Libpkg-svn] r77 - trunk/src
+</A></li>
+        <LI>Next message: <A HREF="000064.html">[Libpkg-svn] r80 - trunk/src
+</A></li>
+         <LI> <B>Messages sorted by:</B> 
+              <a href="date.html#63">[ date ]</a>
+              <a href="thread.html#63">[ thread ]</a>
+              <a href="subject.html#63">[ subject ]</a>
+              <a href="author.html#63">[ author ]</a>
+         </LI>
+       </UL>
+    <HR>  
+<!--beginarticle-->
+<PRE>Author: zxombie
+Date: 2006-03-23 10:41:31 +0100 (Thu, 23 Mar 2006)
+New Revision: 79
+
+Modified:
+   trunk/src/pkg_db.c
+Log:
+Document the pkg_db object
+
+
+Modified: trunk/src/pkg_db.c
+===================================================================
+--- trunk/src/pkg_db.c	2006-03-21 02:05:56 UTC (rev 78)
++++ trunk/src/pkg_db.c	2006-03-23 09:41:31 UTC (rev 79)
+@@ -35,9 +35,24 @@
+ #include &quot;pkg_private.h&quot;
+ #include &quot;pkg_db_private.h&quot;
+ 
+-/*
+- * Opens a Package Database
++/**
++ * @defgroup PackageDBInternal Internal package database functions
++ * @ingroup PackageDB
++ * @brief Internal functions in the Package Database module
++ * 
++ * @{
+  */
++
++/**
++ * @brief Opens a Package Database and assigns the callbacks
++ * @param base the Base direcroty of the Package Database
++ * @param install_pkg The callback to be used by pkg_db_install_pkg()
++ * @param is_installed The callback to be used by pkg_db_is_installed()
++ * @param get_installed_match The callback to be used by
++ *     pkg_db_get_installed_match()
++ * @param get_package The callback to be used by pkg_db_get_package()
++ * @returns A pkg_db object or NULL
++ */
+ struct pkg_db*
+ pkg_db_open(const char *base, pkg_db_install_pkg_callback *install_pkg,
+ 		pkg_db_is_installed_callback *is_installed,
+@@ -90,17 +105,38 @@
+ 	return db;
+ }
+ 
+-/*
+- * Install a given package to the database
++/**
++ * @}
+  */
++
++/**
++ * @defgroup PackageDB Package database functions
++ * @brief Package database handeling functions
++ *
++ * These are the functions to talk to a package database.
++ * The database is created by a system dependent constructor.
++ * eg. pkg_db_open_freebsd() on FreeBSD systems
++ *
++ * @{
++ */
++
++/**
++ * @brief Installs a package to the database
++ * @return 0 on success, -1 on error
++ */
+ int
+ pkg_db_install_pkg(struct pkg_db *db, struct pkg *pkg)
+ {
+ 	return pkg_db_install_pkg_action(db, pkg, NULL);
+ }
+ 
+-/*
+- * Install a given package to the database with a given action
++/**
++ * @brief Installs a package to the database
++ * @param db The database to install to
++ * @param pkg The package to install
++ * @param action A callback that is used to inform the user the status
++ *     of the installation
++ * @return 0 if the package is installed, -1 otherwise
+  */
+ int
+ pkg_db_install_pkg_action(struct pkg_db *db, struct pkg *pkg,
+@@ -121,8 +157,9 @@
+ 	return db-&gt;pkg_install(db, pkg, action);
+ }
+ 
+-/*
+- * Check to se if a package is installed
++/**
++ * @brief Check to see if a package is installed
++ * @return 0 if the package is installed, -1 otherwise
+  */
+ int
+ pkg_db_is_installed(struct pkg_db *db, struct pkg *pkg)
+@@ -138,8 +175,9 @@
+ 	return db-&gt;pkg_is_installed(db, pkg);
+ }
+ 
+-/*
+- * Get a NULL terminated array of installed packages
++/**
++ * @brief Retrieve a NULL terminated array of all installed packages
++ * @return A null-terminated array of packages or NULL
+  */
+ struct pkg **
+ pkg_db_get_installed(struct pkg_db *db)
+@@ -147,8 +185,14 @@
+ 	return pkg_db_get_installed_match(db, NULL, NULL);
+ }
+ 
+-/*
+- * Get a NULL terminated array of installed packages that match accepts
++/**
++ * @brief Retrieve a NULL terminated array of installed packages that
++ *     match accepts
++ * @param db The database to get the installed packages from
++ * @param match A function that is passed each package and returns 0 if
++ *     the package is wanted in the array
++ * @param data Data to be passed to match
++ * @return A null-terminated array of packages or NULL
+  */
+ struct pkg **
+ pkg_db_get_installed_match(struct pkg_db *db, pkg_db_match *match, const void *data)
+@@ -165,8 +209,9 @@
+ 	return NULL;
+ }
+ 
+-/*
+- * Gets the package with the given name
++/**
++ * @brief Retrieves the package with the given name
++ * @return The named package or NULL
+  */
+ struct pkg *
+ pkg_db_get_package(struct pkg_db *db, const char *pkg_name)
+@@ -180,8 +225,9 @@
+ 	return NULL;
+ }
+ 
+-/*
+- * Frees the database
++/**
++ * @brief Frees the database
++ * @return 0 on success, -1 on error
+  */
+ int
+ pkg_db_free(struct pkg_db *db)
+@@ -198,21 +244,40 @@
+ 	return 0;
+ }
+ 
+-/*
+- * Matches all packages.
+- * This is here because it is used with pkg_db_get_installed_match
++/**
++ * @}
+  */
++
++/**
++ * @defgroup PackageDBMatch Package Matching functions
++ * @ingroup PackageDB
++ * @brief Functions to be passed to pkg_db_get_installed_match()
++ *
++ * @{
++ */
++
++/**
++ * @brief A function to be passed to match all packages
++ * @return 0
++ */
+ int
+ pkg_match_all(struct pkg *pkg __unused, const void *data __unused)
+ {
+ 	return 0;
+ }
+ 
+-/*
+- * Matches all packages by origin. The origin is a string pointed to by data
++/**
++ * @brief Matches all packages by origin.
++ * @param pkg The package to attempt to match
++ * @param origin The origin to find
++ * @return 0 if the package origin is the same as origin, otherwise non zero
+  */
+ int
+-pkg_match_by_origin(struct pkg *pkg, const void *data)
++pkg_match_by_origin(struct pkg *pkg, const void *origin)
+ {
+-	return strcmp(pkg_get_origin(pkg), (const char *)data);
++	return strcmp(pkg_get_origin(pkg), (const char *)origin);
+ }
++
++/**
++ * @}
++ */
+
+
+</PRE>
+
+<!--endarticle-->
+    <HR>
+    <P><UL>
+        <!--threads-->
+	<LI>Previous message: <A HREF="000062.html">[Libpkg-svn] r77 - trunk/src
+</A></li>
+	<LI>Next message: <A HREF="000064.html">[Libpkg-svn] r80 - trunk/src
+</A></li>
+         <LI> <B>Messages sorted by:</B> 
+              <a href="date.html#63">[ date ]</a>
+              <a href="thread.html#63">[ thread ]</a>
+              <a href="subject.html#63">[ subject ]</a>
+              <a href="author.html#63">[ author ]</a>
+         </LI>
+       </UL>
+
+<hr>
+<a href="https://lists.berlios.de/mailman/listinfo/libpkg-svn">More information about the Libpkg-svn
+mailing list</a><br>
+</body></html>

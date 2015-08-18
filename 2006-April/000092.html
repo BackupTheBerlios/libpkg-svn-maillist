@@ -1,0 +1,206 @@
+<!DOCTYPE HTML PUBLIC "-//W3C//DTD HTML 4.01 Transitional//EN">
+<HTML>
+ <HEAD>
+   <TITLE> [Libpkg-svn] r108 - trunk/src
+   </TITLE>
+   <LINK REL="Index" HREF="http://lists.berlios.de/pipermail/libpkg-svn/2006-April/index.html" >
+   <LINK REL="made" HREF="mailto:libpkg-svn%40lists.berlios.de?Subject=Re%3A%20%5BLibpkg-svn%5D%20r108%20-%20trunk/src&In-Reply-To=%3C200604250851.k3P8pFBD028138%40sheep.berlios.de%3E">
+   <META NAME="robots" CONTENT="index,nofollow">
+   <style type="text/css">
+       pre {
+           white-space: pre-wrap;       /* css-2.1, curent FF, Opera, Safari */
+           }
+   </style>
+   <META http-equiv="Content-Type" content="text/html; charset=us-ascii">
+   <LINK REL="Previous"  HREF="000091.html">
+   <LINK REL="Next"  HREF="000093.html">
+ </HEAD>
+ <BODY BGCOLOR="#ffffff">
+   <H1>[Libpkg-svn] r108 - trunk/src</H1>
+    <B>zxombie at BerliOS</B> 
+    <A HREF="mailto:libpkg-svn%40lists.berlios.de?Subject=Re%3A%20%5BLibpkg-svn%5D%20r108%20-%20trunk/src&In-Reply-To=%3C200604250851.k3P8pFBD028138%40sheep.berlios.de%3E"
+       TITLE="[Libpkg-svn] r108 - trunk/src">zxombie at berlios.de
+       </A><BR>
+    <I>Tue Apr 25 10:51:15 CEST 2006</I>
+    <P><UL>
+        <LI>Previous message: <A HREF="000091.html">[Libpkg-svn] r107 - trunk/src
+</A></li>
+        <LI>Next message: <A HREF="000093.html">[Libpkg-svn] r109 - trunk/src
+</A></li>
+         <LI> <B>Messages sorted by:</B> 
+              <a href="date.html#92">[ date ]</a>
+              <a href="thread.html#92">[ thread ]</a>
+              <a href="subject.html#92">[ subject ]</a>
+              <a href="author.html#92">[ author ]</a>
+         </LI>
+       </UL>
+    <HR>  
+<!--beginarticle-->
+<PRE>Author: zxombie
+Date: 2006-04-25 10:51:12 +0200 (Tue, 25 Apr 2006)
+New Revision: 108
+
+Modified:
+   trunk/src/pkg_freebsd.c
+Log:
+Ignore @conflicts lines when installing
+Fix freebsd_get_deps return an array with only a NULL when a package has no dependencies
+Don't mutilate the +CONTENTS file before installing it. Cvs pkg_add dosn't so neither should we
+
+
+Modified: trunk/src/pkg_freebsd.c
+===================================================================
+--- trunk/src/pkg_freebsd.c	2006-04-25 08:39:49 UTC (rev 107)
++++ trunk/src/pkg_freebsd.c	2006-04-25 08:51:12 UTC (rev 108)
+@@ -70,8 +70,6 @@
+ pkg_static struct pkg_file	 *freebsd_get_next_entry(struct archive *);
+ pkg_static int			  freebsd_parse_contents(
+ 					struct freebsd_package *);
+-pkg_static struct pkg_file	 *freebsd_build_contents(
+-					struct pkg_freebsd_contents *);
+ 
+ typedef enum {
+ 	fpkg_unknown,
+@@ -469,6 +467,7 @@
+ 		case PKG_LINE_DIRRM:
+ 		case PKG_LINE_MTREE:
+ 		case PKG_LINE_PKGDEP:
++		case PKG_LINE_CONFLICTS:
+ 			break;
+ 		case PKG_LINE_NAME:
+ 			/* Check the name is the same as the packages name */
+@@ -544,13 +543,7 @@
+ 			    contents-&gt;lines[pos].data);
+ 		}
+ 	}
+-	/* Switch the +CONTENTS file with one without @ignore'd files */
+-	for (pos = 0; control[pos] != NULL; pos++)
+-		if (!strcmp(control[pos]-&gt;filename, &quot;+CONTENTS&quot;))
+-			break;
+-	pkg_file_free(control[pos]);
+-	control[pos] = freebsd_build_contents(contents);
+-
++	/* Register the package */
+ 	pkg_register(pkg, pkg_action, data, control);
+ 
+ exit:
+@@ -623,6 +616,7 @@
+ 	pkgs = malloc(pkg_size);
+ 	if (pkgs == NULL)
+ 		return NULL;
++	pkgs[0] = NULL;
+ 
+ 	for (line = 0; line &lt; fpkg-&gt;contents-&gt;line_count; line++) {
+ 		if (fpkg-&gt;contents-&gt;lines[line].line_type == PKG_LINE_PKGDEP) {
+@@ -992,87 +986,5 @@
+ }
+ 
+ /**
+- * @brief Builds a new contents file
+- * @param contents The contents data to build the file from
+- *
+- * The file can be installed in /var/db/pkg/foo-1.2,3
+- * @return The new contents file or NULL
+- */
+-static struct pkg_file *
+-freebsd_build_contents(struct pkg_freebsd_contents *contents)
+-{
+-	uint64_t size, used;
+-	char *buffer, *ptr;
+-	unsigned int i;
+-
+-	assert(contents != NULL);
+-
+-	used = 0;
+-	size = 1024;
+-	buffer = malloc(size);
+-	ptr = buffer;
+-	if (!buffer) {
+-		return NULL;
+-	}
+-	for (i = 0; i &lt; contents-&gt;line_count; i++) {
+-		int line_len, data_len;
+-
+-		line_len = strlen(contents-&gt;lines[i].line);
+-		data_len = 0;
+-		if (contents-&gt;lines[i].line_type != PKG_LINE_FILE &amp;&amp;
+-		    contents-&gt;lines[i].line_type != PKG_LINE_IGNORE) {
+-			data_len = strlen(contents-&gt;lines[i].data);
+-		}
+-		/* if the line is @ignore we will ignore the 2 lines */
+-		switch (contents-&gt;lines[i].line_type) {
+-		case PKG_LINE_IGNORE:
+-			i += 2;
+-			break;
+-		case PKG_LINE_CWD:
+-			if (strcmp(contents-&gt;lines[i].data, &quot;.&quot;)) {
+-				if (used + line_len + data_len + 2 &gt;= size) {
+-					size += 1024;
+-					buffer = realloc(buffer, size);
+-					ptr = buffer + used;
+-				}
+-				sprintf(ptr, &quot;%s %s\n&quot;,
+-				    contents-&gt;lines[i].line,
+-				    contents-&gt;lines[i].data);
+-				used += line_len + data_len + 2;
+-				ptr = buffer + used;
+-			}
+-		case PKG_LINE_MTREE:
+-			break;
+-		case PKG_LINE_FILE:
+-			if (used + line_len + 1 &gt;= size) {
+-				size += 1024;
+-				buffer = realloc(buffer, size);
+-				ptr = buffer + used;
+-			}
+-			sprintf(ptr, &quot;%s\n&quot;, contents-&gt;lines[i].line);
+-			used += line_len + 1;
+-			ptr = buffer + used;
+-			break;
+-		default:
+-			if (used + line_len + data_len + 2 &gt;= size) {
+-				size += 1024;
+-				buffer = realloc(buffer, size);
+-				ptr = buffer + used;
+-			}
+-			sprintf(ptr, &quot;%s %s\n&quot;, contents-&gt;lines[i].line,
+-			    contents-&gt;lines[i].data);
+-			used += line_len + data_len + 2;
+-			ptr = buffer + used;
+-			break;
+-		}
+-	}
+-	/*
+-	 * buffer now contains the data to write
+-	 * to /var/db/pkg/foo-1.2.3/+CONTENTS
+-	 */
+-	return pkg_file_new_from_buffer(&quot;+CONTENTS&quot;, used, buffer, NULL);
+-}
+-
+-/**
+  * @}
+  */
+
+
+</PRE>
+
+<!--endarticle-->
+    <HR>
+    <P><UL>
+        <!--threads-->
+	<LI>Previous message: <A HREF="000091.html">[Libpkg-svn] r107 - trunk/src
+</A></li>
+	<LI>Next message: <A HREF="000093.html">[Libpkg-svn] r109 - trunk/src
+</A></li>
+         <LI> <B>Messages sorted by:</B> 
+              <a href="date.html#92">[ date ]</a>
+              <a href="thread.html#92">[ thread ]</a>
+              <a href="subject.html#92">[ subject ]</a>
+              <a href="author.html#92">[ author ]</a>
+         </LI>
+       </UL>
+
+<hr>
+<a href="https://lists.berlios.de/mailman/listinfo/libpkg-svn">More information about the Libpkg-svn
+mailing list</a><br>
+</body></html>

@@ -1,0 +1,127 @@
+<!DOCTYPE HTML PUBLIC "-//W3C//DTD HTML 4.01 Transitional//EN">
+<HTML>
+ <HEAD>
+   <TITLE> [Libpkg-svn] r287 - trunk/src
+   </TITLE>
+   <LINK REL="Index" HREF="http://lists.berlios.de/pipermail/libpkg-svn/2007-March/index.html" >
+   <LINK REL="made" HREF="mailto:libpkg-svn%40lists.berlios.de?Subject=Re%3A%20%5BLibpkg-svn%5D%20r287%20-%20trunk/src&In-Reply-To=%3C200703120428.l2C4SoXF022750%40sheep.berlios.de%3E">
+   <META NAME="robots" CONTENT="index,nofollow">
+   <style type="text/css">
+       pre {
+           white-space: pre-wrap;       /* css-2.1, curent FF, Opera, Safari */
+           }
+   </style>
+   <META http-equiv="Content-Type" content="text/html; charset=us-ascii">
+   <LINK REL="Previous"  HREF="000270.html">
+   <LINK REL="Next"  HREF="000272.html">
+ </HEAD>
+ <BODY BGCOLOR="#ffffff">
+   <H1>[Libpkg-svn] r287 - trunk/src</H1>
+    <B>zxombie at BerliOS</B> 
+    <A HREF="mailto:libpkg-svn%40lists.berlios.de?Subject=Re%3A%20%5BLibpkg-svn%5D%20r287%20-%20trunk/src&In-Reply-To=%3C200703120428.l2C4SoXF022750%40sheep.berlios.de%3E"
+       TITLE="[Libpkg-svn] r287 - trunk/src">zxombie at mail.berlios.de
+       </A><BR>
+    <I>Mon Mar 12 05:28:50 CET 2007</I>
+    <P><UL>
+        <LI>Previous message: <A HREF="000270.html">[Libpkg-svn] r286 - trunk/tools/pkg_info
+</A></li>
+        <LI>Next message: <A HREF="000272.html">[Libpkg-svn] r288 - trunk/src
+</A></li>
+         <LI> <B>Messages sorted by:</B> 
+              <a href="date.html#271">[ date ]</a>
+              <a href="thread.html#271">[ thread ]</a>
+              <a href="subject.html#271">[ subject ]</a>
+              <a href="author.html#271">[ author ]</a>
+         </LI>
+       </UL>
+    <HR>  
+<!--beginarticle-->
+<PRE>Author: zxombie
+Date: 2007-03-12 05:28:49 +0100 (Mon, 12 Mar 2007)
+New Revision: 287
+
+Modified:
+   trunk/src/pkg_freebsd_parser.y
+Log:
+Allow the prefix to be on the first line. This is because the FreeBSD pkg_add does this when used with the -p argument
+
+
+Modified: trunk/src/pkg_freebsd_parser.y
+===================================================================
+--- trunk/src/pkg_freebsd_parser.y	2007-03-11 09:44:21 UTC (rev 286)
++++ trunk/src/pkg_freebsd_parser.y	2007-03-12 04:28:49 UTC (rev 287)
+@@ -30,7 +30,13 @@
+ 
+ %%
+ contents_file:
+-	COMMENT FORMAT_1_1 NL head_1_1 data_1_1 {
++	COMMENT FORMAT_1_1 NL head_1_1 CWD NL data_1_1 {
++		assert(pkg_manifest != NULL);
++
++		/* Set the package prefix */
++		pkg_manifest_set_attr(pkg_manifest, pkgm_prefix, $5);
++		free($5);
++
+ 		(*YYPARSE_PARAM) = pkg_manifest;
+ 
+ 		/* Reset static values for the next run */
+@@ -38,9 +44,23 @@
+ 		curdep = NULL;
+ 		pkg_manifest = NULL;
+ 	}
++	| CWD NL COMMENT FORMAT_1_1 NL head_1_1 data_1_1 {
++		assert(pkg_manifest != NULL);
+ 
++		/* Set the package prefix */
++		pkg_manifest_set_attr(pkg_manifest, pkgm_prefix, $1);
++		free($1);
++
++		(*YYPARSE_PARAM) = pkg_manifest;
++
++		/* Reset static values for the next run */
++		curitem = NULL;
++		curdep = NULL;
++		pkg_manifest = NULL;
++	}
++
+ head_1_1:
+-	NAME NL COMMENT ORIGIN NL CWD NL {
++	NAME NL COMMENT ORIGIN NL {
+ 		assert(pkg_manifest == NULL);
+ 		if (pkg_manifest == NULL)
+ 			pkg_manifest = pkg_manifest_new();
+@@ -50,10 +70,6 @@
+ 		/* Set the package origin */
+ 		pkg_manifest_set_attr(pkg_manifest, pkgm_origin, $4);
+ 		free($4);
+-
+-		/* Set the package prefix */
+-		pkg_manifest_set_attr(pkg_manifest, pkgm_prefix, $6);
+-		free($6);
+ 	}
+ 
+ data_1_1:
+
+
+</PRE>
+
+<!--endarticle-->
+    <HR>
+    <P><UL>
+        <!--threads-->
+	<LI>Previous message: <A HREF="000270.html">[Libpkg-svn] r286 - trunk/tools/pkg_info
+</A></li>
+	<LI>Next message: <A HREF="000272.html">[Libpkg-svn] r288 - trunk/src
+</A></li>
+         <LI> <B>Messages sorted by:</B> 
+              <a href="date.html#271">[ date ]</a>
+              <a href="thread.html#271">[ thread ]</a>
+              <a href="subject.html#271">[ subject ]</a>
+              <a href="author.html#271">[ author ]</a>
+         </LI>
+       </UL>
+
+<hr>
+<a href="https://lists.berlios.de/mailman/listinfo/libpkg-svn">More information about the Libpkg-svn
+mailing list</a><br>
+</body></html>

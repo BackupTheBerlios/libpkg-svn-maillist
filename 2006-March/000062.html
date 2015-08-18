@@ -1,0 +1,368 @@
+<!DOCTYPE HTML PUBLIC "-//W3C//DTD HTML 4.01 Transitional//EN">
+<HTML>
+ <HEAD>
+   <TITLE> [Libpkg-svn] r77 - trunk/src
+   </TITLE>
+   <LINK REL="Index" HREF="http://lists.berlios.de/pipermail/libpkg-svn/2006-March/index.html" >
+   <LINK REL="made" HREF="mailto:libpkg-svn%40lists.berlios.de?Subject=Re%3A%20%5BLibpkg-svn%5D%20r77%20-%20trunk/src&In-Reply-To=%3C200603200223.k2K2NAmv032227%40sheep.berlios.de%3E">
+   <META NAME="robots" CONTENT="index,nofollow">
+   <style type="text/css">
+       pre {
+           white-space: pre-wrap;       /* css-2.1, curent FF, Opera, Safari */
+           }
+   </style>
+   <META http-equiv="Content-Type" content="text/html; charset=us-ascii">
+   <LINK REL="Previous"  HREF="000061.html">
+   <LINK REL="Next"  HREF="000063.html">
+ </HEAD>
+ <BODY BGCOLOR="#ffffff">
+   <H1>[Libpkg-svn] r77 - trunk/src</H1>
+    <B>zxombie at BerliOS</B> 
+    <A HREF="mailto:libpkg-svn%40lists.berlios.de?Subject=Re%3A%20%5BLibpkg-svn%5D%20r77%20-%20trunk/src&In-Reply-To=%3C200603200223.k2K2NAmv032227%40sheep.berlios.de%3E"
+       TITLE="[Libpkg-svn] r77 - trunk/src">zxombie at berlios.de
+       </A><BR>
+    <I>Mon Mar 20 03:23:10 CET 2006</I>
+    <P><UL>
+        <LI>Previous message: <A HREF="000061.html">[Libpkg-svn] r76 - in trunk/tools: . pkg_add
+</A></li>
+        <LI>Next message: <A HREF="000063.html">[Libpkg-svn] r79 - trunk/src
+</A></li>
+         <LI> <B>Messages sorted by:</B> 
+              <a href="date.html#62">[ date ]</a>
+              <a href="thread.html#62">[ thread ]</a>
+              <a href="subject.html#62">[ subject ]</a>
+              <a href="author.html#62">[ author ]</a>
+         </LI>
+       </UL>
+    <HR>  
+<!--beginarticle-->
+<PRE>Author: zxombie
+Date: 2006-03-20 03:22:52 +0100 (Mon, 20 Mar 2006)
+New Revision: 77
+
+Modified:
+   trunk/src/pkg.c
+Log:
+Document pkg.c in a way doxygen will be able to understand
+
+
+Modified: trunk/src/pkg.c
+===================================================================
+--- trunk/src/pkg.c	2006-03-16 09:58:35 UTC (rev 76)
++++ trunk/src/pkg.c	2006-03-20 02:22:52 UTC (rev 77)
+@@ -1,5 +1,5 @@
+ /*
+- * Copyright (C) 2005, Andrew Turner, All rights reserved.
++ * Copyright (C) 2005, 2006 Andrew Turner, All rights reserved.
+  *
+  * Redistribution and use in source and binary forms, with or without
+  * modification, are permitted provided that the following conditions
+@@ -33,10 +33,26 @@
+ #include &quot;pkg.h&quot;
+ #include &quot;pkg_private.h&quot;
+ 
+-/*
+- * Creates a new package and associates callbacks that are
+- * used by most types of packages
++/**
++ * @defgroup pkg_internal Internal package functions
++ * @ingroup pkg
++ * @brief Internal functions in the package module
++ *
++ * None of the callbacks for any given package format need to be specified.
++ * If they are NULL the accessor function will return an error.
++ * @{
+  */
++
++/**
++ * @brief Creates a new package and associates callbacks that are used
++ * by most types of packages.
++ * @param pkg_name The name of the package
++ * @param control_files A callback to be used by pkg_get_control_files()
++ * @param control_file A callback to be used by pkg_get_control_file()
++ * @param get_deps A callback to be used by pkg_get_dependencies()
++ * @param free_pkg A call back to be used by pkg_free()
++ * @return A new #pkg object, or NULL on error
++ */
+ struct pkg *
+ pkg_new(const char *pkg_name,
+ 		pkg_get_control_files_callback *control_files,
+@@ -80,9 +96,13 @@
+ 	return pkg;
+ }
+ 
+-/*
+- * Internal function to add callbacks to retrieve data
++/**
++ * @brief Internal function to add callbacks to retrieve data
+  * eg. the packages origin on FreeBSD
++ * @param pkg The package returned by pkg_new()
++ * @param get_version A callback to be used by pkg_get_version()
++ * @param get_origin A callback to be used by pkg_get_origin()
++ * @return 0 on success, -1 on error.
+  */
+ int
+ pkg_add_callbacks_data(struct pkg *pkg,
+@@ -97,8 +117,12 @@
+ 	return 0;
+ }
+ 
+-/*
+- * Internal function to add callbacks that add data to the package
++/**
++ * @brief Internal function to add callbacks that add data to the package
++ * @param pkg The package returned by pkg_new()
++ * @param add_depend A callback to be used by pkg_get_dependencies()
++ * @param add_file A callback to be used by pkg_add_file()
++ * @return 0 on success, -1 on error.
+  */
+ int
+ pkg_add_callbacks_empty(struct pkg *pkg, 
+@@ -114,8 +138,12 @@
+ 	return 0;
+ }
+ 
+-/*
+- * Internal function to add callbacks that are used when a package is installed
++/**
++ * @brief Internal function to add callbacks that are used when a package is installed
++ * @param pkg The package returned by pkg_new()
++ * @param next_file A callback to be used by pkg_get_next_file()
++ * @return 0 on success, -1 on error.
++ * @return
+  */
+ int
+ pkg_add_callbacks_install (struct pkg *pkg,
+@@ -128,28 +156,56 @@
+ 	return 0;
+ }
+ 
+-/*
+- * Creates an empty package with no callbacks
++/**
++ * @}
+  */
++
++/**
++ * @defgroup pkg Package manipulation Functions
++ * 
++ * These are the publicly availiable package manipulation functions.
++ *
++ * Most functions take a pointer to struct #pkg as the first argument.
++ * This is the package that is currently being worked on.
++ * @{
++ */
++
++/**
++ * @brief Creates an empty package with no callbacks
++ *
++ * This is the simplest package constructor.
++ * It is used to create a package with just a name associated with it.
++ * Only pkg_get_name() and pkg_compare() will work with the created package.
++ * @return An empty package
++ */
+ struct pkg*
+ pkg_new_empty(const char *pkg_name)
+ {
+ 	return pkg_new(pkg_name, NULL, NULL, NULL, NULL);
+ }
+ 
+-/*
+- * A function to pass to *sort[_r] to sort alphabeticly by package name
++/**
++ * @brief A function to pass to *sort[_r] to sort alphabeticly by package name
++ * @param pkg_a the first package
++ * @param pkg_b the second package
++ *  
++ * This is used to lexigraphically compare two packages by their name.
++ * It is designed to be used with qsort() to sort a list of packages
++ * @return 0 &gt; if pkg_a should be before pkg_b,
++ *         0 if both packages have the same name,
++ *         0 &lt; if pkg_b should be before pkg_a.
+  */
+ int
+ pkg_compare(const void *pkg_a, const void *pkg_b)
+ {
+-	/* XXX Makes WARNS &lt;= 3 */
+ 	return strcmp((*(struct pkg * const *)pkg_a)-&gt;pkg_name,
+ 	    (*(struct pkg * const *)pkg_b)-&gt;pkg_name);
+ }
+ 
+-/*
+- * Gets the control files from a given package
++/**
++ * @brief Gets the control files from a given package
++ * 
++ * @return A null-terminated array of pkg_file's contining the packages control files
+  */
+ struct pkg_file **
+ pkg_get_control_files(struct pkg *pkg)
+@@ -165,8 +221,10 @@
+ 	return pkg-&gt;pkg_get_control_files(pkg);
+ }
+ 
+-/*
+- * Gets a given control file from a package
++/**
++ * @brief Gets a given control file from a package
++ * @param pkg_name The name of the file to return
++ * @return The control file with the name pkg_name
+  */
+ struct pkg_file *
+ pkg_get_control_file(struct pkg *pkg, const char *pkg_name)
+@@ -180,8 +238,11 @@
+ 	return NULL;
+ }
+ 
+-/*
+- * Gets all the dependencies for a given package
++/**
++ * @brief Gets all the dependencies for a given package
++ *
++ * This retrieves an array of packages that the named package depends on.
++ * @return A NULL terminated array of packages or NULL;
+  */
+ struct pkg **
+ pkg_get_dependencies(struct pkg *pkg)
+@@ -194,8 +255,10 @@
+ 	return NULL;
+ }
+ 
+-/*
+- * Gets the name of a package
++/**
++ * @brief Gets the name of a package
++ *
++ * @return a sting containing the package name. Do not free this.
+  */
+ const char *
+ pkg_get_name(struct pkg *pkg)
+@@ -205,9 +268,12 @@
+ 	return pkg-&gt;pkg_name;
+ }
+ 
+-/*
+- * Gets the next file in a package, used for installation
+- * to iterate over all files to be installed in a package
++/**
++ * @brief Gets the next file in a package.
++ *
++ * Ths is used during the instillation of a package to iterate over
++ * all files to be installed in a package
++ * @return the next non-control file in the package or NULL when done.
+  */
+ struct pkg_file *
+ pkg_get_next_file(struct pkg *pkg)
+@@ -223,8 +289,12 @@
+ 	return pkg-&gt;pkg_get_next_file(pkg);
+ }
+ 
+-/*
+- * Gets a packages origin if it has one
++/**
++ * @brief Gets a packages origin
++ *
++ * This is used to get the package origin from packages that record it.
++ * Not all package formats have an origin.
++ * @return The packages origin or NULL if it dosn't have one.
+  */
+ const char *
+ pkg_get_origin(struct pkg *pkg)
+@@ -238,8 +308,12 @@
+ 	return NULL;
+ }
+ 
+-/*
+- * Return a string containg the package format version
++/**
++ * @brief Get the package format version
++ *
++ * This retrieves a free form string containing the package format's version.
++ * It is intended to be shown to the user rather than be processed.
++ * @return A string containing the package format version. Do not free.
+  */
+ const char *
+ pkg_get_version(struct pkg *pkg)
+@@ -253,8 +327,9 @@
+ 	return NULL;
+ }
+ 
+-/*
+- * Adds a dependency to a given package
++/**
++ * @brief Adds a dependency to a given package
++ * @return 0 on success, -1 on error.
+  */
+ int
+ pkg_add_dependency(struct pkg *pkg, struct pkg *depend)
+@@ -268,8 +343,9 @@
+ 	return -1;
+ }
+ 
+-/*
+- * Adds a file to a given package
++/**
++ * @brief Adds a file to a given package
++ * @return 0 on success, -1 on error.
+  */
+ int
+ pkg_add_file(struct pkg *pkg, struct pkg_file *file)
+@@ -283,8 +359,12 @@
+ 	return -1;
+ }
+ 
+-/*
+- * Frees a NULL terminated array of packages, eg. from pkg_get_dependencies
++/**
++ * @brief Frees a NULL terminated array of packages
++ *
++ * This is to be used to free the arrays generated by
++ * pkg_get_dependencies()
++ * @return 0 on success, -1 on error.
+  */
+ int
+ pkg_list_free(struct pkg **pkgs)
+@@ -302,8 +382,9 @@
+ 	return 0;
+ }
+ 
+-/*
+- * Frees a given package
++/**
++ * @brief Frees a given package
++ * @return 0 on success, -1 on error.
+  */
+ int
+ pkg_free(struct pkg *pkg)
+@@ -322,3 +403,7 @@
+ 
+ 	return 0;
+ }
++
++/**
++ * @}
++ */
+
+
+</PRE>
+
+<!--endarticle-->
+    <HR>
+    <P><UL>
+        <!--threads-->
+	<LI>Previous message: <A HREF="000061.html">[Libpkg-svn] r76 - in trunk/tools: . pkg_add
+</A></li>
+	<LI>Next message: <A HREF="000063.html">[Libpkg-svn] r79 - trunk/src
+</A></li>
+         <LI> <B>Messages sorted by:</B> 
+              <a href="date.html#62">[ date ]</a>
+              <a href="thread.html#62">[ thread ]</a>
+              <a href="subject.html#62">[ subject ]</a>
+              <a href="author.html#62">[ author ]</a>
+         </LI>
+       </UL>
+
+<hr>
+<a href="https://lists.berlios.de/mailman/listinfo/libpkg-svn">More information about the Libpkg-svn
+mailing list</a><br>
+</body></html>

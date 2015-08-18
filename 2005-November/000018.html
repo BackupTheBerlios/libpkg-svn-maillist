@@ -1,0 +1,672 @@
+<!DOCTYPE HTML PUBLIC "-//W3C//DTD HTML 4.01 Transitional//EN">
+<HTML>
+ <HEAD>
+   <TITLE> [Libpkg-svn] r27 - trunk/src
+   </TITLE>
+   <LINK REL="Index" HREF="http://lists.berlios.de/pipermail/libpkg-svn/2005-November/index.html" >
+   <LINK REL="made" HREF="mailto:libpkg-svn%40lists.berlios.de?Subject=Re%3A%20%5BLibpkg-svn%5D%20r27%20-%20trunk/src&In-Reply-To=%3C200511240523.jAO5NpSA011355%40sheep.berlios.de%3E">
+   <META NAME="robots" CONTENT="index,nofollow">
+   <style type="text/css">
+       pre {
+           white-space: pre-wrap;       /* css-2.1, curent FF, Opera, Safari */
+           }
+   </style>
+   <META http-equiv="Content-Type" content="text/html; charset=us-ascii">
+   <LINK REL="Previous"  HREF="000017.html">
+   <LINK REL="Next"  HREF="000019.html">
+ </HEAD>
+ <BODY BGCOLOR="#ffffff">
+   <H1>[Libpkg-svn] r27 - trunk/src</H1>
+    <B>zxombie at BerliOS</B> 
+    <A HREF="mailto:libpkg-svn%40lists.berlios.de?Subject=Re%3A%20%5BLibpkg-svn%5D%20r27%20-%20trunk/src&In-Reply-To=%3C200511240523.jAO5NpSA011355%40sheep.berlios.de%3E"
+       TITLE="[Libpkg-svn] r27 - trunk/src">zxombie at berlios.de
+       </A><BR>
+    <I>Thu Nov 24 06:23:51 CET 2005</I>
+    <P><UL>
+        <LI>Previous message: <A HREF="000017.html">[Libpkg-svn] r26 - www
+</A></li>
+        <LI>Next message: <A HREF="000019.html">[Libpkg-svn] r28 - trunk/src
+</A></li>
+         <LI> <B>Messages sorted by:</B> 
+              <a href="date.html#18">[ date ]</a>
+              <a href="thread.html#18">[ thread ]</a>
+              <a href="subject.html#18">[ subject ]</a>
+              <a href="author.html#18">[ author ]</a>
+         </LI>
+       </UL>
+    <HR>  
+<!--beginarticle-->
+<PRE>Author: zxombie
+Date: 2005-11-24 06:23:45 +0100 (Thu, 24 Nov 2005)
+New Revision: 27
+
+Modified:
+   trunk/src/pkg.3
+   trunk/src/pkg.h
+   trunk/src/pkg_db_freebsd.c
+   trunk/src/pkg_file.c
+   trunk/src/pkg_freebsd.c
+   trunk/src/pkg_private.h
+   trunk/src/pkg_repo_files.c
+   trunk/src/pkg_repo_ftp.c
+Log:
+Rename pkg_new_freebsd to pkg_new_freebsd_from_fd
+Add pkg_new_freebsd_installed to get an installed package
+Add pkg_file_new to get a pkg_file from an installed file
+Add more asserts to check callbacks and internal functions are called correctly and the data structures are correct
+Change the FreeBSD pkg_db_get_installed callback to create FreeBSD packages
+
+
+Modified: trunk/src/pkg.3
+===================================================================
+--- trunk/src/pkg.3	2005-11-19 06:42:54 UTC (rev 26)
++++ trunk/src/pkg.3	2005-11-24 05:23:45 UTC (rev 27)
+@@ -30,13 +30,15 @@
+ .Os
+ .Sh NAME
+ .Nm pkg_new_empty ,
+-.Nm pkg_new_freebsd ,
++.Nm pkg_new_freebsd_from_fd ,
++.Nm pkg_new_freebsd_installed ,
+ .Nm pkg_make_freebsd ,
+ .Nm pkg_get_name ,
+ .Nm pkg_get_dependencies ,
+ .Nm pkg_get_control_files ,
+ .Nm pkg_get_next_file ,
+ .Nm pkg_free ,
++.Nm pkg_file_new ,
+ .Nm pkg_file_new_from_buffer ,
+ .Nm pkg_file_free ,
+ .Nd functions for managing binary packages and their files
+@@ -47,8 +49,10 @@
+ .Ft struct pkg *
+ .Fn pkg_new_empty &quot;const char *name&quot;
+ .Ft struct pkg *
+-.Fn pkg_new_freebsd &quot;FILE *fd&quot;
++.Fn pkg_new_freebsd_from_fd &quot;FILE *fd&quot;
+ .Ft struct pkg *
++.Fn pkg_new_freebsd_installed &quot;const char *pkg_name&quot; &quot;const char *pkg_db_dir&quot;
++.Ft struct pkg *
+ .Fn pkg_make_freebsd &quot;struct pkg *pkg&quot; &quot;FILE *fd&quot;
+ .Ft char *
+ .Fn pkg_get_name &quot;struct pkg *pkg&quot;
+@@ -61,6 +65,8 @@
+ .Ft int
+ .Fn pkg_free &quot;struct pkg *pkg&quot;
+ .Ft struct pkg_file *
++.Fn pkg_file_new &quot;const char *filename&quot;
++.Ft struct pkg_file *
+ .Fn pkg_file_new_from_buffer &quot;const char *filename&quot; &quot;uint64_t length&quot; &quot;char *buffer&quot; &quot;const struct stat *sb&quot;
+ .Ft int
+ .Fn pkg_file_write &quot;strict pkg_file *file&quot;
+@@ -75,9 +81,15 @@
+ .Bl -tag -compact -width indent
+ .It Fn pkg_new_empty
+ Creates a new package with only the package name.
+-.It Fn pkg_new_freebsd
++.It Fn pkg_new_freebsd_from_fd
+ Creates a new package with callbacks to handle FreeBSD
+ packages version 1.1
++.It Fn pkg_new_freebsd_installed
++Creates a
++.Tn struct pkg
++from a given directory
++.Vt pkg_db_dir
++containing the package control files.
+ .It Fn pkg_make_freebsd
+ Converts an empty package to a FreeBSD package.
+ The
+@@ -107,6 +119,11 @@
+ containes one file.
+ It can be installed or processed further.
+ .Bl -tag -compact -width indent
++.It Fn pkg_file_new
++Creates a 
++.Tn struct pkg_file
++from the file located at
++.Vt filename .
+ .It Fn pkg_file_new_from_buffer
+ Creates a
+ .Tn struct pkg_file
+
+Modified: trunk/src/pkg.h
+===================================================================
+--- trunk/src/pkg.h	2005-11-19 06:42:54 UTC (rev 26)
++++ trunk/src/pkg.h	2005-11-24 05:23:45 UTC (rev 27)
+@@ -40,6 +40,7 @@
+  */
+ struct pkg_file;
+ 
++struct pkg_file	*pkg_file_new(const char *);
+ struct pkg_file	*pkg_file_new_from_buffer(const char *, uint64_t, char *,
+ 			const struct stat *);
+ int		 pkg_file_free(struct pkg_file *);
+@@ -51,7 +52,8 @@
+ struct pkg;
+ 
+ struct pkg		*pkg_new_empty(const char *);
+-struct pkg		*pkg_new_freebsd(FILE *);
++struct pkg		*pkg_new_freebsd_from_file(FILE *);
++struct pkg		*pkg_new_freebsd_installed(const char *, const char *);
+ struct pkg		*pkg_make_freebsd(struct pkg *, FILE *);
+ struct pkg		**pkg_get_dependencies(struct pkg *);
+ /*
+
+Modified: trunk/src/pkg_db_freebsd.c
+===================================================================
+--- trunk/src/pkg_db_freebsd.c	2005-11-19 06:42:54 UTC (rev 26)
++++ trunk/src/pkg_db_freebsd.c	2005-11-24 05:23:45 UTC (rev 27)
+@@ -345,9 +345,13 @@
+ 	while((de = readdir(d)) != NULL) {
+ 		if (de-&gt;d_name[0] == '.' || de-&gt;d_type != DT_DIR)
+ 			continue;
++		asprintf(&amp;dir, &quot;%s&quot; DB_LOCATION &quot;/%s&quot;,
++		    db-&gt;db_base, de-&gt;d_name);
+ 		packages_size += sizeof(char *);
+ 		packages = realloc(packages, packages_size);
+-		packages[packages_pos] = pkg_new_empty(de-&gt;d_name);
++		packages[packages_pos] = pkg_new_freebsd_installed(de-&gt;d_name,
++		    dir);
++		free(dir);
+ 		packages_pos++;
+ 		packages[packages_pos] = NULL;
+ 	}
+
+Modified: trunk/src/pkg_file.c
+===================================================================
+--- trunk/src/pkg_file.c	2005-11-19 06:42:54 UTC (rev 26)
++++ trunk/src/pkg_file.c	2005-11-24 05:23:45 UTC (rev 27)
+@@ -27,7 +27,10 @@
+  *
+  */
+ 
++#include &lt;assert.h&gt;
+ #include &lt;libgen.h&gt;
++#include &lt;limits.h&gt;
++#include &lt;stdio.h&gt;
+ #include &lt;stdlib.h&gt;
+ #include &lt;string.h&gt;
+ 
+@@ -35,6 +38,56 @@
+ #include &quot;pkg_private.h&quot;
+ 
+ /*
++ * Creates a new pkg_file from a file on the file system
++ */
++struct pkg_file *
++pkg_file_new(const char *filename)
++{
++	struct pkg_file *file;
++	FILE *fd;
++	struct stat sb;
++	char *buffer;
++	uint64_t length;
++
++	if (!filename)
++		return NULL;
++
++	fd = fopen(filename, &quot;r&quot;);
++	if (fd == NULL) {
++		return NULL;
++	}
++	fstat(fileno(fd), &amp;sb);
++
++	/* Get the file length */
++	fseek(fd, 0, SEEK_END);
++	length = ftell(fd);
++	fseek(fd, 0, SEEK_SET);
++
++	buffer = malloc(length + 1);
++	if (buffer == NULL) {
++		fclose(fd);
++		return NULL;
++	}
++
++	/* 
++	 * XXX fread can only handle up to SIZE_T_MAX so fail
++	 * if the file is bigger until a better file reader
++	 */
++	assert(length &lt;= SIZE_T_MAX);
++	fread(buffer, 1, length, fd);
++	buffer[length] = '\0';
++	
++	fclose(fd);
++
++	file = pkg_file_new_from_buffer(filename, length, buffer, &amp;sb);
++	if (!file) {
++		free(buffer);
++		return NULL;
++	}
++	return file;
++}
++
++/*
+  * Creates a new pkg_file from a buffer
+  */
+ struct pkg_file *
+@@ -67,8 +120,6 @@
+ 	file-&gt;len = length;
+ 	file-&gt;contents = buffer;
+ 
+-	file-&gt;data = NULL;
+-
+ 	return file;
+ }
+ 
+
+Modified: trunk/src/pkg_freebsd.c
+===================================================================
+--- trunk/src/pkg_freebsd.c	2005-11-19 06:42:54 UTC (rev 26)
++++ trunk/src/pkg_freebsd.c	2005-11-24 05:23:45 UTC (rev 27)
+@@ -27,9 +27,13 @@
+  *
+  */
+ 
++#include &lt;sys/types.h&gt;
++
+ #include &lt;archive.h&gt;
+ #include &lt;archive_entry.h&gt;
+ #include &lt;assert.h&gt;
++#include &lt;dirent.h&gt;
++#include &lt;libgen.h&gt;
+ #include &lt;stdlib.h&gt;
+ #include &lt;string.h&gt;
+ 
+@@ -57,19 +61,20 @@
+ static int			 freebsd_free(struct pkg *);
+ 
+ /* Internal functions */
+-static struct freebsd_package	*freebsd_get_package(FILE *);
++static struct freebsd_package	*freebsd_get_package(FILE *,
++					struct pkg_file **);
+ static struct pkg_file		*freebsd_get_next_entry(struct archive *);
+ static char 			*freebsd_get_pkg_name(const char *);
+ static int			 freebsd_free_package(struct freebsd_package *);
+ 
+ struct pkg *
+-pkg_new_freebsd(FILE *fd)
++pkg_new_freebsd_from_file(FILE *fd)
+ {
+ 	struct pkg *pkg;
+ 	struct freebsd_package *f_pkg;
+ 	char *pkg_name;
+ 
+-	f_pkg = freebsd_get_package(fd);
++	f_pkg = freebsd_get_package(fd, NULL);
+ 
+ 	/* Find the package name */
+ 	pkg_name = freebsd_get_pkg_name(f_pkg-&gt;control[0]-&gt;contents);
+@@ -86,6 +91,82 @@
+ 	return pkg;
+ }
+ 
++struct pkg *
++pkg_new_freebsd_installed(const char *pkg_name, const char *pkg_db_dir)
++{
++	DIR *d;
++	struct dirent *de;
++	struct pkg *pkg;
++	struct freebsd_package *f_pkg;
++	struct pkg_file **control;
++	unsigned int control_size, control_count;
++
++#define FREE_CONTENTS(c) \
++	{ \
++		int i; \
++		for (i=0; c[i] != NULL; i++) { \
++			pkg_file_free(c[i]); \
++		} \
++		free(c); \
++	}
++	
++	d = opendir(pkg_db_dir);
++
++	/* Load all the + files into control */
++	control_size = sizeof(struct pkg_file **);
++	control = malloc(control_size);
++	control[0] = NULL;
++	control_count = 0;
++	while ((de = readdir(d)) != NULL) {
++		char *file;
++	
++		if (de-&gt;d_name[0] == '.') {
++			continue;
++		} else if (de-&gt;d_type != DT_REG) {
++			closedir(d);
++			FREE_CONTENTS(control);
++			return NULL;
++		} else if (de-&gt;d_name[0] != '+') {
++			/* All files must begin with + */
++			closedir(d);
++			FREE_CONTENTS(control);
++			return NULL;
++		}
++		asprintf(&amp;file, &quot;%s/%s&quot;, pkg_db_dir, de-&gt;d_name);
++		if (!file) {
++			closedir(d);
++			FREE_CONTENTS(control);
++			return NULL;
++		}
++		control_size += sizeof(struct pkg_file **);
++		control = realloc(control, control_size);
++		control[control_count] = pkg_file_new(file);
++		control_count++;
++		control[control_count] = NULL;
++		free(file);
++	}
++
++	closedir(d);
++	
++	/* Only the get_deps and free callbacks will work */
++	pkg = pkg_new(pkg_name, NULL, NULL,
++	    freebsd_get_deps, freebsd_free);
++	if (pkg == NULL) {
++		FREE_CONTENTS(control);
++		return NULL;
++	}
++
++	f_pkg = freebsd_get_package(NULL, control);
++	if (f_pkg == NULL) {
++		pkg_free(pkg);
++		return NULL;
++	}
++	
++	pkg-&gt;data = f_pkg;
++
++	return pkg;
++}
++
+ /* XXX Make this a callback */
+ struct pkg *
+ pkg_make_freebsd(struct pkg *pkg, FILE *fd)
+@@ -94,7 +175,7 @@
+ 
+ 	pkg_set_callbacks(pkg, freebsd_get_control_files,
+ 	    freebsd_get_next_file, freebsd_get_deps, freebsd_free);
+-	f_pkg = freebsd_get_package(fd);
++	f_pkg = freebsd_get_package(fd, NULL);
+ 	pkg-&gt;data = f_pkg;
+ 	return pkg;
+ }
+@@ -103,7 +184,7 @@
+  * Returns a pointer to be placed into the data of the Package object
+  */
+ static struct freebsd_package *
+-freebsd_get_package(FILE *fd)
++freebsd_get_package(FILE *fd, struct pkg_file **control)
+ {
+ 	struct freebsd_package *f_pkg;
+ 	struct pkg_file *file;
+@@ -116,61 +197,98 @@
+ 	}
+ 
+ 	/* Init the struct */
++	f_pkg-&gt;archive = NULL;
+ 	f_pkg-&gt;next = NULL;
+-	f_pkg-&gt;control = NULL;
++	f_pkg-&gt;control = control;
+ 	f_pkg-&gt;contents = NULL;
+ 	f_pkg-&gt;fd = fd;
+ 
+-	/* We only need to read from gzip and bzip2 as they
+-	 * are the only posible file types for FreeBSD packages
+-	 */
+-	f_pkg-&gt;archive = archive_read_new();
+-	archive_read_support_compression_bzip2(f_pkg-&gt;archive);
+-	archive_read_support_compression_gzip(f_pkg-&gt;archive);
+-	archive_read_support_format_tar(f_pkg-&gt;archive);
++	if (control != NULL) {
++		unsigned int pos;
++		char *ptr;
+ 
+-	if (archive_read_open_stream(f_pkg-&gt;archive, fd, 10240)
+-	    != ARCHIVE_OK) {
+-		freebsd_free_package(f_pkg);
+-		return NULL;
+-	}
++		/* Find the +CONTENTS file */
++		for (pos = 0; control[pos] != NULL; pos++) {
++			ptr = basename(control[pos]-&gt;filename);
++			if (!strcmp(ptr, &quot;+CONTENTS&quot;)) {
++				break;
++			}
++		}
++		if (control[pos] == NULL) {
++			free(f_pkg);
++			return NULL;
++		}
+ 
+-	/* Read the first file and check it has the correct name */
+-	file = freebsd_get_next_entry(f_pkg-&gt;archive);
+-	if (!file) {
+-		freebsd_free_package(f_pkg);
+-		return NULL;
+-	} else if (strcmp(file-&gt;filename, &quot;+CONTENTS&quot;)) {
+-		/* Package error */
+-		pkg_file_free(file);
+-		freebsd_free_package(f_pkg);
+-		return NULL;
+-	}
+-	/* Set the control files array to be big enough for
+-	 * the +CONTENTS file and a null terminator
+-	 */
+-	f_pkg-&gt;contents = pkg_freebsd_contents_new(file-&gt;contents);
+-	control_size = sizeof(struct pkg_file *) * 2;
+-	f_pkg-&gt;control = malloc(control_size);
+-	f_pkg-&gt;control[0] = file;
+-	f_pkg-&gt;control[1] = NULL;
+-	control_pos = 1;
++		f_pkg-&gt;contents = pkg_freebsd_contents_new(
++		    control[pos]-&gt;contents);
++	} else if (fd != NULL) {
++		/*
++		 * We only need to read from gzip and bzip2 as they
++		 * are the only posible file types for FreeBSD packages
++		 */
++		f_pkg-&gt;archive = archive_read_new();
++		if (!f_pkg-&gt;archive) {
++			freebsd_free_package(f_pkg);
++			return NULL;
++		}
++		archive_read_support_compression_bzip2(f_pkg-&gt;archive);
++		archive_read_support_compression_gzip(f_pkg-&gt;archive);
++		archive_read_support_format_tar(f_pkg-&gt;archive);
+ 
+-	/* Add all the control files to the control array */
+-	while (1) {
++		if (archive_read_open_stream(f_pkg-&gt;archive, fd, 10240)
++		    != ARCHIVE_OK) {
++			freebsd_free_package(f_pkg);
++			return NULL;
++		}
++
++		/* Read the first file and check it has the correct name */
+ 		file = freebsd_get_next_entry(f_pkg-&gt;archive);
+-		if (file == NULL) {
+-			break;
+-		} else if (file-&gt;filename[0] != '+') {
+-			f_pkg-&gt;next = file;
+-			break;
+-		} else {
+-			control_size += sizeof(struct pkg_file *);
+-			f_pkg-&gt;control = realloc(f_pkg-&gt;control, control_size);
+-			f_pkg-&gt;control[control_pos] = file;
+-			control_pos++;
+-			f_pkg-&gt;control[control_pos] = NULL;
++
++		if (!file) {
++			freebsd_free_package(f_pkg);
++			return NULL;
++		} else if (strcmp(file-&gt;filename, &quot;+CONTENTS&quot;)) {
++			/* Package error */
++			pkg_file_free(file);
++			freebsd_free_package(f_pkg);
++			return NULL;
+ 		}
++		/*
++		 * Set the control files array to be big enough for
++		 * the +CONTENTS file and a null terminator
++		 */
++		f_pkg-&gt;contents = pkg_freebsd_contents_new(file-&gt;contents);
++
++		control_size = sizeof(struct pkg_file *) * 2;
++		f_pkg-&gt;control = malloc(control_size);
++		f_pkg-&gt;control[0] = file;
++		f_pkg-&gt;control[1] = NULL;
++		control_pos = 1;
++
++		assert(f_pkg-&gt;archive != NULL);
++		/* Add all the control files to the control array */
++		while (1) {
++			file = freebsd_get_next_entry(f_pkg-&gt;archive);
++			if (file == NULL) {
++				break;
++			} else if (file-&gt;filename[0] != '+') {
++				f_pkg-&gt;next = file;
++				break;
++			} else {
++				control_size += sizeof(struct pkg_file *);
++				f_pkg-&gt;control = realloc(f_pkg-&gt;control,
++				    control_size);
++				f_pkg-&gt;control[control_pos] = file;
++				control_pos++;
++				f_pkg-&gt;control[control_pos] = NULL;
++			}
++		}
++	} else {
++		/*
++		 *Either fd points to an archive or
++		 * contents points to a +CONTENTS file
++		 */
++		assert(0);
+ 	}
+ 
+ 	return f_pkg;
+@@ -186,6 +304,8 @@
+ 
+ 	f_pkg = pkg-&gt;data;
+ 
++	assert(f_pkg != NULL);
++
+ 	return f_pkg-&gt;control;
+ }
+ 
+@@ -198,6 +318,8 @@
+ 	assert(pkg != NULL);
+ 
+ 	f_pkg = pkg-&gt;data;
++	assert(f_pkg != NULL);
++	assert(f_pkg-&gt;archive != NULL);
+ 
+ 	if (f_pkg-&gt;next) {
+ 		struct pkg_file *ret;
+@@ -225,6 +347,7 @@
+ 	size_t pkg_size;
+ 
+ 	assert(pkg != NULL);
++	assert(pkg-&gt;data != NULL);
+ 
+ 	/* If this is null there was an error that should have been checked */
+ 	contents = ((struct freebsd_package *)pkg-&gt;data)-&gt;contents;
+@@ -233,6 +356,8 @@
+ 	pkg_count = 0;
+ 	pkg_size = sizeof(struct pkg *);
+ 	pkgs = malloc(pkg_size);
++	if (!pkgs)
++		return NULL;
+ 	pkgs[0] = NULL;
+ 	for (line = 0; line &lt; contents-&gt;line_count; line++) {
+ 		if (contents-&gt;lines[line].line_type == PKG_LINE_PKGDEP) {
+@@ -253,7 +378,8 @@
+ {
+ 	assert(pkg != NULL);
+ 
+-	freebsd_free_package(pkg-&gt;data);
++	if (pkg-&gt;data)
++		freebsd_free_package(pkg-&gt;data);
+ 
+ 	return 0;
+ }
+@@ -349,10 +475,12 @@
+ 
+ 	f_pkg-&gt;fd = NULL;
+ 
+-	for (pos=0; f_pkg-&gt;control[pos] != NULL; pos++)
+-		pkg_file_free(f_pkg-&gt;control[pos]);
+-	free(f_pkg-&gt;control);
+-	f_pkg-&gt;control = NULL;
++	if (f_pkg-&gt;control) {
++		for (pos=0; f_pkg-&gt;control[pos] != NULL; pos++)
++			pkg_file_free(f_pkg-&gt;control[pos]);
++		free(f_pkg-&gt;control);
++		f_pkg-&gt;control = NULL;
++	}
+ 
+ 	if (f_pkg-&gt;next)
+ 		pkg_file_free(f_pkg-&gt;next);
+
+Modified: trunk/src/pkg_private.h
+===================================================================
+--- trunk/src/pkg_private.h	2005-11-19 06:42:54 UTC (rev 26)
++++ trunk/src/pkg_private.h	2005-11-24 05:23:45 UTC (rev 27)
+@@ -35,8 +35,6 @@
+ int archive_read_open_stream(struct archive *, FILE *, size_t);
+ 
+ struct pkg_file {
+-	void	*data;
+-	
+ 	char		*filename;
+ 	uint64_t	 len;
+ 	char		*contents;
+
+Modified: trunk/src/pkg_repo_files.c
+===================================================================
+--- trunk/src/pkg_repo_files.c	2005-11-19 06:42:54 UTC (rev 26)
++++ trunk/src/pkg_repo_files.c	2005-11-24 05:23:45 UTC (rev 27)
+@@ -66,7 +66,7 @@
+ 
+ 	/* Create the package */
+ 	/* XXX auto detect package type */
+-	pkg = pkg_new_freebsd(fd);
++	pkg = pkg_new_freebsd_from_file(fd);
+ 	if (!pkg) {
+ 		fclose(fd);
+ 		return NULL;
+
+Modified: trunk/src/pkg_repo_ftp.c
+===================================================================
+--- trunk/src/pkg_repo_ftp.c	2005-11-19 06:42:54 UTC (rev 26)
++++ trunk/src/pkg_repo_ftp.c	2005-11-24 05:23:45 UTC (rev 27)
+@@ -132,7 +132,7 @@
+ 
+ 	fd = ftp_get_fd(pkg_name, f_repo);
+ 	
+-	pkg = pkg_new_freebsd(fd);
++	pkg = pkg_new_freebsd_from_file(fd);
+ 	if (!pkg) {
+ 		fclose(fd);
+ 		return NULL;
+
+
+</PRE>
+
+<!--endarticle-->
+    <HR>
+    <P><UL>
+        <!--threads-->
+	<LI>Previous message: <A HREF="000017.html">[Libpkg-svn] r26 - www
+</A></li>
+	<LI>Next message: <A HREF="000019.html">[Libpkg-svn] r28 - trunk/src
+</A></li>
+         <LI> <B>Messages sorted by:</B> 
+              <a href="date.html#18">[ date ]</a>
+              <a href="thread.html#18">[ thread ]</a>
+              <a href="subject.html#18">[ subject ]</a>
+              <a href="author.html#18">[ author ]</a>
+         </LI>
+       </UL>
+
+<hr>
+<a href="https://lists.berlios.de/mailman/listinfo/libpkg-svn">More information about the Libpkg-svn
+mailing list</a><br>
+</body></html>

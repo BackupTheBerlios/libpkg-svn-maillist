@@ -1,0 +1,98 @@
+<!DOCTYPE HTML PUBLIC "-//W3C//DTD HTML 4.01 Transitional//EN">
+<HTML>
+ <HEAD>
+   <TITLE> [Libpkg-svn] r277 - trunk/src
+   </TITLE>
+   <LINK REL="Index" HREF="http://lists.berlios.de/pipermail/libpkg-svn/2007-March/index.html" >
+   <LINK REL="made" HREF="mailto:libpkg-svn%40lists.berlios.de?Subject=Re%3A%20%5BLibpkg-svn%5D%20r277%20-%20trunk/src&In-Reply-To=%3C200703040329.l243TSTp022409%40sheep.berlios.de%3E">
+   <META NAME="robots" CONTENT="index,nofollow">
+   <style type="text/css">
+       pre {
+           white-space: pre-wrap;       /* css-2.1, curent FF, Opera, Safari */
+           }
+   </style>
+   <META http-equiv="Content-Type" content="text/html; charset=us-ascii">
+   <LINK REL="Previous"  HREF="000260.html">
+   <LINK REL="Next"  HREF="000262.html">
+ </HEAD>
+ <BODY BGCOLOR="#ffffff">
+   <H1>[Libpkg-svn] r277 - trunk/src</H1>
+    <B>zxombie at BerliOS</B> 
+    <A HREF="mailto:libpkg-svn%40lists.berlios.de?Subject=Re%3A%20%5BLibpkg-svn%5D%20r277%20-%20trunk/src&In-Reply-To=%3C200703040329.l243TSTp022409%40sheep.berlios.de%3E"
+       TITLE="[Libpkg-svn] r277 - trunk/src">zxombie at mail.berlios.de
+       </A><BR>
+    <I>Sun Mar  4 04:29:28 CET 2007</I>
+    <P><UL>
+        <LI>Previous message: <A HREF="000260.html">[Libpkg-svn] r276 - in trunk: src tests
+</A></li>
+        <LI>Next message: <A HREF="000262.html">[Libpkg-svn] r278 - trunk/src
+</A></li>
+         <LI> <B>Messages sorted by:</B> 
+              <a href="date.html#261">[ date ]</a>
+              <a href="thread.html#261">[ thread ]</a>
+              <a href="subject.html#261">[ subject ]</a>
+              <a href="author.html#261">[ author ]</a>
+         </LI>
+       </UL>
+    <HR>  
+<!--beginarticle-->
+<PRE>Author: zxombie
+Date: 2007-03-04 04:29:28 +0100 (Sun, 04 Mar 2007)
+New Revision: 277
+
+Modified:
+   trunk/src/pkg.h
+Log:
+Catch pkg.h up with the changes to pkgfile
+
+
+Modified: trunk/src/pkg.h
+===================================================================
+--- trunk/src/pkg.h	2007-03-04 00:24:48 UTC (rev 276)
++++ trunk/src/pkg.h	2007-03-04 03:29:28 UTC (rev 277)
+@@ -55,11 +55,12 @@
+ const char	*pkgfile_get_name(struct pkgfile *);
+ uint64_t	 pkgfile_get_size(struct pkgfile *);
+ const char	*pkgfile_get_data(struct pkgfile *);
++FILE		*pkgfile_get_fileptr(struct pkgfile *);
+ const char	*pkgfile_get_type_string(struct pkgfile *);
+ int		 pkgfile_set_cwd(struct pkgfile *, const char *);
+ int		 pkgfile_set_checksum_md5(struct pkgfile *, const char *);
+ int		 pkgfile_compare_checksum_md5(struct pkgfile *);
+-int		 pkgfile_seek(struct pkgfile *, uint64_t, int);
++int		 pkgfile_seek(struct pkgfile *, int64_t, int);
+ int		 pkgfile_set_mode(struct pkgfile *, mode_t);
+ int		 pkgfile_append(struct pkgfile *, const char *, uint64_t);
+ const char	*pkgfile_find_line(struct pkgfile *, const char *);
+@@ -192,6 +193,7 @@
+ struct pkg_manifest;
+ 
+ struct pkg_manifest	*pkg_manifest_new(void);
++struct pkg_manifest	*pkg_manifest_new_freebsd_pkgfile(struct pkgfile *);
+ int			 pkg_manifest_free(struct pkg_manifest *);
+ int			 pkg_manifest_append_item(struct pkg_manifest *,
+ 			    struct pkg_manifest_item *);
+
+
+</PRE>
+
+<!--endarticle-->
+    <HR>
+    <P><UL>
+        <!--threads-->
+	<LI>Previous message: <A HREF="000260.html">[Libpkg-svn] r276 - in trunk: src tests
+</A></li>
+	<LI>Next message: <A HREF="000262.html">[Libpkg-svn] r278 - trunk/src
+</A></li>
+         <LI> <B>Messages sorted by:</B> 
+              <a href="date.html#261">[ date ]</a>
+              <a href="thread.html#261">[ thread ]</a>
+              <a href="subject.html#261">[ subject ]</a>
+              <a href="author.html#261">[ author ]</a>
+         </LI>
+       </UL>
+
+<hr>
+<a href="https://lists.berlios.de/mailman/listinfo/libpkg-svn">More information about the Libpkg-svn
+mailing list</a><br>
+</body></html>

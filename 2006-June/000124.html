@@ -1,0 +1,351 @@
+<!DOCTYPE HTML PUBLIC "-//W3C//DTD HTML 4.01 Transitional//EN">
+<HTML>
+ <HEAD>
+   <TITLE> [Libpkg-svn] r140 - trunk/tools/pkg_info
+   </TITLE>
+   <LINK REL="Index" HREF="http://lists.berlios.de/pipermail/libpkg-svn/2006-June/index.html" >
+   <LINK REL="made" HREF="mailto:libpkg-svn%40lists.berlios.de?Subject=Re%3A%20%5BLibpkg-svn%5D%20r140%20-%20trunk/tools/pkg_info&In-Reply-To=%3C200606241055.k5OAt807003293%40sheep.berlios.de%3E">
+   <META NAME="robots" CONTENT="index,nofollow">
+   <style type="text/css">
+       pre {
+           white-space: pre-wrap;       /* css-2.1, curent FF, Opera, Safari */
+           }
+   </style>
+   <META http-equiv="Content-Type" content="text/html; charset=us-ascii">
+   <LINK REL="Previous"  HREF="000123.html">
+   <LINK REL="Next"  HREF="000125.html">
+ </HEAD>
+ <BODY BGCOLOR="#ffffff">
+   <H1>[Libpkg-svn] r140 - trunk/tools/pkg_info</H1>
+    <B>zxombie at BerliOS</B> 
+    <A HREF="mailto:libpkg-svn%40lists.berlios.de?Subject=Re%3A%20%5BLibpkg-svn%5D%20r140%20-%20trunk/tools/pkg_info&In-Reply-To=%3C200606241055.k5OAt807003293%40sheep.berlios.de%3E"
+       TITLE="[Libpkg-svn] r140 - trunk/tools/pkg_info">zxombie at berlios.de
+       </A><BR>
+    <I>Sat Jun 24 12:55:08 CEST 2006</I>
+    <P><UL>
+        <LI>Previous message: <A HREF="000123.html">[Libpkg-svn] r139 - trunk/tools/pkg_info
+</A></li>
+        <LI>Next message: <A HREF="000125.html">[Libpkg-svn] r141 - trunk/tools/pkg_info
+</A></li>
+         <LI> <B>Messages sorted by:</B> 
+              <a href="date.html#124">[ date ]</a>
+              <a href="thread.html#124">[ thread ]</a>
+              <a href="subject.html#124">[ subject ]</a>
+              <a href="author.html#124">[ author ]</a>
+         </LI>
+       </UL>
+    <HR>  
+<!--beginarticle-->
+<PRE>Author: zxombie
+Date: 2006-06-24 12:54:46 +0200 (Sat, 24 Jun 2006)
+New Revision: 140
+
+Modified:
+   trunk/tools/pkg_info/main.c
+   trunk/tools/pkg_info/pkg_info.h
+   trunk/tools/pkg_info/show.c
+Log:
+Implement pkg_info -l
+
+
+Modified: trunk/tools/pkg_info/main.c
+===================================================================
+--- trunk/tools/pkg_info/main.c	2006-06-24 10:32:25 UTC (rev 139)
++++ trunk/tools/pkg_info/main.c	2006-06-24 10:54:46 UTC (rev 140)
+@@ -44,6 +44,7 @@
+ 	info.quiet = 0;
+ 	info.origin = NULL;
+ 	info.check_package = NULL;
++	info.seperator = &quot;&quot;;
+ 
+ 	if (argc == 1) {
+ 		info.match_type = MATCH_ALL;
+@@ -96,7 +97,7 @@
+ 				info.flags |= SHOW_DEINSTALL;
+ 				break;
+ 			case 'l':
+-				errx(1, &quot;Unsupported argument&quot;);
++				info.seperator = optarg;
+ 				break;
+ 			case 'L':
+ 				info.flags |= SHOW_FILES;
+@@ -255,7 +256,8 @@
+ 			continue;
+ 		qsort(pkgs, cur, sizeof(struct pkg *), pkg_compare);
+ 		for (cur = 0; pkgs[cur] != NULL; cur++) {
+-			show(info.db, pkgs[cur], info.flags, info.quiet);
++			show(info.db, pkgs[cur], info.flags, info.quiet,
++			    info.seperator);
+ 		}
+ 		retval = 0;
+ 		break;
+@@ -268,7 +270,8 @@
+ 
+ 			pkg = pkg_db_get_package(info.db, info.pkgs[cur]);
+ 			if (pkg != NULL)
+-				show(info.db, pkg, info.flags, info.quiet);
++				show(info.db, pkg, info.flags, info.quiet,
++				    info.seperator);
+ 			else {
+ 				warnx(&quot;pkg_info: can't find package '%s' &quot;
+ 				    &quot;installed or in a file!&quot;, info.pkgs[cur]);
+
+Modified: trunk/tools/pkg_info/pkg_info.h
+===================================================================
+--- trunk/tools/pkg_info/pkg_info.h	2006-06-24 10:32:25 UTC (rev 139)
++++ trunk/tools/pkg_info/pkg_info.h	2006-06-24 10:54:46 UTC (rev 140)
+@@ -75,11 +75,12 @@
+ 	int	  flags;
+ 	const char *check_package;
+ 	const char *origin;
++	const char *seperator;
+ };
+ 
+ struct pkg	**match_regex(struct pkg_db *, const char **, int);
+ struct pkg	**match_glob(struct pkg_db *, const char **, int);
+ int		  pkg_info(struct pkg_info);
+-void		  show(struct pkg_db *, struct pkg *, int, int);
++void		  show(struct pkg_db *, struct pkg *, int, int, const char *);
+ 
+ #endif /* __PKG_INFO_H__ */
+
+Modified: trunk/tools/pkg_info/show.c
+===================================================================
+--- trunk/tools/pkg_info/show.c	2006-06-24 10:32:25 UTC (rev 139)
++++ trunk/tools/pkg_info/show.c	2006-06-24 10:54:46 UTC (rev 140)
+@@ -29,17 +29,18 @@
+ #include &lt;string.h&gt;
+ #include &lt;unistd.h&gt;
+ 
+-static void	show_cksum(struct pkg *, const char *, int);
+-static void	show_file(struct pkgfile *, const char *, int);
+-static void	show_files(struct pkg *, const char *, int);
+-static void	show_fmtrev(struct pkg *, const char *, int);
++static void	show_cksum(struct pkg *, const char *, const char *, int);
++static void	show_file(struct pkgfile *, const char *, const char *, int);
++static void	show_files(struct pkg *, const char *, const char *, int);
++static void	show_fmtrev(struct pkg *, const char *, const char *, int);
+ static void	show_index(struct pkg *);
+-static void	show_origin(struct pkg *, const char *, int);
+-static void	show_plist(struct pkg *, const char *, int, int);
+-static void	show_size(struct pkg *, const char *, int quiet);
++static void	show_origin(struct pkg *, const char *, const char *, int);
++static void	show_plist(struct pkg *, const char *, const char *, int, int);
++static void	show_size(struct pkg *, const char *, const char *, int quiet);
+ 
+ void
+-show(struct pkg_db *db, struct pkg *pkg, int flags, int quiet)
++show(struct pkg_db *db, struct pkg *pkg, int flags, int quiet,
++    const char *seperator)
+ {
+ 	if (flags &amp; SHOW_PKGNAME) {
+ 		printf(&quot;%s\n&quot;, pkg_get_name(pkg));
+@@ -57,7 +58,7 @@
+ 		struct pkgfile *file;
+ 		file = pkg_get_control_file(pkg, COMMENT_FNAME);
+ 		assert(file != NULL);
+-		show_file(file, &quot;Comment:\n&quot;, quiet);
++		show_file(file, seperator, &quot;Comment:\n&quot;, quiet);
+ 	}
+ #define ifexist_show(filename, title) \
+ 	{ \
+@@ -65,12 +66,13 @@
+ 		file = pkg_get_control_file(pkg, filename); \
+ 		assert(file != NULL); \
+ 		if (file != NULL) \
+-			show_file(file, title &quot;:\n&quot;, quiet); \
++			show_file(file, seperator, title &quot;:\n&quot;, quiet); \
+ 	}
+ 
+ 	/* XXX Abstract all this out to the appropriate object */
+ 	if (flags &amp; SHOW_DEPEND) {
+-		show_plist(pkg, &quot;Depends on:\n&quot;, quiet, PKG_LINE_PKGDEP);
++		show_plist(pkg, seperator, &quot;Depends on:\n&quot;, quiet,
++		    PKG_LINE_PKGDEP);
+ 	}
+ 	if ((flags &amp; SHOW_REQBY)) {
+ 		struct pkgfile *file;
+@@ -80,7 +82,8 @@
+ 		if (file != NULL) {
+ 			contents = pkgfile_get_data_all(file);
+ 			if (contents != NULL &amp;&amp; contents[0] != '\0')
+-				show_file(file, &quot;Required by:\n&quot;, quiet);
++				show_file(file, seperator, &quot;Required by:\n&quot;,
++				    quiet);
+ 		}
+ 	}
+ 	if (flags &amp; SHOW_DESC) {
+@@ -88,13 +91,13 @@
+ 
+ 		file = pkg_get_control_file(pkg, DESC_FNAME);
+ 		assert(file != NULL);
+-		show_file(file, &quot;Description:\n&quot;, quiet);
++		show_file(file, seperator, &quot;Description:\n&quot;, quiet);
+ 	}
+ 	if ((flags &amp; SHOW_DISPLAY)) {
+ 		ifexist_show(DISPLAY_FNAME, &quot;Install notice&quot;);
+ 	}
+ 	if (flags &amp; SHOW_PLIST) {
+-		show_plist(pkg, &quot;Packing list:\n&quot;, quiet, 0);
++		show_plist(pkg, seperator, &quot;Packing list:\n&quot;, quiet, 0);
+ 	}
+ 	if (flags &amp; SHOW_REQUIRE) {
+ 		ifexist_show(REQUIRE_FNAME, &quot;Requirements script&quot;);
+@@ -115,24 +118,25 @@
+ 		ifexist_show(MTREE_FNAME, &quot;mtree file&quot;);
+ 	}
+ 	if (flags &amp; SHOW_PREFIX) {
+-		show_plist(pkg, &quot;Prefix(s):\n&quot;, quiet, PKG_LINE_CWD);
++		show_plist(pkg, seperator, &quot;Prefix(s):\n&quot;, quiet, PKG_LINE_CWD);
+ 	}
+ 	if (flags &amp; SHOW_FILES) {
+-		show_files(pkg, &quot;Files:\n&quot;, quiet);
++		show_files(pkg, seperator, &quot;Files:\n&quot;, quiet);
+ 	}
+ 	if ((flags &amp; SHOW_SIZE) &amp;&amp;
+ 	    pkg_db_is_installed(db, pkg) == 0) {
+-		show_size(pkg, &quot;Package Size:\n&quot;, quiet);
++		show_size(pkg, seperator, &quot;Package Size:\n&quot;, quiet);
+ 	}
+ 	if ((flags &amp; SHOW_CKSUM) &amp;&amp;
+ 	    pkg_db_is_installed(db, pkg) == 0) {
+-		show_cksum(pkg, &quot;Mismatched Checksums:\n&quot;, quiet);
++		show_cksum(pkg, seperator, &quot;Mismatched Checksums:\n&quot;, quiet);
+ 	}
+ 	if (flags &amp; SHOW_ORIGIN) {
+-		show_origin(pkg, &quot;Origin:\n&quot;, quiet);
++		show_origin(pkg, seperator, &quot;Origin:\n&quot;, quiet);
+ 	}
+ 	if (flags &amp; SHOW_FMTREV) {
+-		show_fmtrev(pkg, &quot;Packing list format revision:\n&quot;, quiet);
++		show_fmtrev(pkg, seperator, &quot;Packing list format revision:\n&quot;,
++		    quiet);
+ 	}
+ 	if (!quiet) {
+ 		puts(&quot;&quot;);
+@@ -141,21 +145,23 @@
+ 
+ /* Show files that don't match the recorded checksum */
+ static void
+-show_cksum(struct pkg *pkg __unused, const char *title, int quiet)
++show_cksum(struct pkg *pkg __unused, const char *seperator, const char *title,
++    int quiet)
+ {
+ 	if (!quiet)
+-		printf(&quot;%s&quot;, title);
++		printf(&quot;%s%s&quot;, seperator, title);
+ 
+ 	/* XXX */
+ 	errx(1, &quot;%s: Unimplemented&quot;, __func__);
+ }
+ 
+ static void
+-show_file(struct pkgfile *file, const char *title, int quiet)
++show_file(struct pkgfile *file, const char *seperator, const char *title,
++    int quiet)
+ {
+ 	assert(file != NULL);
+ 	if (!quiet)
+-		printf(&quot;%s&quot;, title);
++		printf(&quot;%s%s&quot;, seperator, title);
+ 	if (file == NULL) {
+ 		printf(&quot;ERROR: show_file: Can't open '%s' for reading!\n&quot;,
+ 		    pkgfile_get_name(file));
+@@ -167,12 +173,12 @@
+ }
+ 
+ static void
+-show_files(struct pkg *pkg, const char *title, int quiet)
++show_files(struct pkg *pkg, const char *seperator, const char *title, int quiet)
+ {
+ 	struct pkgfile *file;
+ 	assert(pkg != NULL);
+ 	if (!quiet)
+-		printf(&quot;%s\n&quot;, title);
++		printf(&quot;%s%s&quot;, seperator, title);
+ 	file = pkg_get_next_file(pkg);
+ 	while (file != NULL) {
+ 		printf(&quot;%s\n&quot;, pkgfile_get_name(file));
+@@ -182,11 +188,12 @@
+ }
+ 
+ static void
+-show_fmtrev(struct pkg* pkg, const char *title, int quiet)
++show_fmtrev(struct pkg* pkg, const char *seperator, const char *title,
++    int quiet)
+ {
+ 	const char *version;
+ 	if (!quiet)
+-		printf(&quot;%s&quot;, title);
++		printf(&quot;%s%s&quot;, seperator, title);
+ 
+ 	version = pkg_get_version(pkg);
+ 	if (version == NULL)
+@@ -232,15 +239,17 @@
+ }
+ 
+ static void
+-show_origin(struct pkg *pkg, const char *title, int quiet)
++show_origin(struct pkg *pkg, const char *seperator, const char *title,
++    int quiet)
+ {
+ 	if (!quiet)
+-		printf(&quot;%s&quot;, title);
++		printf(&quot;%s%s&quot;, seperator, title);
+ 	printf(&quot;%s\n&quot;, pkg_get_origin(pkg));
+ }
+ 
+ static void
+-show_plist(struct pkg *pkg, const char *title, int quiet, int type)
++show_plist(struct pkg *pkg, const char *seperator, const char *title, int quiet,
++    int type)
+ {
+ 	struct pkg_freebsd_contents *contents;
+ 	struct pkg_freebsd_contents_line *line;
+@@ -248,7 +257,7 @@
+ 	char *prefix = NULL;
+ 
+ 	if (!quiet)
+-		printf(&quot;%s&quot;, title);
++		printf(&quot;%s%s&quot;, seperator, title);
+ 	contents = pkg_freebsd_get_contents(pkg);
+ 
+ 	i = 0;
+@@ -330,10 +339,11 @@
+ }
+ 
+ static void
+-show_size(struct pkg *pkg __unused, const char *title, int quiet)
++show_size(struct pkg *pkg __unused, const char *seperator, const char *title,
++    int quiet)
+ {
+ 	if (!quiet)
+-		printf(&quot;%s&quot;, title);
++		printf(&quot;%s%s&quot;, seperator, title);
+ 
+ 	/* XXX */
+ 	errx(1, &quot;%s: Unimplemented&quot;, __func__);
+
+
+</PRE>
+
+<!--endarticle-->
+    <HR>
+    <P><UL>
+        <!--threads-->
+	<LI>Previous message: <A HREF="000123.html">[Libpkg-svn] r139 - trunk/tools/pkg_info
+</A></li>
+	<LI>Next message: <A HREF="000125.html">[Libpkg-svn] r141 - trunk/tools/pkg_info
+</A></li>
+         <LI> <B>Messages sorted by:</B> 
+              <a href="date.html#124">[ date ]</a>
+              <a href="thread.html#124">[ thread ]</a>
+              <a href="subject.html#124">[ subject ]</a>
+              <a href="author.html#124">[ author ]</a>
+         </LI>
+       </UL>
+
+<hr>
+<a href="https://lists.berlios.de/mailman/listinfo/libpkg-svn">More information about the Libpkg-svn
+mailing list</a><br>
+</body></html>

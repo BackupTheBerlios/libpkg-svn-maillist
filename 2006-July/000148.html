@@ -1,0 +1,189 @@
+<!DOCTYPE HTML PUBLIC "-//W3C//DTD HTML 4.01 Transitional//EN">
+<HTML>
+ <HEAD>
+   <TITLE> [Libpkg-svn] r164 - trunk/src
+   </TITLE>
+   <LINK REL="Index" HREF="http://lists.berlios.de/pipermail/libpkg-svn/2006-July/index.html" >
+   <LINK REL="made" HREF="mailto:libpkg-svn%40lists.berlios.de?Subject=Re%3A%20%5BLibpkg-svn%5D%20r164%20-%20trunk/src&In-Reply-To=%3C200607241217.k6OCHged006570%40sheep.berlios.de%3E">
+   <META NAME="robots" CONTENT="index,nofollow">
+   <style type="text/css">
+       pre {
+           white-space: pre-wrap;       /* css-2.1, curent FF, Opera, Safari */
+           }
+   </style>
+   <META http-equiv="Content-Type" content="text/html; charset=us-ascii">
+   <LINK REL="Previous"  HREF="000147.html">
+   <LINK REL="Next"  HREF="000149.html">
+ </HEAD>
+ <BODY BGCOLOR="#ffffff">
+   <H1>[Libpkg-svn] r164 - trunk/src</H1>
+    <B>zxombie at BerliOS</B> 
+    <A HREF="mailto:libpkg-svn%40lists.berlios.de?Subject=Re%3A%20%5BLibpkg-svn%5D%20r164%20-%20trunk/src&In-Reply-To=%3C200607241217.k6OCHged006570%40sheep.berlios.de%3E"
+       TITLE="[Libpkg-svn] r164 - trunk/src">zxombie at mail.berlios.de
+       </A><BR>
+    <I>Mon Jul 24 14:17:42 CEST 2006</I>
+    <P><UL>
+        <LI>Previous message: <A HREF="000147.html">[Libpkg-svn] r163 - trunk/src
+</A></li>
+        <LI>Next message: <A HREF="000149.html">[Libpkg-svn] r165 - trunk/src
+</A></li>
+         <LI> <B>Messages sorted by:</B> 
+              <a href="date.html#148">[ date ]</a>
+              <a href="thread.html#148">[ thread ]</a>
+              <a href="subject.html#148">[ subject ]</a>
+              <a href="author.html#148">[ author ]</a>
+         </LI>
+       </UL>
+    <HR>  
+<!--beginarticle-->
+<PRE>Author: zxombie
+Date: 2006-07-24 14:17:32 +0200 (Mon, 24 Jul 2006)
+New Revision: 164
+
+Modified:
+   trunk/src/pkg_freebsd.c
+   trunk/src/pkg_private.h
+Log:
+Fix memory leaks
+Add a version of pkg_remove_extra_slashes that valgrind likes
+
+
+Modified: trunk/src/pkg_freebsd.c
+===================================================================
+--- trunk/src/pkg_freebsd.c	2006-07-24 10:50:18 UTC (rev 163)
++++ trunk/src/pkg_freebsd.c	2006-07-24 12:17:32 UTC (rev 164)
+@@ -89,6 +89,7 @@
+ 	struct pkgfile **control;
+ 	struct pkg_freebsd_contents *contents;
+ 	struct pkgfile *next_file;
++	struct pkgfile *cur_file;
+ 	unsigned int line;
+ 	char *curdir;
+ 	freebsd_type pkg_type;
+@@ -611,6 +612,12 @@
+ 	file = NULL;
+ 	if (fpkg-&gt;next_file != NULL) {
+ 		file = fpkg-&gt;next_file;
++
++		/*
++		 * Hand over the file to be free'ed from
++		 * memory when the next file is read
++		 */
++		fpkg-&gt;cur_file = fpkg-&gt;next_file;
+ 		fpkg-&gt;next_file = NULL;
+ 	} else if (fpkg-&gt;archive == NULL)  {
+ 		/* Read the file from disk */
+@@ -654,11 +661,14 @@
+ 		fpkg-&gt;line = 0;
+ 		return NULL;
+ 	} else {
++		if (fpkg-&gt;cur_file != NULL)
++			pkgfile_free(fpkg-&gt;cur_file);
+ 		file = freebsd_get_next_entry(fpkg-&gt;archive);
+ 		if (file == NULL) {
+ 			archive_read_finish(fpkg-&gt;archive);
+ 			fpkg-&gt;archive = NULL;
+ 		}
++		fpkg-&gt;cur_file = file;
+ 	}
+ 	return file;
+ }
+@@ -825,6 +835,9 @@
+ 		if (fpkg-&gt;next_file != NULL)
+ 			pkgfile_free(fpkg-&gt;next_file);
+ 
++		if (fpkg-&gt;cur_file == NULL)
++			pkgfile_free(fpkg-&gt;cur_file);
++
+ 		if (fpkg-&gt;control != NULL) {
+ 			int cur;
+ 
+@@ -891,6 +904,7 @@
+ 	fpkg-&gt;origin = NULL;
+ 	fpkg-&gt;version = NULL;
+ 	fpkg-&gt;next_file = NULL;
++	fpkg-&gt;cur_file = NULL;
+ 	fpkg-&gt;line = 0;
+ 	fpkg-&gt;curdir = NULL;
+ 	fpkg-&gt;pkg_type = fpkg_unknown;
+@@ -1038,12 +1052,10 @@
+ 		/* Create the pkgfile and return it */
+ 		file = pkgfile_new_regular(archive_entry_pathname(entry), str,
+ 		    length);
++		free(str);
+ 	} else if (S_ISLNK(sb-&gt;st_mode)) {
+-		str = strdup(archive_entry_symlink(entry));
+-		if (!str)
+-			return NULL;
+-
+-		file = pkgfile_new_symlink(archive_entry_pathname(entry), str);
++		file = pkgfile_new_symlink(archive_entry_pathname(entry),
++		    archive_entry_symlink(entry));
+ 		
+ 	}
+ 	if (file == NULL)
+
+Modified: trunk/src/pkg_private.h
+===================================================================
+--- trunk/src/pkg_private.h	2006-07-24 10:50:18 UTC (rev 163)
++++ trunk/src/pkg_private.h	2006-07-24 12:17:32 UTC (rev 164)
+@@ -142,13 +142,34 @@
+ int pkg_exec(const char *, ...);
+ FILE *pkg_cached_file(FILE *, const char *);
+ 
+-/* Remove extra slashes from the path */
++/* 
++ * Remove extra slashes from the path
++ * The first is slower
++ * Valgrind complains on the second
++ */
++#define FOR_VALGRIND
+ #define pkg_remove_extra_slashes(path) \
+ 	{ \
++		char *str_a, *str_b; \
++		str_a = path + 1; \
++		str_b = str_a; \
++		while(*str_a != '\0') { \
++			while(str_b[0] == '/' &amp;&amp; str_b[-1] == '/') \
++				str_b++; \
++			if (str_a != str_b) \
++				str_a[0] = str_b[0]; \
++			str_a++; str_b++; \
++		} \
++	}
++#else
++#define pkg_remove_extra_slashes(path) \
++	{ \
+ 		char *tmp_str; \
+ 		while((tmp_str = strstr(path, &quot;//&quot;)) != NULL) { \
+ 			strcpy(tmp_str, tmp_str+1); \
+ 		} \
+ 	}
++#endif
+ 
++
+ #endif /* __LIBPKG_PKG_PRIVATE_H__ */
+
+
+</PRE>
+
+<!--endarticle-->
+    <HR>
+    <P><UL>
+        <!--threads-->
+	<LI>Previous message: <A HREF="000147.html">[Libpkg-svn] r163 - trunk/src
+</A></li>
+	<LI>Next message: <A HREF="000149.html">[Libpkg-svn] r165 - trunk/src
+</A></li>
+         <LI> <B>Messages sorted by:</B> 
+              <a href="date.html#148">[ date ]</a>
+              <a href="thread.html#148">[ thread ]</a>
+              <a href="subject.html#148">[ subject ]</a>
+              <a href="author.html#148">[ author ]</a>
+         </LI>
+       </UL>
+
+<hr>
+<a href="https://lists.berlios.de/mailman/listinfo/libpkg-svn">More information about the Libpkg-svn
+mailing list</a><br>
+</body></html>

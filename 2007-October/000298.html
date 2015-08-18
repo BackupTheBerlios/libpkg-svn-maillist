@@ -1,0 +1,309 @@
+<!DOCTYPE HTML PUBLIC "-//W3C//DTD HTML 4.01 Transitional//EN">
+<HTML>
+ <HEAD>
+   <TITLE> r314 - trunk/tests
+   </TITLE>
+   <LINK REL="Index" HREF="http://lists.berlios.de/pipermail/libpkg-svn/2007-October/index.html" >
+   <LINK REL="made" HREF="mailto:libpkg-svn%40lists.berlios.de?Subject=Re%3A%20r314%20-%20trunk/tests&In-Reply-To=%3C200710270410.l9R4AR3C013497%40sheep.berlios.de%3E">
+   <META NAME="robots" CONTENT="index,nofollow">
+   <style type="text/css">
+       pre {
+           white-space: pre-wrap;       /* css-2.1, curent FF, Opera, Safari */
+           }
+   </style>
+   <META http-equiv="Content-Type" content="text/html; charset=us-ascii">
+   <LINK REL="Previous"  HREF="000297.html">
+   <LINK REL="Next"  HREF="000299.html">
+ </HEAD>
+ <BODY BGCOLOR="#ffffff">
+   <H1>r314 - trunk/tests</H1>
+    <B>zxombie at users.berlios.de</B> 
+    <A HREF="mailto:libpkg-svn%40lists.berlios.de?Subject=Re%3A%20r314%20-%20trunk/tests&In-Reply-To=%3C200710270410.l9R4AR3C013497%40sheep.berlios.de%3E"
+       TITLE="r314 - trunk/tests">zxombie at users.berlios.de
+       </A><BR>
+    <I>Sat Oct 27 06:10:27 CEST 2007</I>
+    <P><UL>
+        <LI>Previous message: <A HREF="000297.html">r313 - trunk/tests
+</A></li>
+        <LI>Next message: <A HREF="000299.html">r315 - trunk/tests
+</A></li>
+         <LI> <B>Messages sorted by:</B> 
+              <a href="date.html#298">[ date ]</a>
+              <a href="thread.html#298">[ thread ]</a>
+              <a href="subject.html#298">[ subject ]</a>
+              <a href="author.html#298">[ author ]</a>
+         </LI>
+       </UL>
+    <HR>  
+<!--beginarticle-->
+<PRE>Author: zxombie
+Date: 2007-10-27 06:10:27 +0200 (Sat, 27 Oct 2007)
+New Revision: 314
+
+Added:
+   trunk/tests/pkg_manifest.c
+Log:
+Add tests for pkg_manifest
+
+Added: trunk/tests/pkg_manifest.c
+===================================================================
+--- trunk/tests/pkg_manifest.c	2007-10-26 22:59:46 UTC (rev 313)
++++ trunk/tests/pkg_manifest.c	2007-10-27 04:10:27 UTC (rev 314)
+@@ -0,0 +1,233 @@
++/*
++ * Copyright (C) 2007, Andrew Turner, All rights reserved.
++ *
++ * Redistribution and use in source and binary forms, with or without
++ * modification, are permitted provided that the following conditions
++ * are met:
++ * 1. Redistributions of source code must retain the above copyright
++ *    notice, this list of conditions and the following disclaimer.
++ * 2. Redistributions in binary form must reproduce the above copyright
++ *    notice, this list of conditions and the following disclaimer in the
++ *    documentation and/or other materials provided with the distribution.
++ *
++ * THIS SOFTWARE IS PROVIDED BY THE AUTHOR AND CONTRIBUTORS ``AS IS'' AND
++ * ANY EXPRESS OR IMPLIED WARRANTIES, INCLUDING, BUT NOT LIMITED TO, THE
++ * IMPLIED WARRANTIES OF MERCHANTABILITY AND FITNESS FOR A PARTICULAR PURPOSE
++ * ARE DISCLAIMED.  IN NO EVENT SHALL THE AUTHOR OR CONTRIBUTORS BE LIABLE
++ * FOR ANY DIRECT, INDIRECT, INCIDENTAL, SPECIAL, EXEMPLARY, OR CONSEQUENTIAL
++ * DAMAGES (INCLUDING, BUT NOT LIMITED TO, PROCUREMENT OF SUBSTITUTE GOODS
++ * OR SERVICES; LOSS OF USE, DATA, OR PROFITS; OR BUSINESS INTERRUPTION)
++ * HOWEVER CAUSED AND ON ANY THEORY OF LIABILITY, WHETHER IN CONTRACT, STRICT
++ * LIABILITY, OR TORT (INCLUDING NEGLIGENCE OR OTHERWISE) ARISING IN ANY WAY
++ * OUT OF THE USE OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF
++ * SUCH DAMAGE.
++ *
++ */
++
++#include &quot;test.h&quot;
++
++#include &lt;pkg.h&gt;
++#include &lt;pkg_private.h&gt;
++
++#include &lt;string.h&gt;
++
++START_TEST(pkg_manifest_empty)
++{
++	fail_unless(pkg_manifest_free(NULL) == -1);
++	fail_unless(pkg_manifest_set_manifest_version(NULL, NULL) == -1);
++	fail_unless(pkg_manifest_set_manifest_version(NULL, &quot;str&quot;) == -1);
++	fail_unless(pkg_manifest_get_manifest_version(NULL) == NULL);
++	fail_unless(pkg_manifest_add_dependency(NULL, NULL) == -1);
++	fail_unless(pkg_manifest_get_dependencies(NULL) == NULL);
++	fail_unless(pkg_manifest_add_conflict(NULL, NULL) == -1);
++	fail_unless(pkg_manifest_add_conflict(NULL, &quot;str&quot;) == -1);
++	fail_unless(pkg_manifest_set_name(NULL, NULL) == -1);
++	fail_unless(pkg_manifest_set_name(NULL, &quot;str&quot;) == -1);
++	fail_unless(pkg_manifest_get_name(NULL) == NULL);
++	fail_unless(pkg_manifest_set_attr(NULL, pkgm_other, NULL) == -1);
++	fail_unless(pkg_manifest_set_attr(NULL, pkgm_other, &quot;str&quot;) == -1);
++	fail_unless(pkg_manifest_get_attrs(NULL) == NULL);
++	fail_unless(pkg_manifest_append_item(NULL, NULL) == -1);
++	fail_unless(pkg_manifest_get_conflicts(NULL) == NULL);
++	fail_unless(pkg_manifest_get_file(NULL) == NULL);
++	fail_unless(pkg_manifest_get_items(NULL) == NULL);
++}
++END_TEST
++
++START_TEST(pkg_manifest_bad)
++{
++	struct pkg_manifest *manifest;
++
++	fail_unless((manifest = pkg_manifest_new()) != NULL);
++
++	fail_unless(pkg_manifest_set_manifest_version(manifest, NULL) == -1);
++	fail_unless(pkg_manifest_add_dependency(manifest, NULL) == -1);
++	fail_unless(pkg_manifest_add_conflict(manifest, NULL) == -1);
++	fail_unless(pkg_manifest_set_name(manifest, NULL) == -1);
++	fail_unless(pkg_manifest_get_name(manifest) == NULL);
++	fail_unless(pkg_manifest_append_item(manifest, NULL) == -1);
++
++	fail_unless(pkg_manifest_free(manifest) == 0);
++}
++END_TEST
++
++START_TEST(pkg_manifest_version)
++{
++	struct pkg_manifest *manifest;
++
++	fail_unless((manifest = pkg_manifest_new()) != NULL);
++
++	fail_unless(pkg_manifest_get_manifest_version(manifest) == NULL);
++	fail_unless(pkg_manifest_set_manifest_version(manifest, &quot;version&quot;) ==0);
++	fail_unless(strcmp(pkg_manifest_get_manifest_version(manifest),
++	    &quot;version&quot;) == 0);
++	fail_unless(pkg_manifest_set_manifest_version(manifest, &quot;new&quot;) == 0);
++	fail_unless(strcmp(pkg_manifest_get_manifest_version(manifest), &quot;new&quot;)
++	    == 0);
++
++	fail_unless(pkg_manifest_free(manifest) == 0);
++}
++END_TEST
++
++START_TEST(pkg_manifest_dependency)
++{
++	struct pkg_manifest *manifest;
++	struct pkg *pkg1, *pkg2, **pkg_list;
++
++	fail_unless((manifest = pkg_manifest_new()) != NULL);
++	fail_unless((pkg1 = pkg_new_freebsd_empty(&quot;foo&quot;)) != NULL);
++	fail_unless((pkg2 = pkg_new_freebsd_empty(&quot;bar&quot;)) != NULL);
++
++	fail_unless(pkg_manifest_get_dependencies(manifest) == NULL);
++	fail_unless(pkg_manifest_add_dependency(manifest, pkg1) == 0);
++	fail_unless((pkg_list = pkg_manifest_get_dependencies(manifest)) !=
++	    NULL);
++	fail_unless(pkg_list[0] == pkg1);
++
++	pkg_list = NULL;
++	fail_unless(pkg_manifest_add_dependency(manifest, pkg2) == 0);
++	fail_unless((pkg_list = pkg_manifest_get_dependencies(manifest)) !=
++	    NULL);
++	fail_unless(pkg_list[0] == pkg1);
++	fail_unless(pkg_list[1] == pkg2);
++
++	fail_unless(pkg_manifest_free(manifest) == 0);
++}
++END_TEST
++
++START_TEST(pkg_manifest_conflict)
++{
++	struct pkg_manifest *manifest;
++	const char **pkg_list;
++
++	fail_unless((manifest = pkg_manifest_new()) != NULL);
++
++	fail_unless(pkg_manifest_get_conflicts(manifest) == NULL);
++	fail_unless(pkg_manifest_add_conflict(manifest, &quot;foo&quot;) == 0);
++	fail_unless((pkg_list = pkg_manifest_get_conflicts(manifest)) != NULL);
++	fail_unless(strcmp(pkg_list[0], &quot;foo&quot;) == 0);
++
++	fail_unless(pkg_manifest_add_conflict(manifest, &quot;bar&quot;) == 0);
++	fail_unless((pkg_list = pkg_manifest_get_conflicts(manifest)) != NULL);
++	fail_unless(strcmp(pkg_list[0], &quot;foo&quot;) == 0);
++	fail_unless(strcmp(pkg_list[1], &quot;bar&quot;) == 0);
++
++	fail_unless(pkg_manifest_free(manifest) == 0);
++}
++END_TEST
++
++START_TEST(pkg_manifest_name)
++{
++	struct pkg_manifest *manifest;
++
++	fail_unless((manifest = pkg_manifest_new()) != NULL);
++
++	fail_unless(pkg_manifest_set_name(manifest, &quot;foo&quot;) == 0);
++	fail_unless(strcmp(pkg_manifest_get_name(manifest), &quot;foo&quot;) == 0);
++	fail_unless(pkg_manifest_set_name(manifest, &quot;bar&quot;) == 0);
++	fail_unless(strcmp(pkg_manifest_get_name(manifest), &quot;bar&quot;) == 0);
++
++	fail_unless(pkg_manifest_free(manifest) == 0);
++}
++END_TEST
++
++START_TEST(pkg_manifest_attrib)
++{
++	struct pkg_manifest *manifest;
++	const char **attrs;
++
++	fail_unless((manifest = pkg_manifest_new()) != NULL);
++
++	fail_unless(pkg_manifest_set_attr(manifest, pkgm_other, &quot;attr&quot;) == 0);
++	fail_unless((attrs = pkg_manifest_get_attrs(manifest)) != NULL);
++	fail_unless(strcmp(attrs[pkgm_other], &quot;attr&quot;) == 0);
++	fail_unless(attrs[pkgm_origin] == NULL);
++	fail_unless(attrs[pkgm_prefix] == NULL);
++
++	fail_unless(pkg_manifest_set_attr(manifest, pkgm_origin, &quot;foo&quot;) == 0);
++	fail_unless((attrs = pkg_manifest_get_attrs(manifest)) != NULL);
++	fail_unless(strcmp(attrs[pkgm_other], &quot;attr&quot;) == 0);
++	fail_unless(strcmp(attrs[pkgm_origin], &quot;foo&quot;) == 0);
++	fail_unless(attrs[pkgm_prefix] == NULL);
++
++	fail_unless(pkg_manifest_set_attr(manifest, pkgm_other, NULL) == 0);
++	fail_unless((attrs = pkg_manifest_get_attrs(manifest)) != NULL);
++	fail_unless(attrs[pkgm_other] == NULL);
++	fail_unless(strcmp(attrs[pkgm_origin], &quot;foo&quot;) == 0);
++	fail_unless(attrs[pkgm_prefix] == NULL);
++
++	fail_unless(pkg_manifest_free(manifest) == 0);
++}
++END_TEST
++
++START_TEST(pkg_manifest_item)
++{
++	struct pkg_manifest *manifest;
++	struct pkg_manifest_item *item1, *item2, **item_list;
++
++	fail_unless((manifest = pkg_manifest_new()) != NULL);
++
++	fail_unless((item1 = pkg_manifest_item_new(pmia_ignore, &quot;ignore&quot;))
++	    != NULL);
++	fail_unless((item2 = pkg_manifest_item_new(pmia_md5, &quot;md5&quot;)) != NULL);
++
++	fail_unless(pkg_manifest_append_item(manifest, item1) == 0);
++	fail_unless((item_list = pkg_manifest_get_items(manifest)) != NULL);
++	fail_unless(item_list[0] == item1);
++
++	fail_unless(pkg_manifest_append_item(manifest, item2) == 0);
++	fail_unless((item_list = pkg_manifest_get_items(manifest)) != NULL);
++	fail_unless(item_list[0] == item1);
++	fail_unless(item_list[1] == item2);
++
++	fail_unless(pkg_manifest_free(manifest) == 0);
++}
++END_TEST
++
++/*
++ * TODO: Test pkg_manifest_get_file()
++ */
++
++Suite *
++pkg_manifest_suite()
++{
++	Suite *s;
++	TCase *tc;
++
++	s = suite_create(&quot;pkg_manifest&quot;);
++
++	tc = tcase_create(&quot;bad&quot;);
++	tcase_add_test(tc, pkg_manifest_empty);
++	tcase_add_test(tc, pkg_manifest_bad);
++	tcase_add_test(tc, pkg_manifest_version);
++	tcase_add_test(tc, pkg_manifest_dependency);
++	tcase_add_test(tc, pkg_manifest_conflict);
++	tcase_add_test(tc, pkg_manifest_name);
++	tcase_add_test(tc, pkg_manifest_attrib);
++	tcase_add_test(tc, pkg_manifest_item);
++	suite_add_tcase(s, tc);
++
++	return s;
++}
++
++
+
+
+</PRE>
+
+<!--endarticle-->
+    <HR>
+    <P><UL>
+        <!--threads-->
+	<LI>Previous message: <A HREF="000297.html">r313 - trunk/tests
+</A></li>
+	<LI>Next message: <A HREF="000299.html">r315 - trunk/tests
+</A></li>
+         <LI> <B>Messages sorted by:</B> 
+              <a href="date.html#298">[ date ]</a>
+              <a href="thread.html#298">[ thread ]</a>
+              <a href="subject.html#298">[ subject ]</a>
+              <a href="author.html#298">[ author ]</a>
+         </LI>
+       </UL>
+
+<hr>
+<a href="https://lists.berlios.de/mailman/listinfo/libpkg-svn">More information about the Libpkg-svn
+mailing list</a><br>
+</body></html>

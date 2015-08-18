@@ -1,0 +1,263 @@
+<!DOCTYPE HTML PUBLIC "-//W3C//DTD HTML 4.01 Transitional//EN">
+<HTML>
+ <HEAD>
+   <TITLE> [Libpkg-svn] r25 - / www
+   </TITLE>
+   <LINK REL="Index" HREF="http://lists.berlios.de/pipermail/libpkg-svn/2005-November/index.html" >
+   <LINK REL="made" HREF="mailto:libpkg-svn%40lists.berlios.de?Subject=Re%3A%20%5BLibpkg-svn%5D%20r25%20-%20/%20www&In-Reply-To=%3C200511190626.jAJ6QGSo018892%40sheep.berlios.de%3E">
+   <META NAME="robots" CONTENT="index,nofollow">
+   <style type="text/css">
+       pre {
+           white-space: pre-wrap;       /* css-2.1, curent FF, Opera, Safari */
+           }
+   </style>
+   <META http-equiv="Content-Type" content="text/html; charset=us-ascii">
+   <LINK REL="Previous"  HREF="000015.html">
+   <LINK REL="Next"  HREF="000017.html">
+ </HEAD>
+ <BODY BGCOLOR="#ffffff">
+   <H1>[Libpkg-svn] r25 - / www</H1>
+    <B>zxombie at BerliOS</B> 
+    <A HREF="mailto:libpkg-svn%40lists.berlios.de?Subject=Re%3A%20%5BLibpkg-svn%5D%20r25%20-%20/%20www&In-Reply-To=%3C200511190626.jAJ6QGSo018892%40sheep.berlios.de%3E"
+       TITLE="[Libpkg-svn] r25 - / www">zxombie at berlios.de
+       </A><BR>
+    <I>Sat Nov 19 07:26:16 CET 2005</I>
+    <P><UL>
+        <LI>Previous message: <A HREF="000015.html">[Libpkg-svn] r24 - trunk/src
+</A></li>
+        <LI>Next message: <A HREF="000017.html">[Libpkg-svn] r26 - www
+</A></li>
+         <LI> <B>Messages sorted by:</B> 
+              <a href="date.html#16">[ date ]</a>
+              <a href="thread.html#16">[ thread ]</a>
+              <a href="subject.html#16">[ subject ]</a>
+              <a href="author.html#16">[ author ]</a>
+         </LI>
+       </UL>
+    <HR>  
+<!--beginarticle-->
+<PRE>Author: zxombie
+Date: 2005-11-19 07:26:08 +0100 (Sat, 19 Nov 2005)
+New Revision: 25
+
+Added:
+   www/
+   www/Makefile
+   www/downloads.xml
+   www/index.css
+   www/index.xml
+   www/nav.xml
+   www/page.xsl
+Log:
+Import website
+
+Added: www/Makefile
+===================================================================
+--- www/Makefile	2005-11-18 08:31:39 UTC (rev 24)
++++ www/Makefile	2005-11-19 06:26:08 UTC (rev 25)
+@@ -0,0 +1,19 @@
++FILES=index.html downloads.html index.css
++
++FILESDIR?=/home/groups/libpkg/htdocs/test/
++
++all: ${FILES}
++
++install: ${FILES}
++	install ${FILES} ${FILESDIR}
++
++clean:
++	rm -fr *.html
++
++index.html: index.xml index.xsl
++	xsltproc index.xml &gt; index.html
++
++downloads.html: downloads.xml index.xsl
++	xsltproc downloads.xml &gt; downloads.html
++
++index.xsl: nav.xml
+
+Added: www/downloads.xml
+===================================================================
+--- www/downloads.xml	2005-11-18 08:31:39 UTC (rev 24)
++++ www/downloads.xml	2005-11-19 06:26:08 UTC (rev 25)
+@@ -0,0 +1,21 @@
++&lt;?xml version='1.0'?&gt;
++&lt;?xml-stylesheet href=&quot;page.xsl&quot; type=&quot;text/xsl&quot;?&gt;
++&lt;page name=&quot;downloads&quot;&gt;
++ &lt;title&gt;Download libpkg&lt;/title&gt;
++ &lt;body&gt;
++  &lt;div&gt;
++   &lt;h2&gt;Download Releases&lt;/h2&gt;
++   &lt;p&gt;The latest release is availiable from
++    &lt;a href=&quot;<A HREF="http://developer.berlios.de/project/showfiles.php?group_id=5252">http://developer.berlios.de/project/showfiles.php?group_id=5252</A>&quot;&gt;
++    the BerliOS files page&lt;/a&gt;&lt;/p&gt;
++  &lt;/div&gt;
++  &lt;div&gt;
++   &lt;h2&gt;Developement&lt;/h2&gt;
++   &lt;p&gt;The development branche can be retrieved from subversion by running
++    &lt;pre&gt;svn checkout <A HREF="svn://svn.berlios.de/libpkg/trunk&lt;/pre">svn://svn.berlios.de/libpkg/trunk&lt;/pre</A>&gt;
++    or
++    &lt;pre&gt;svn checkout <A HREF="http://svn.berlios.de/svnroot/repos/libpkg/trunk&lt;/pre">http://svn.berlios.de/svnroot/repos/libpkg/trunk&lt;/pre</A>&gt;
++   &lt;/p&gt;
++  &lt;/div&gt;
++ &lt;/body&gt;
++&lt;/page&gt;
+
+Added: www/index.css
+===================================================================
+--- www/index.css	2005-11-18 08:31:39 UTC (rev 24)
++++ www/index.css	2005-11-19 06:26:08 UTC (rev 25)
+@@ -0,0 +1,25 @@
++#title {
++	border-bottom:1px solid #B39B6B;
++	width: 30%;
++	text-align:center;
++	margin:0 auto;
++}
++
++#nav {
++	float:left;
++	padding:10px;
++	width:15%;
++}
++
++#main {
++	float:left;
++	line-height:1.01em;
++	padding-left:3.5%;
++	padding-right:3.5%;
++
++}
++
++#footer {
++	padding-top:5px;
++	clear:both;
++}
+
+Added: www/index.xml
+===================================================================
+--- www/index.xml	2005-11-18 08:31:39 UTC (rev 24)
++++ www/index.xml	2005-11-19 06:26:08 UTC (rev 25)
+@@ -0,0 +1,17 @@
++&lt;?xml version='1.0'?&gt;
++&lt;?xml-stylesheet href=&quot;page.xsl&quot; type=&quot;text/xsl&quot;?&gt;
++&lt;page name=&quot;index&quot;&gt;
++ &lt;title&gt;libpkg&lt;/title&gt;
++ &lt;body&gt;
++  &lt;h2&gt;About&lt;/h2&gt;
++  &lt;p&gt;libpkg is a library to fetch, install, remove and modify packages in a
++    package management system.&lt;/p&gt;
++  &lt;p&gt;It is initialy designed for FreeBSD but could be extennded for any
++    system.&lt;/p&gt;
++
++  &lt;h2&gt;Todo&lt;/h2&gt;
++  &lt;ul&gt;
++   &lt;li&gt;Create a better website&lt;/li&gt;
++  &lt;/ul&gt;
++ &lt;/body&gt;
++&lt;/page&gt;
+
+Added: www/nav.xml
+===================================================================
+--- www/nav.xml	2005-11-18 08:31:39 UTC (rev 24)
++++ www/nav.xml	2005-11-19 06:26:08 UTC (rev 25)
+@@ -0,0 +1,5 @@
++&lt;?xml version='1.0'?&gt;
++&lt;nav&gt;
++ &lt;page&gt;&lt;title&gt;Home&lt;/title&gt;&lt;file&gt;index&lt;/file&gt;&lt;/page&gt;
++ &lt;page&gt;&lt;title&gt;Downloads&lt;/title&gt;&lt;file&gt;downloads&lt;/file&gt;&lt;/page&gt;
++&lt;/nav&gt;
+
+Added: www/page.xsl
+===================================================================
+--- www/page.xsl	2005-11-18 08:31:39 UTC (rev 24)
++++ www/page.xsl	2005-11-19 06:26:08 UTC (rev 25)
+@@ -0,0 +1,64 @@
++&lt;?xml version='1.0'?&gt;
++&lt;!--&lt;!DOCTYPE xsl:stylesheet
++[
++  &lt;!ENTITY % site-entities SYSTEM &quot;entities.site&quot;&gt;
++  %site-entities;
++]&gt;--&gt;
++&lt;xsl:stylesheet xmlns:xsl=&quot;<A HREF="http://www.w3.org/1999/XSL/Transform">http://www.w3.org/1999/XSL/Transform</A>&quot;
++                version=&quot;1.0&quot;&gt;
++
++ &lt;xsl:output method=&quot;html&quot; /&gt;
++
++ &lt;xsl:template match=&quot;nav&quot;&gt;
++  &lt;ul&gt;
++   &lt;xsl:for-each select=&quot;page&quot;&gt;
++    &lt;li&gt;
++     &lt;a href=&quot;{file}.html&quot;&gt;
++      &lt;xsl:value-of select=&quot;title&quot; /&gt;
++     &lt;/a&gt;
++    &lt;/li&gt;
++   &lt;/xsl:for-each&gt;
++  &lt;/ul&gt;
++ &lt;/xsl:template&gt;
++
++ &lt;xsl:template name=&quot;head&quot;&gt;
++  &lt;head&gt;
++   &lt;title&gt;&lt;xsl:value-of select=&quot;title&quot; /&gt;&lt;/title&gt;
++    &lt;link rel=&quot;stylesheet&quot; type=&quot;text/css&quot; href=&quot;index.css&quot; /&gt;
++  &lt;/head&gt;
++ &lt;/xsl:template&gt;
++
++ &lt;xsl:template name=&quot;body&quot;&gt;
++  &lt;body&gt;
++   &lt;div id=&quot;title&quot;&gt;
++     &lt;h1&gt;&lt;xsl:value-of select=&quot;title&quot; /&gt;&lt;/h1&gt;
++   &lt;/div&gt;
++   &lt;div id=&quot;nav&quot;&gt;
++    &lt;xsl:apply-templates select=&quot;document('nav.xml')&quot;/&gt;
++   &lt;/div&gt;
++   &lt;div id=&quot;main&quot;&gt;
++    &lt;xsl:for-each select=&quot;body&quot;&gt;
++     &lt;xsl:copy-of select=&quot;node()&quot; /&gt;
++    &lt;/xsl:for-each&gt;
++   &lt;/div&gt;
++   &lt;div id=&quot;footer&quot;&gt;
++    &lt;a href=&quot;<A HREF="http://developer.berlios.de">http://developer.berlios.de</A>&quot; title=&quot;BerliOS Developer&quot;&gt;
++     &lt;img src=&quot;<A HREF="http://developer.berlios.de/bslogo.php?group_id=5252">http://developer.berlios.de/bslogo.php?group_id=5252</A>&quot; width=&quot;124px&quot; height=&quot;32px&quot; border=&quot;0&quot; alt=&quot;BerliOS Developer Logo&quot; /&gt;
++    &lt;/a&gt;
++   &lt;/div&gt;
++  &lt;/body&gt;
++ &lt;/xsl:template&gt;
++
++ &lt;xsl:template name=&quot;page&quot;&gt;
++  &lt;xsl:variable name=&quot;this_file&quot; select=&quot;page[name]&quot; /&gt;
++  &lt;html&gt;
++   &lt;xsl:call-template name=&quot;head&quot; /&gt;
++   &lt;xsl:call-template name=&quot;body&quot; /&gt;
++  &lt;/html&gt;
++ &lt;/xsl:template&gt;
++
++
++ &lt;xsl:template match=&quot;page&quot;&gt;
++  &lt;xsl:call-template name=&quot;page&quot; /&gt;
++ &lt;/xsl:template&gt;
++&lt;/xsl:stylesheet&gt;
+
+
+</PRE>
+
+<!--endarticle-->
+    <HR>
+    <P><UL>
+        <!--threads-->
+	<LI>Previous message: <A HREF="000015.html">[Libpkg-svn] r24 - trunk/src
+</A></li>
+	<LI>Next message: <A HREF="000017.html">[Libpkg-svn] r26 - www
+</A></li>
+         <LI> <B>Messages sorted by:</B> 
+              <a href="date.html#16">[ date ]</a>
+              <a href="thread.html#16">[ thread ]</a>
+              <a href="subject.html#16">[ subject ]</a>
+              <a href="author.html#16">[ author ]</a>
+         </LI>
+       </UL>
+
+<hr>
+<a href="https://lists.berlios.de/mailman/listinfo/libpkg-svn">More information about the Libpkg-svn
+mailing list</a><br>
+</body></html>

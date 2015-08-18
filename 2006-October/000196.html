@@ -1,0 +1,118 @@
+<!DOCTYPE HTML PUBLIC "-//W3C//DTD HTML 4.01 Transitional//EN">
+<HTML>
+ <HEAD>
+   <TITLE> [Libpkg-svn] r212 - trunk/src
+   </TITLE>
+   <LINK REL="Index" HREF="http://lists.berlios.de/pipermail/libpkg-svn/2006-October/index.html" >
+   <LINK REL="made" HREF="mailto:libpkg-svn%40lists.berlios.de?Subject=Re%3A%20%5BLibpkg-svn%5D%20r212%20-%20trunk/src&In-Reply-To=%3C200610270532.k9R5WnsU004216%40sheep.berlios.de%3E">
+   <META NAME="robots" CONTENT="index,nofollow">
+   <style type="text/css">
+       pre {
+           white-space: pre-wrap;       /* css-2.1, curent FF, Opera, Safari */
+           }
+   </style>
+   <META http-equiv="Content-Type" content="text/html; charset=us-ascii">
+   <LINK REL="Previous"  HREF="000195.html">
+   <LINK REL="Next"  HREF="000197.html">
+ </HEAD>
+ <BODY BGCOLOR="#ffffff">
+   <H1>[Libpkg-svn] r212 - trunk/src</H1>
+    <B>zxombie at BerliOS</B> 
+    <A HREF="mailto:libpkg-svn%40lists.berlios.de?Subject=Re%3A%20%5BLibpkg-svn%5D%20r212%20-%20trunk/src&In-Reply-To=%3C200610270532.k9R5WnsU004216%40sheep.berlios.de%3E"
+       TITLE="[Libpkg-svn] r212 - trunk/src">zxombie at mail.berlios.de
+       </A><BR>
+    <I>Fri Oct 27 07:32:49 CEST 2006</I>
+    <P><UL>
+        <LI>Previous message: <A HREF="000195.html">[Libpkg-svn] r211 - in trunk/tools: . pkg_delete
+</A></li>
+        <LI>Next message: <A HREF="000197.html">[Libpkg-svn] r213 - trunk/src
+</A></li>
+         <LI> <B>Messages sorted by:</B> 
+              <a href="date.html#196">[ date ]</a>
+              <a href="thread.html#196">[ thread ]</a>
+              <a href="subject.html#196">[ subject ]</a>
+              <a href="author.html#196">[ author ]</a>
+         </LI>
+       </UL>
+    <HR>  
+<!--beginarticle-->
+<PRE>Author: zxombie
+Date: 2006-10-27 07:32:49 +0200 (Fri, 27 Oct 2006)
+New Revision: 212
+
+Modified:
+   trunk/src/pkg.h
+   trunk/src/pkgfile.c
+Log:
+Add pkgfile_get_type_string to get a string with the file type
+
+
+Modified: trunk/src/pkg.h
+===================================================================
+--- trunk/src/pkg.h	2006-10-26 23:28:44 UTC (rev 211)
++++ trunk/src/pkg.h	2006-10-27 05:32:49 UTC (rev 212)
+@@ -55,6 +55,7 @@
+ const char	*pkgfile_get_name(struct pkgfile *);
+ uint64_t	 pkgfile_get_size(struct pkgfile *);
+ const char	*pkgfile_get_data(struct pkgfile *);
++const char	*pkgfile_get_type_string(struct pkgfile*);
+ int		 pkgfile_set_checksum_md5(struct pkgfile *, const char *);
+ int		 pkgfile_compare_checksum_md5(struct pkgfile *);
+ int		 pkgfile_seek(struct pkgfile *, uint64_t, int);
+
+Modified: trunk/src/pkgfile.c
+===================================================================
+--- trunk/src/pkgfile.c	2006-10-26 23:28:44 UTC (rev 211)
++++ trunk/src/pkgfile.c	2006-10-27 05:32:49 UTC (rev 212)
+@@ -48,6 +48,9 @@
+ static int		 pkgfile_open_fd(struct pkgfile *);
+ static int		 pkgfile_get_type(struct pkgfile *);
+ 
++static const char *pkgfile_types[] =
++	{ &quot;none&quot;, &quot;file&quot;, &quot;hardlink&quot;, &quot;symlink&quot;, &quot;directory&quot; };
++
+ /**
+  * @defgroup PackageFileInternal Internal file functions
+  * Internal functions in the package module
+@@ -401,6 +404,17 @@
+ }
+ 
+ /**
++ * @brief Gets a string containing a description of the type of the file
++ * @return A null terminated string with the name of the file type
++ */
++const char *
++pkgfile_get_type_string(struct pkgfile *file)
++{
++	pkgfile_get_type(file);
++	return pkgfile_types[file-&gt;type];
++}
++
++/**
+  * @brief Sets the expected md5 of a file
+  * @return  0 on success
+  * @return -1 on error
+
+
+</PRE>
+
+<!--endarticle-->
+    <HR>
+    <P><UL>
+        <!--threads-->
+	<LI>Previous message: <A HREF="000195.html">[Libpkg-svn] r211 - in trunk/tools: . pkg_delete
+</A></li>
+	<LI>Next message: <A HREF="000197.html">[Libpkg-svn] r213 - trunk/src
+</A></li>
+         <LI> <B>Messages sorted by:</B> 
+              <a href="date.html#196">[ date ]</a>
+              <a href="thread.html#196">[ thread ]</a>
+              <a href="subject.html#196">[ subject ]</a>
+              <a href="author.html#196">[ author ]</a>
+         </LI>
+       </UL>
+
+<hr>
+<a href="https://lists.berlios.de/mailman/listinfo/libpkg-svn">More information about the Libpkg-svn
+mailing list</a><br>
+</body></html>

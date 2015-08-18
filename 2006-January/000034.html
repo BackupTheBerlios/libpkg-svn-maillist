@@ -1,0 +1,176 @@
+<!DOCTYPE HTML PUBLIC "-//W3C//DTD HTML 4.01 Transitional//EN">
+<HTML>
+ <HEAD>
+   <TITLE> [Libpkg-svn] r49 - trunk/src
+   </TITLE>
+   <LINK REL="Index" HREF="http://lists.berlios.de/pipermail/libpkg-svn/2006-January/index.html" >
+   <LINK REL="made" HREF="mailto:libpkg-svn%40lists.berlios.de?Subject=Re%3A%20%5BLibpkg-svn%5D%20r49%20-%20trunk/src&In-Reply-To=%3C200601102159.k0ALxlCr010747%40sheep.berlios.de%3E">
+   <META NAME="robots" CONTENT="index,nofollow">
+   <style type="text/css">
+       pre {
+           white-space: pre-wrap;       /* css-2.1, curent FF, Opera, Safari */
+           }
+   </style>
+   <META http-equiv="Content-Type" content="text/html; charset=us-ascii">
+   <LINK REL="Previous"  HREF="000033.html">
+   <LINK REL="Next"  HREF="000035.html">
+ </HEAD>
+ <BODY BGCOLOR="#ffffff">
+   <H1>[Libpkg-svn] r49 - trunk/src</H1>
+    <B>zxombie at BerliOS</B> 
+    <A HREF="mailto:libpkg-svn%40lists.berlios.de?Subject=Re%3A%20%5BLibpkg-svn%5D%20r49%20-%20trunk/src&In-Reply-To=%3C200601102159.k0ALxlCr010747%40sheep.berlios.de%3E"
+       TITLE="[Libpkg-svn] r49 - trunk/src">zxombie at berlios.de
+       </A><BR>
+    <I>Tue Jan 10 22:59:47 CET 2006</I>
+    <P><UL>
+        <LI>Previous message: <A HREF="000033.html">[Libpkg-svn] r48 - trunk/src
+</A></li>
+        <LI>Next message: <A HREF="000035.html">[Libpkg-svn] r50 - trunk/src
+</A></li>
+         <LI> <B>Messages sorted by:</B> 
+              <a href="date.html#34">[ date ]</a>
+              <a href="thread.html#34">[ thread ]</a>
+              <a href="subject.html#34">[ subject ]</a>
+              <a href="author.html#34">[ author ]</a>
+         </LI>
+       </UL>
+    <HR>  
+<!--beginarticle-->
+<PRE>Author: zxombie
+Date: 2006-01-10 22:59:44 +0100 (Tue, 10 Jan 2006)
+New Revision: 49
+
+Modified:
+   trunk/src/pkg_freebsd.c
+   trunk/src/pkg_freebsd.h
+   trunk/src/pkg_freebsd_contents.c
+   trunk/src/pkg_freebsd_private.h
+Log:
+General changes to build pkg_info with libpkg:
+Make pkg_freebsd_contents_line public to get the lines from the +CONTENTS file
+Add pkg_freebsd_get_contents to retrieve pkg_freebsd_contents. The contents are private but it is needed to then retrieve more information from.
+Add pkg_freebsd_contents_get_line to get the given line from the +CONTENTS file
+
+
+Modified: trunk/src/pkg_freebsd.c
+===================================================================
+--- trunk/src/pkg_freebsd.c	2006-01-09 06:02:35 UTC (rev 48)
++++ trunk/src/pkg_freebsd.c	2006-01-10 21:59:44 UTC (rev 49)
+@@ -255,6 +255,15 @@
+ 	return pkg;
+ }
+ 
++struct pkg_freebsd_contents *
++pkg_freebsd_get_contents(struct pkg *pkg)
++{
++	if (pkg == NULL)
++		return NULL;
++
++	return ((struct freebsd_package *)pkg-&gt;data)-&gt;contents;
++}
++
+ /*
+  * Returns the origin of a given package
+  */
+
+Modified: trunk/src/pkg_freebsd.h
+===================================================================
+--- trunk/src/pkg_freebsd.h	2006-01-09 06:02:35 UTC (rev 48)
++++ trunk/src/pkg_freebsd.h	2006-01-10 21:59:44 UTC (rev 49)
+@@ -47,8 +47,16 @@
+ 	PKG_LINE_FILE = 11
+ };
+ 
++struct pkg_freebsd_contents_line {
++	int	 line_type;
++	char	*line;
++	char	*data;
++};
++
+ extern const char *pkg_freebsd_contents_line_str[];
+ 
++struct pkg_freebsd_contents *pkg_freebsd_get_contents(struct pkg *);
++
+ struct pkg_freebsd_contents *pkg_freebsd_contents_new(const char *);
+ int	 pkg_freebsd_contents_add_line(struct pkg_freebsd_contents *, int,
+ 	    const char *);
+@@ -56,6 +64,9 @@
+ 	    struct pkg *);
+ int	 pkg_freebsd_contents_add_file(struct pkg_freebsd_contents *,
+ 	    struct pkg_file *);
++struct pkg_freebsd_contents_line *pkg_freebsd_contents_get_line
++					(struct pkg_freebsd_contents *,
++					 unsigned int);
+ int	 pkg_freebsd_contents_free(struct pkg_freebsd_contents *);
+ 
+ #endif /* __LIBPKG_PKG_FREEBSD_H__ */
+
+Modified: trunk/src/pkg_freebsd_contents.c
+===================================================================
+--- trunk/src/pkg_freebsd_contents.c	2006-01-09 06:02:35 UTC (rev 48)
++++ trunk/src/pkg_freebsd_contents.c	2006-01-10 21:59:44 UTC (rev 49)
+@@ -285,6 +285,22 @@
+ }
+ 
+ /*
++ * Gets the given line from the contents file
++ */
++struct pkg_freebsd_contents_line*
++pkg_freebsd_contents_get_line(struct pkg_freebsd_contents *contents,
++		unsigned int line)
++{
++	if (contents == NULL)
++		return NULL;
++
++	if (line &gt; contents-&gt;line_count)
++		return NULL;
++
++	return &amp;contents-&gt;lines[line];
++}
++
++/*
+  * Frees a contents struct
+  */
+ int
+
+Modified: trunk/src/pkg_freebsd_private.h
+===================================================================
+--- trunk/src/pkg_freebsd_private.h	2006-01-09 06:02:35 UTC (rev 48)
++++ trunk/src/pkg_freebsd_private.h	2006-01-10 21:59:44 UTC (rev 49)
+@@ -30,12 +30,6 @@
+ #ifndef __LIBPKG_PKG_FREEBSD_PRIVATE_H__
+ #define __LIBPKG_PKG_FREEBSD_PRIVATE_H__
+ 
+-struct pkg_freebsd_contents_line {
+-	int	 line_type;
+-	char	*line;
+-	char	*data;
+-};
+-
+ struct pkg_freebsd_contents {
+ 	char		*file;
+ 	unsigned int	 line_count;
+
+
+</PRE>
+
+<!--endarticle-->
+    <HR>
+    <P><UL>
+        <!--threads-->
+	<LI>Previous message: <A HREF="000033.html">[Libpkg-svn] r48 - trunk/src
+</A></li>
+	<LI>Next message: <A HREF="000035.html">[Libpkg-svn] r50 - trunk/src
+</A></li>
+         <LI> <B>Messages sorted by:</B> 
+              <a href="date.html#34">[ date ]</a>
+              <a href="thread.html#34">[ thread ]</a>
+              <a href="subject.html#34">[ subject ]</a>
+              <a href="author.html#34">[ author ]</a>
+         </LI>
+       </UL>
+
+<hr>
+<a href="https://lists.berlios.de/mailman/listinfo/libpkg-svn">More information about the Libpkg-svn
+mailing list</a><br>
+</body></html>

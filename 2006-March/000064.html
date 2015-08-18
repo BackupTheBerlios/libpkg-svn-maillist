@@ -1,0 +1,346 @@
+<!DOCTYPE HTML PUBLIC "-//W3C//DTD HTML 4.01 Transitional//EN">
+<HTML>
+ <HEAD>
+   <TITLE> [Libpkg-svn] r80 - trunk/src
+   </TITLE>
+   <LINK REL="Index" HREF="http://lists.berlios.de/pipermail/libpkg-svn/2006-March/index.html" >
+   <LINK REL="made" HREF="mailto:libpkg-svn%40lists.berlios.de?Subject=Re%3A%20%5BLibpkg-svn%5D%20r80%20-%20trunk/src&In-Reply-To=%3C200603230955.k2N9tdME013389%40sheep.berlios.de%3E">
+   <META NAME="robots" CONTENT="index,nofollow">
+   <style type="text/css">
+       pre {
+           white-space: pre-wrap;       /* css-2.1, curent FF, Opera, Safari */
+           }
+   </style>
+   <META http-equiv="Content-Type" content="text/html; charset=us-ascii">
+   <LINK REL="Previous"  HREF="000063.html">
+   <LINK REL="Next"  HREF="000065.html">
+ </HEAD>
+ <BODY BGCOLOR="#ffffff">
+   <H1>[Libpkg-svn] r80 - trunk/src</H1>
+    <B>zxombie at BerliOS</B> 
+    <A HREF="mailto:libpkg-svn%40lists.berlios.de?Subject=Re%3A%20%5BLibpkg-svn%5D%20r80%20-%20trunk/src&In-Reply-To=%3C200603230955.k2N9tdME013389%40sheep.berlios.de%3E"
+       TITLE="[Libpkg-svn] r80 - trunk/src">zxombie at berlios.de
+       </A><BR>
+    <I>Thu Mar 23 10:55:39 CET 2006</I>
+    <P><UL>
+        <LI>Previous message: <A HREF="000063.html">[Libpkg-svn] r79 - trunk/src
+</A></li>
+        <LI>Next message: <A HREF="000065.html">[Libpkg-svn] r81 - trunk/src
+</A></li>
+         <LI> <B>Messages sorted by:</B> 
+              <a href="date.html#64">[ date ]</a>
+              <a href="thread.html#64">[ thread ]</a>
+              <a href="subject.html#64">[ subject ]</a>
+              <a href="author.html#64">[ author ]</a>
+         </LI>
+       </UL>
+    <HR>  
+<!--beginarticle-->
+<PRE>Author: zxombie
+Date: 2006-03-23 10:55:34 +0100 (Thu, 23 Mar 2006)
+New Revision: 80
+
+Modified:
+   trunk/src/pkg_db_freebsd.c
+   trunk/src/pkg_freebsd_contents.c
+Log:
+Document the FreeBSD pkg_db object and FreeBSD +CONTENT handeling
+
+
+Modified: trunk/src/pkg_db_freebsd.c
+===================================================================
+--- trunk/src/pkg_db_freebsd.c	2006-03-23 09:41:31 UTC (rev 79)
++++ trunk/src/pkg_db_freebsd.c	2006-03-23 09:55:34 UTC (rev 80)
+@@ -52,7 +52,7 @@
+  * State transition array for the head part of a +CONTENTS file.
+  * p0 is the start state, p4 and p6 are the accepting states
+  */
+-static int pkg_states[7][12] = {
++static const int pkg_states[7][12] = {
+ 	{ -1,  1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1 }, /* p0 */
+ 	{ -1, -1,  2, -1, -1, -1, -1, -1, -1, -1, -1, -1 }, /* p1 */
+ 	{ -1,  3, -1,  4, -1, -1, -1, -1, -1, -1, -1, -1 }, /* p2 */
+@@ -62,23 +62,32 @@
+ 	{ -1, -1, -1, -1, -1,  6, -1, -1, -1, -1, -1, -1 }  /* p6 */
+ };
+ 
+-static int		  freebsd_install_pkg_action(struct pkg_db *,
++pkg_static int		  freebsd_install_pkg_action(struct pkg_db *,
+ 				struct pkg *, pkg_db_action *);
+-static int		  freebsd_is_installed(struct pkg_db *, struct pkg *);
+-static struct pkg	**freebsd_get_installed_match(struct pkg_db *,
++pkg_static int		  freebsd_is_installed(struct pkg_db *, struct pkg *);
++pkg_static struct pkg	**freebsd_get_installed_match(struct pkg_db *,
+ 				pkg_db_match *, const void *);
+-static struct pkg	 *freebsd_get_package(struct pkg_db *, const char *);	
++pkg_static struct pkg	 *freebsd_get_package(struct pkg_db *, const char *);	
+ 
+ /* Internal */
+-static struct pkg_file	*freebsd_build_contents(struct pkg_freebsd_contents *);
+-static int		 freebsd_do_cwd(struct pkg_db *, struct pkg *,
++pkg_static struct pkg_file	*freebsd_build_contents(
++				struct pkg_freebsd_contents *);
++pkg_static int			 freebsd_do_cwd(struct pkg_db *, struct pkg *,
+ 				char *ndir);
+-static int		 freebsd_check_contents(struct pkg_db *,
++pkg_static int			 freebsd_check_contents(struct pkg_db *,
+ 				struct pkg_freebsd_contents *);
+ 
+-/*
+- * Opens the FreeBSD Package Database
++/**
++ * @defgroup PackageDBFreebsd FreeBSD Package Database handeling
++ * @ingroup PackageDB
++ *
++ * @{
+  */
++
++/**
++ * @brief Opens the FreeBSD Package Database
++ * @return A package database that will install FreeBSD packages
++ */
+ struct pkg_db*
+ pkg_db_open_freebsd(const char *base)
+ {
+@@ -87,10 +96,29 @@
+ 	    freebsd_get_package);
+ }
+ 
+-/*
+- * Installs the package pkg to the database db
+- * Calls action on each action. This is used for verbose support.
++/**
++ * @}
+  */
++
++/**
++ * @defgroup PackageDBFreebsdCallback FreeBSD package database callbacks
++ * @ingroup PackageDBFreebsd
++ * @brief FreeBSD package database callback functions.
++ *
++ * @{
++ */
++
++/**
++ * @brief Callback for pkg_db_install_pkg_action()
++ * @param db The database to install to
++ * @param pkg The package to install
++ * @param pkg_action A function to call when an action takes place
++ * @todo Run mtree
++ * @todo Register the reverse dependencies
++ * @bug When the install fails part way through remove some files are left.
++ *     Remove these.
++ * @return 0 on success, -1 on error
++ */
+ static int
+ freebsd_install_pkg_action(struct pkg_db *db, struct pkg *pkg,
+     pkg_db_action *pkg_action)
+@@ -320,9 +348,9 @@
+ 	return 0;
+ }
+ 
+-/*
+- * Returns 0 if the package is installed
+- *        -1 otherwise
++/**
++ * @brief Callback for pkg_db_is_installed()
++ * @returns 0 on of the package is installed, -1 otherwise
+  */
+ static int
+ freebsd_is_installed(struct pkg_db *db, struct pkg *pkg)
+@@ -362,8 +390,10 @@
+ 	return is_installed;
+ }
+ 
+-/*
+- * Gets all installed packages
++/**
++ * @brief Callback for pkg_db_get_installed_match()
++ * @return A null-terminated array of packages that when passed to the match
++ *     function it returns 0. NULL on error
+  */
+ static struct pkg **
+ freebsd_get_installed_match(struct pkg_db *db, pkg_db_match *match, const void *data)
+@@ -417,8 +447,9 @@
+ 	return packages;
+ }
+ 
+-/*
+- * Finds a package with the name from pkg_name
++/**
++ * @brief Callback for pkg_db_get_package()
++ * @return The named package or NULL
+  */
+ static struct pkg *
+ freebsd_get_package(struct pkg_db *db, const char *pkg_name)
+@@ -429,9 +460,23 @@
+ 	return pkg_new_freebsd_installed(pkg_name, dir);
+ }
+ 
+-/*
+- * Internal function to to the correct thing for an @cwd line
++/**
++ * @}
+  */
++
++/**
++ * @defgroup PackageDBFreebsdInternal FreeBSD package database
++ *     internal functions
++ * @ingroup PackageDBFreebsd
++ * @brief Functions to help the FreeBSD package database callbacks
++ *
++ * @{
++ */
++
++/**
++ * @brief Internal function to to the correct thing for an @cwd line
++ * @return 0 if successful or -1 on error
++ */
+ static int
+ freebsd_do_cwd(struct pkg_db *db, struct pkg *pkg, char *ndir) {
+ 	char *dir;
+@@ -468,8 +513,12 @@
+ 	return 0;
+ }
+ 
+-/*
+- * Builds the new cotents file to be installed in /var/db/pkg/foo-1.2.3
++/**
++ * @brief Builds a new cotents file
++ * @param contents The contents data to build the file from
++ *
++ * The file can be installed in /var/db/pkg/foo-1.2,3
++ * @return The new contents file or NULL
+  */
+ static struct pkg_file *
+ freebsd_build_contents(struct pkg_freebsd_contents *contents)
+@@ -546,10 +595,9 @@
+ 	return pkg_file_new_from_buffer(&quot;+CONTENTS&quot;, used, buffer, NULL);
+ }
+ 
+-/*
+- * Unlike most functions this return -1 on error.
+- * It will return the number of lines to
+- * skip to get to the first file.
++/**
++ * @brief Checks the start of a contents file
++ * @return The number of lines to skip to get to the first file or -1 on error
+  */
+ static int
+ freebsd_check_contents(struct pkg_db *db, struct pkg_freebsd_contents *contents)
+@@ -589,3 +637,7 @@
+ 	}
+ 	return i;
+ }
++
++/**
++ * @}
++ */
+
+Modified: trunk/src/pkg_freebsd_contents.c
+===================================================================
+--- trunk/src/pkg_freebsd_contents.c	2006-03-23 09:41:31 UTC (rev 79)
++++ trunk/src/pkg_freebsd_contents.c	2006-03-23 09:55:34 UTC (rev 80)
+@@ -40,7 +40,16 @@
+ #include &quot;pkg_private.h&quot;
+ #include &quot;pkg_freebsd_private.h&quot;
+ 
+-const char *pkg_freebsd_contents_line_str[] = {
++/**
++ * @defgroup FreebsdContents FreeBSD +CONTENTS handeling
++ *
++ * @{
++ */
++
++/**
++ * @brief All possible line types in a +CONTENTS file
++ */
++static const char *pkg_freebsd_contents_line_str[] = {
+ 	&quot;&quot;,
+ 	&quot;@comment&quot;,
+ 	&quot;@name&quot;,
+@@ -55,7 +64,7 @@
+ 	NULL
+ };
+ 
+-/*
++/**
+  * Reads a FreeBSD +CONTENTS file create a struct pkg_freebsd_contents
+  */
+ struct pkg_freebsd_contents *
+@@ -176,7 +185,7 @@
+ 	return cont;
+ }
+ 
+-/*
++/**
+  * Adds a line of type with the value of data the fiven contents file
+  */
+ int
+@@ -220,7 +229,7 @@
+ 	return 0;
+ }
+ 
+-/*
++/**
+  * Adds a dependency to a +CONTENTS file
+  */
+ int
+@@ -253,7 +262,7 @@
+ 	return -1;
+ }
+ 
+-/*
++/**
+  * Add's a file the the +CONTENTS file
+  */
+ int
+@@ -284,7 +293,7 @@
+ 	return 0;
+ }
+ 
+-/*
++/**
+  * Gets the given line from the contents file
+  */
+ struct pkg_freebsd_contents_line*
+@@ -300,7 +309,7 @@
+ 	return &amp;contents-&gt;lines[line];
+ }
+ 
+-/*
++/**
+  * Frees a contents struct
+  */
+ int
+@@ -320,3 +329,6 @@
+ 
+ 	return 0;
+ }
++/**
++ * @}
++ */
+
+
+</PRE>
+
+<!--endarticle-->
+    <HR>
+    <P><UL>
+        <!--threads-->
+	<LI>Previous message: <A HREF="000063.html">[Libpkg-svn] r79 - trunk/src
+</A></li>
+	<LI>Next message: <A HREF="000065.html">[Libpkg-svn] r81 - trunk/src
+</A></li>
+         <LI> <B>Messages sorted by:</B> 
+              <a href="date.html#64">[ date ]</a>
+              <a href="thread.html#64">[ thread ]</a>
+              <a href="subject.html#64">[ subject ]</a>
+              <a href="author.html#64">[ author ]</a>
+         </LI>
+       </UL>
+
+<hr>
+<a href="https://lists.berlios.de/mailman/listinfo/libpkg-svn">More information about the Libpkg-svn
+mailing list</a><br>
+</body></html>

@@ -1,0 +1,175 @@
+<!DOCTYPE HTML PUBLIC "-//W3C//DTD HTML 4.01 Transitional//EN">
+<HTML>
+ <HEAD>
+   <TITLE> [Libpkg-svn] r225 - trunk/src
+   </TITLE>
+   <LINK REL="Index" HREF="http://lists.berlios.de/pipermail/libpkg-svn/2006-November/index.html" >
+   <LINK REL="made" HREF="mailto:libpkg-svn%40lists.berlios.de?Subject=Re%3A%20%5BLibpkg-svn%5D%20r225%20-%20trunk/src&In-Reply-To=%3C200611150853.kAF8rSKA002732%40sheep.berlios.de%3E">
+   <META NAME="robots" CONTENT="index,nofollow">
+   <style type="text/css">
+       pre {
+           white-space: pre-wrap;       /* css-2.1, curent FF, Opera, Safari */
+           }
+   </style>
+   <META http-equiv="Content-Type" content="text/html; charset=us-ascii">
+   <LINK REL="Previous"  HREF="000208.html">
+   <LINK REL="Next"  HREF="000210.html">
+ </HEAD>
+ <BODY BGCOLOR="#ffffff">
+   <H1>[Libpkg-svn] r225 - trunk/src</H1>
+    <B>zxombie at BerliOS</B> 
+    <A HREF="mailto:libpkg-svn%40lists.berlios.de?Subject=Re%3A%20%5BLibpkg-svn%5D%20r225%20-%20trunk/src&In-Reply-To=%3C200611150853.kAF8rSKA002732%40sheep.berlios.de%3E"
+       TITLE="[Libpkg-svn] r225 - trunk/src">zxombie at mail.berlios.de
+       </A><BR>
+    <I>Wed Nov 15 09:53:28 CET 2006</I>
+    <P><UL>
+        <LI>Previous message: <A HREF="000208.html">[Libpkg-svn] r224 - trunk/tools/pkg_delete
+</A></li>
+        <LI>Next message: <A HREF="000210.html">[Libpkg-svn] r226 - trunk/tools/pkg_delete
+</A></li>
+         <LI> <B>Messages sorted by:</B> 
+              <a href="date.html#209">[ date ]</a>
+              <a href="thread.html#209">[ thread ]</a>
+              <a href="subject.html#209">[ subject ]</a>
+              <a href="author.html#209">[ author ]</a>
+         </LI>
+       </UL>
+    <HR>  
+<!--beginarticle-->
+<PRE>Author: zxombie
+Date: 2006-11-15 09:53:26 +0100 (Wed, 15 Nov 2006)
+New Revision: 225
+
+Modified:
+   trunk/src/pkg_db.c
+   trunk/src/pkg_db.h
+   trunk/src/pkg_db_freebsd.c
+   trunk/src/pkg_db_private.h
+Log:
+Add a force argument to pkg_db_delete_package(_action)
+
+
+Modified: trunk/src/pkg_db.c
+===================================================================
+--- trunk/src/pkg_db.c	2006-11-15 08:40:15 UTC (rev 224)
++++ trunk/src/pkg_db.c	2006-11-15 08:53:26 UTC (rev 225)
+@@ -279,9 +279,10 @@
+  * @param fake If true don't deinstall but run through the procedure
+  */
+ int
+-pkg_db_delete_package(struct pkg_db *db, struct pkg *pkg, int scripts, int fake)
++pkg_db_delete_package(struct pkg_db *db, struct pkg *pkg, int scripts, int fake,
++	int force)
+ {
+-	return pkg_db_delete_package_action(db, pkg, scripts, fake, NULL);
++	return pkg_db_delete_package_action(db, pkg, scripts, fake, force,NULL);
+ }
+ 
+ /**
+@@ -297,7 +298,7 @@
+  */
+ int
+ pkg_db_delete_package_action(struct pkg_db *db, struct pkg *pkg, int scripts,
+-	int fake, pkg_db_action *action)
++	int fake, int force, pkg_db_action *action)
+ {
+ 	if (db == NULL || pkg == NULL)
+ 		return -1;
+@@ -306,7 +307,7 @@
+ 		action = pkg_action_null;
+ 
+ 	if (db-&gt;pkg_deinstall != NULL)
+-		return db-&gt;pkg_deinstall(db, pkg, scripts, fake, action);
++		return db-&gt;pkg_deinstall(db, pkg, scripts, fake, force, action);
+ 	return -1;
+ }
+ 
+
+Modified: trunk/src/pkg_db.h
+===================================================================
+--- trunk/src/pkg_db.h	2006-11-15 08:40:15 UTC (rev 224)
++++ trunk/src/pkg_db.h	2006-11-15 08:53:26 UTC (rev 225)
+@@ -59,9 +59,10 @@
+ struct pkg	**pkg_db_get_installed_match_count(struct pkg_db *,
+ 			pkg_db_match *, unsigned int, const void *);
+ struct pkg	 *pkg_db_get_package(struct pkg_db *, const char *);
+-int		  pkg_db_delete_package(struct pkg_db *, struct pkg *, int,int);
++int		  pkg_db_delete_package(struct pkg_db *, struct pkg *, int,
++			int, int);
+ int		  pkg_db_delete_package_action(struct pkg_db *, struct pkg *,
+-			int, int, pkg_db_action *);
++			int, int, int, pkg_db_action *);
+ int		  pkg_db_free(struct pkg_db *);
+ 
+ /* Helper functions that use an internal callback for pkg_db_get_installed_match() */
+
+Modified: trunk/src/pkg_db_freebsd.c
+===================================================================
+--- trunk/src/pkg_db_freebsd.c	2006-11-15 08:40:15 UTC (rev 224)
++++ trunk/src/pkg_db_freebsd.c	2006-11-15 08:53:26 UTC (rev 225)
+@@ -78,7 +78,7 @@
+ 				pkg_db_match *, unsigned int, const void *);
+ static struct pkg	 *freebsd_get_package(struct pkg_db *, const char *);
+ static int		  freebsd_deinstall_pkg(struct pkg_db *, struct pkg *,
+-				int, int, pkg_db_action *);
++				int, int, int, pkg_db_action *);
+ 
+ /* pkg_(install|deinstall) callbacks */
+ static int	freebsd_do_chdir(struct pkg *, pkg_db_action *, void *,
+@@ -383,7 +383,7 @@
+  */
+ static int
+ freebsd_deinstall_pkg(struct pkg_db *db, struct pkg *the_pkg, int scripts,
+-	int fake, pkg_db_action *pkg_action)
++	int fake, int force, pkg_db_action *pkg_action)
+ {
+ 	struct pkg_install_data deinstall_data;
+ 	struct pkg *real_pkg;
+@@ -392,6 +392,9 @@
+ 	assert(db != NULL);
+ 	assert(the_pkg != NULL);
+ 
++	/** @todo listen to the force flag correctly */
++	assert(force == 0);
++
+ 	/* Get the real package. The one supplyed may be an empty one */
+ 	/** @todo Check if the package suplyed is a valid package or not */
+ 	real_pkg = freebsd_get_package(db, pkg_get_name(the_pkg));
+
+Modified: trunk/src/pkg_db_private.h
+===================================================================
+--- trunk/src/pkg_db_private.h	2006-11-15 08:40:15 UTC (rev 224)
++++ trunk/src/pkg_db_private.h	2006-11-15 08:53:26 UTC (rev 225)
+@@ -38,7 +38,7 @@
+ typedef struct pkg	**pkg_db_get_installed_match_callback(struct pkg_db *,
+ 				pkg_db_match *, unsigned int, const void *);
+ typedef int	pkg_db_deinstall_pkg_callback(struct pkg_db *, struct pkg *,
+-			int, int, pkg_db_action *);
++			int, int, int, pkg_db_action *);
+ 
+ 
+ struct pkg_db	*pkg_db_open(const char *, pkg_db_install_pkg_callback *,
+
+
+</PRE>
+
+<!--endarticle-->
+    <HR>
+    <P><UL>
+        <!--threads-->
+	<LI>Previous message: <A HREF="000208.html">[Libpkg-svn] r224 - trunk/tools/pkg_delete
+</A></li>
+	<LI>Next message: <A HREF="000210.html">[Libpkg-svn] r226 - trunk/tools/pkg_delete
+</A></li>
+         <LI> <B>Messages sorted by:</B> 
+              <a href="date.html#209">[ date ]</a>
+              <a href="thread.html#209">[ thread ]</a>
+              <a href="subject.html#209">[ subject ]</a>
+              <a href="author.html#209">[ author ]</a>
+         </LI>
+       </UL>
+
+<hr>
+<a href="https://lists.berlios.de/mailman/listinfo/libpkg-svn">More information about the Libpkg-svn
+mailing list</a><br>
+</body></html>

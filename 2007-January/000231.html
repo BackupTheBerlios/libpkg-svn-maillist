@@ -1,0 +1,156 @@
+<!DOCTYPE HTML PUBLIC "-//W3C//DTD HTML 4.01 Transitional//EN">
+<HTML>
+ <HEAD>
+   <TITLE> [Libpkg-svn] r247 - trunk/tools/pkg_add
+   </TITLE>
+   <LINK REL="Index" HREF="http://lists.berlios.de/pipermail/libpkg-svn/2007-January/index.html" >
+   <LINK REL="made" HREF="mailto:libpkg-svn%40lists.berlios.de?Subject=Re%3A%20%5BLibpkg-svn%5D%20r247%20-%20trunk/tools/pkg_add&In-Reply-To=%3C200701150759.l0F7xANa005954%40sheep.berlios.de%3E">
+   <META NAME="robots" CONTENT="index,nofollow">
+   <style type="text/css">
+       pre {
+           white-space: pre-wrap;       /* css-2.1, curent FF, Opera, Safari */
+           }
+   </style>
+   <META http-equiv="Content-Type" content="text/html; charset=us-ascii">
+   <LINK REL="Previous"  HREF="000230.html">
+   <LINK REL="Next"  HREF="000232.html">
+ </HEAD>
+ <BODY BGCOLOR="#ffffff">
+   <H1>[Libpkg-svn] r247 - trunk/tools/pkg_add</H1>
+    <B>zxombie at BerliOS</B> 
+    <A HREF="mailto:libpkg-svn%40lists.berlios.de?Subject=Re%3A%20%5BLibpkg-svn%5D%20r247%20-%20trunk/tools/pkg_add&In-Reply-To=%3C200701150759.l0F7xANa005954%40sheep.berlios.de%3E"
+       TITLE="[Libpkg-svn] r247 - trunk/tools/pkg_add">zxombie at mail.berlios.de
+       </A><BR>
+    <I>Mon Jan 15 08:59:10 CET 2007</I>
+    <P><UL>
+        <LI>Previous message: <A HREF="000230.html">[Libpkg-svn] r246 - trunk/tools/pkg_add
+</A></li>
+        <LI>Next message: <A HREF="000232.html">[Libpkg-svn] r248 - trunk/tools/pkg_add
+</A></li>
+         <LI> <B>Messages sorted by:</B> 
+              <a href="date.html#231">[ date ]</a>
+              <a href="thread.html#231">[ thread ]</a>
+              <a href="subject.html#231">[ subject ]</a>
+              <a href="author.html#231">[ author ]</a>
+         </LI>
+       </UL>
+    <HR>  
+<!--beginarticle-->
+<PRE>Author: zxombie
+Date: 2007-01-15 08:59:09 +0100 (Mon, 15 Jan 2007)
+New Revision: 247
+
+Added:
+   trunk/tools/pkg_add/run.sh
+   trunk/tools/pkg_add/test.sh
+Log:
+Add 2 tests for pkg_add
+
+
+Added: trunk/tools/pkg_add/run.sh
+===================================================================
+--- trunk/tools/pkg_add/run.sh	2007-01-15 07:58:28 UTC (rev 246)
++++ trunk/tools/pkg_add/run.sh	2007-01-15 07:59:09 UTC (rev 247)
+@@ -0,0 +1,17 @@
++#!/bin/sh
++
++PACKAGE=$1
++shift
++TESTNO=$1
++
++if [ ${TESTNO} -eq 1 ] ; then
++	pkg_add ./${PACKAGE}.tbz
++	if [ $? -ne 0 ] ; then
++		exit 1
++	fi
++elif [ ${TESTNO} -eq 2 ] ; then
++	pkg_add -v ./${PACKAGE}.tbz
++	if [ $? -ne 0 ] ; then
++		exit 1
++	fi
++fi
+
+
+Property changes on: trunk/tools/pkg_add/run.sh
+___________________________________________________________________
+Name: svn:executable
+   + *
+
+Added: trunk/tools/pkg_add/test.sh
+===================================================================
+--- trunk/tools/pkg_add/test.sh	2007-01-15 07:58:28 UTC (rev 246)
++++ trunk/tools/pkg_add/test.sh	2007-01-15 07:59:09 UTC (rev 247)
+@@ -0,0 +1,43 @@
++#!/bin/sh
++
++. `dirname $0`/../test.sh
++
++# Rins the tests for either the libpkg or cvs version of pkg_add
++do_test() {
++	RUN=$1
++
++	i=1
++	while [ $i -le 2 ] ; do
++		chroot ${BASE_DIR}/base /run.sh ${PACKAGE} ${i} &gt; ${RUN}.stdout.${i} 2&gt; ${RUN}.stderr.${i}
++		# Get the mtree file to use to compare the filesystems
++		mtree -c -p ${BASE_DIR}/base | grep -v &quot;^\#[[:space:]]*date:&quot; | sed &quot;s/time=[^ ]*//&quot; | grep -v &quot;^[ ]*pkg_add&quot; &gt; ${RUN}.mtree.${i}
++		# Create a tarball of the important dir's to compare later
++		rm ${BASE_DIR}/${RUN}-${i}.tar
++		tar -cf ${BASE_DIR}/${RUN}-${i}.tar ${BASE_DIR}/base/var/db/pkg ${BASE_DIR}/base/usr/local
++		# Cleanup the package directories
++		rm -fr ${BASE_DIR}/base/var/db/pkg ${BASE_DIR}/base/usr/local
++
++		i=$((i+1))
++	done
++}
++
++# Runs the test
++run_test() {
++
++	# Get the reference data from the FreeBSD cvs pkg_add
++	build_chroot
++	do_test cvs
++
++	# Get the test data from out pkg_add
++	build_chroot
++	build_tool
++	cp pkg_add ${BASE_DIR}/base/usr/sbin/pkg_add
++	do_test libpkg
++}
++
++CWD=`pwd`
++cd `dirname $0`
++
++run_test
++
++cd $CWD
+
+
+Property changes on: trunk/tools/pkg_add/test.sh
+___________________________________________________________________
+Name: svn:executable
+   + *
+
+
+</PRE>
+
+<!--endarticle-->
+    <HR>
+    <P><UL>
+        <!--threads-->
+	<LI>Previous message: <A HREF="000230.html">[Libpkg-svn] r246 - trunk/tools/pkg_add
+</A></li>
+	<LI>Next message: <A HREF="000232.html">[Libpkg-svn] r248 - trunk/tools/pkg_add
+</A></li>
+         <LI> <B>Messages sorted by:</B> 
+              <a href="date.html#231">[ date ]</a>
+              <a href="thread.html#231">[ thread ]</a>
+              <a href="subject.html#231">[ subject ]</a>
+              <a href="author.html#231">[ author ]</a>
+         </LI>
+       </UL>
+
+<hr>
+<a href="https://lists.berlios.de/mailman/listinfo/libpkg-svn">More information about the Libpkg-svn
+mailing list</a><br>
+</body></html>

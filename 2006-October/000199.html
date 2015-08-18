@@ -1,0 +1,165 @@
+<!DOCTYPE HTML PUBLIC "-//W3C//DTD HTML 4.01 Transitional//EN">
+<HTML>
+ <HEAD>
+   <TITLE> [Libpkg-svn] r215 - trunk/tools/pkg_delete
+   </TITLE>
+   <LINK REL="Index" HREF="http://lists.berlios.de/pipermail/libpkg-svn/2006-October/index.html" >
+   <LINK REL="made" HREF="mailto:libpkg-svn%40lists.berlios.de?Subject=Re%3A%20%5BLibpkg-svn%5D%20r215%20-%20trunk/tools/pkg_delete&In-Reply-To=%3C200610270715.k9R7FtWs012549%40sheep.berlios.de%3E">
+   <META NAME="robots" CONTENT="index,nofollow">
+   <style type="text/css">
+       pre {
+           white-space: pre-wrap;       /* css-2.1, curent FF, Opera, Safari */
+           }
+   </style>
+   <META http-equiv="Content-Type" content="text/html; charset=us-ascii">
+   <LINK REL="Previous"  HREF="000198.html">
+   
+ </HEAD>
+ <BODY BGCOLOR="#ffffff">
+   <H1>[Libpkg-svn] r215 - trunk/tools/pkg_delete</H1>
+    <B>zxombie at BerliOS</B> 
+    <A HREF="mailto:libpkg-svn%40lists.berlios.de?Subject=Re%3A%20%5BLibpkg-svn%5D%20r215%20-%20trunk/tools/pkg_delete&In-Reply-To=%3C200610270715.k9R7FtWs012549%40sheep.berlios.de%3E"
+       TITLE="[Libpkg-svn] r215 - trunk/tools/pkg_delete">zxombie at mail.berlios.de
+       </A><BR>
+    <I>Fri Oct 27 09:15:55 CEST 2006</I>
+    <P><UL>
+        <LI>Previous message: <A HREF="000198.html">[Libpkg-svn] r214 - trunk/src
+</A></li>
+        
+         <LI> <B>Messages sorted by:</B> 
+              <a href="date.html#199">[ date ]</a>
+              <a href="thread.html#199">[ thread ]</a>
+              <a href="subject.html#199">[ subject ]</a>
+              <a href="author.html#199">[ author ]</a>
+         </LI>
+       </UL>
+    <HR>  
+<!--beginarticle-->
+<PRE>Author: zxombie
+Date: 2006-10-27 09:15:54 +0200 (Fri, 27 Oct 2006)
+New Revision: 215
+
+Modified:
+   trunk/tools/pkg_delete/main.c
+   trunk/tools/pkg_delete/run.sh
+   trunk/tools/pkg_delete/test.sh
+Log:
+Support pkg_delete -v
+Add a test for pkg_delete -v
+Change the name of a commented out variable from add to delete
+
+
+Modified: trunk/tools/pkg_delete/main.c
+===================================================================
+--- trunk/tools/pkg_delete/main.c	2006-10-27 05:51:47 UTC (rev 214)
++++ trunk/tools/pkg_delete/main.c	2006-10-27 07:15:54 UTC (rev 215)
+@@ -31,7 +31,7 @@
+ #include &lt;string.h&gt;
+ #include &lt;unistd.h&gt;
+ 
+-//#define verbosity_flag		(1)
++#define verbosity_flag		(1)
+ //#define keep_file_flag		(1&lt;&lt;1)
+ //#define no_run_flag		(1&lt;&lt;2)
+ //#define force_flag		(1&lt;&lt;3)
+@@ -41,7 +41,7 @@
+ struct pkg_delete {
+ 	struct pkg_db	 *db;
+ 	struct pkg	**pkgs;
+-//	int		  flags;
++	int		  flags;
+ //	char		 *prefix;
+ };
+ 
+@@ -60,10 +60,10 @@
+ 
+ 	delete.db = NULL;
+ 	delete.pkgs = NULL;
+-	//add.flags = 0;
+-	//add.chroot[0] = '\0';
+-	//add.base_prefix = NULL;
+-	//add.prefix = NULL;
++	delete.flags = 0;
++	//delete.chroot[0] = '\0';
++	//delete.base_prefix = NULL;
++	//delete.prefix = NULL;
+ 	while ((ch = getopt(argc, argv, options)) != -1) {
+ 		switch(ch) {
+ 		case 'a':
+@@ -85,6 +85,7 @@
+ 		case 'r':
+ 			break;
+ 		case 'v':
++			delete.flags |= verbosity_flag;
+ 			break;
+ 		case 'x':
+ 			break;
+@@ -170,8 +171,13 @@
+ 	assert(delete.pkgs != NULL);
+ 
+ 	for (i = 0; delete.pkgs[i] != NULL; i++) {
+-		pkg_db_delete_package_action(delete.db, delete.pkgs[i], 0, 0,
+-		    pkg_action);
++		if ((delete.flags &amp; verbosity_flag) == verbosity_flag) {
++			pkg_db_delete_package_action(delete.db, delete.pkgs[i],
++			    0, 0, pkg_action);
++		} else {
++			pkg_db_delete_package_action(delete.db, delete.pkgs[i],
++			    0, 0, NULL);
++		}
+ 	}
+ 	return 1;
+ }
+
+Modified: trunk/tools/pkg_delete/run.sh
+===================================================================
+--- trunk/tools/pkg_delete/run.sh	2006-10-27 05:51:47 UTC (rev 214)
++++ trunk/tools/pkg_delete/run.sh	2006-10-27 07:15:54 UTC (rev 215)
+@@ -12,4 +12,10 @@
+ 	pkg_delete ${PACKAGE}
+ 	exit $?
+ elif [ ${TESTNO} -eq 2 ] ; then
++	pkg_add ./${PACKAGE}.tbz
++	if [ $? -ne 0 ] ; then
++		exit 1
++	fi
++	pkg_delete -v ${PACKAGE}
++	exit $?
+ fi
+
+Modified: trunk/tools/pkg_delete/test.sh
+===================================================================
+--- trunk/tools/pkg_delete/test.sh	2006-10-27 05:51:47 UTC (rev 214)
++++ trunk/tools/pkg_delete/test.sh	2006-10-27 07:15:54 UTC (rev 215)
+@@ -7,7 +7,7 @@
+ 	RUN=$1
+ 
+ 	i=1
+-	while [ $i -le 1 ] ; do
++	while [ $i -le 2 ] ; do
+ 		chroot ${BASE_DIR}/base /run.sh ${PACKAGE} ${i} &gt; ${RUN}.stdout.${i} 2&gt; ${RUN}.stderr.${i}
+ 		# Get the mtree file to use to compare the filesystems
+ 		mtree -c -p ${BASE_DIR}/base | grep -v &quot;^\#[[:space:]]*date:&quot; | sed &quot;s/time=[^ ]*//&quot; &gt; ${RUN}.mtree.${i}
+
+
+</PRE>
+
+<!--endarticle-->
+    <HR>
+    <P><UL>
+        <!--threads-->
+	<LI>Previous message: <A HREF="000198.html">[Libpkg-svn] r214 - trunk/src
+</A></li>
+	
+         <LI> <B>Messages sorted by:</B> 
+              <a href="date.html#199">[ date ]</a>
+              <a href="thread.html#199">[ thread ]</a>
+              <a href="subject.html#199">[ subject ]</a>
+              <a href="author.html#199">[ author ]</a>
+         </LI>
+       </UL>
+
+<hr>
+<a href="https://lists.berlios.de/mailman/listinfo/libpkg-svn">More information about the Libpkg-svn
+mailing list</a><br>
+</body></html>

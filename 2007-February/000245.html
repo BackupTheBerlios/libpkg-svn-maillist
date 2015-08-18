@@ -1,0 +1,216 @@
+<!DOCTYPE HTML PUBLIC "-//W3C//DTD HTML 4.01 Transitional//EN">
+<HTML>
+ <HEAD>
+   <TITLE> [Libpkg-svn] r261 - trunk/src
+   </TITLE>
+   <LINK REL="Index" HREF="http://lists.berlios.de/pipermail/libpkg-svn/2007-February/index.html" >
+   <LINK REL="made" HREF="mailto:libpkg-svn%40lists.berlios.de?Subject=Re%3A%20%5BLibpkg-svn%5D%20r261%20-%20trunk/src&In-Reply-To=%3C200702140421.l1E4LsnD000690%40sheep.berlios.de%3E">
+   <META NAME="robots" CONTENT="index,nofollow">
+   <style type="text/css">
+       pre {
+           white-space: pre-wrap;       /* css-2.1, curent FF, Opera, Safari */
+           }
+   </style>
+   <META http-equiv="Content-Type" content="text/html; charset=us-ascii">
+   <LINK REL="Previous"  HREF="000244.html">
+   <LINK REL="Next"  HREF="000246.html">
+ </HEAD>
+ <BODY BGCOLOR="#ffffff">
+   <H1>[Libpkg-svn] r261 - trunk/src</H1>
+    <B>zxombie at BerliOS</B> 
+    <A HREF="mailto:libpkg-svn%40lists.berlios.de?Subject=Re%3A%20%5BLibpkg-svn%5D%20r261%20-%20trunk/src&In-Reply-To=%3C200702140421.l1E4LsnD000690%40sheep.berlios.de%3E"
+       TITLE="[Libpkg-svn] r261 - trunk/src">zxombie at mail.berlios.de
+       </A><BR>
+    <I>Wed Feb 14 05:21:54 CET 2007</I>
+    <P><UL>
+        <LI>Previous message: <A HREF="000244.html">[Libpkg-svn] r260 - trunk/src
+</A></li>
+        <LI>Next message: <A HREF="000246.html">[Libpkg-svn] r262 - trunk/tests
+</A></li>
+         <LI> <B>Messages sorted by:</B> 
+              <a href="date.html#245">[ date ]</a>
+              <a href="thread.html#245">[ thread ]</a>
+              <a href="subject.html#245">[ subject ]</a>
+              <a href="author.html#245">[ author ]</a>
+         </LI>
+       </UL>
+    <HR>  
+<!--beginarticle-->
+<PRE>Author: zxombie
+Date: 2007-02-14 05:21:53 +0100 (Wed, 14 Feb 2007)
+New Revision: 261
+
+Modified:
+   trunk/src/pkg.c
+   trunk/src/pkg_db_freebsd.c
+   trunk/src/pkg_freebsd.c
+   trunk/src/pkg_private.h
+Log:
+Add a pkg_db_deregister callback for deinstallation
+Allow setting of the prefix in the pkg_db_register callback
+Let the prefix be changed in the FreeBSD +CONTENTS file when registering the installation
+
+
+Modified: trunk/src/pkg.c
+===================================================================
+--- trunk/src/pkg.c	2007-02-14 04:18:15 UTC (rev 260)
++++ trunk/src/pkg.c	2007-02-14 04:21:53 UTC (rev 261)
+@@ -541,7 +541,7 @@
+ int
+ pkg_deinstall(struct pkg *pkg, pkg_db_action *pkg_action, void *data,
+ 		pkg_db_chdir *db_chdir,	pkg_db_install_file *deinstall_file,
+-		pkg_db_exec *do_exec, pkg_db_register *pkg_deregister)
++		pkg_db_exec *do_exec, pkg_db_deregister *pkg_deregister)
+ {
+ 	if (pkg == NULL || data == NULL || db_chdir == NULL ||
+ 	    deinstall_file == NULL || do_exec == NULL || pkg_deregister == NULL)
+
+Modified: trunk/src/pkg_db_freebsd.c
+===================================================================
+--- trunk/src/pkg_db_freebsd.c	2007-02-14 04:18:15 UTC (rev 260)
++++ trunk/src/pkg_db_freebsd.c	2007-02-14 04:21:53 UTC (rev 261)
+@@ -50,12 +50,12 @@
+ #define DB_LOCATION	&quot;/var/db/pkg&quot;
+ 
+ struct pkg_install_data {
+-	int fake;
+-	int empty_dirs;		/* Used in the removal of files */
+-	struct pkg_db *db;
+-	const char *last_dir;
+-	char last_file[FILENAME_MAX];
+-	char directory[MAXPATHLEN];
++	int		 fake;
++	int		 empty_dirs;	/* Used in the removal of files */
++	struct pkg_db	*db;
++	const char	*last_dir;
++	char		 last_file[FILENAME_MAX];
++	char		 directory[MAXPATHLEN];
+ };
+ 
+ /*
+@@ -92,7 +92,7 @@
+ static int	freebsd_do_exec(struct pkg *, pkg_db_action *, void *,
+ 				const char *);
+ static int	freebsd_register(struct pkg *, pkg_db_action *, void *,
+-				struct pkgfile **);
++				struct pkgfile **, const char *);
+ static int	freebsd_deregister(struct pkg *, pkg_db_action *, void *,
+ 				struct pkgfile **);
+ /* Internal */
+@@ -687,7 +687,7 @@
+  */
+ static int
+ freebsd_register(struct pkg *pkg, pkg_db_action *pkg_action, void *data,
+-		struct pkgfile **control)
++		struct pkgfile **control, const char *prefix)
+ {
+ 	unsigned int pos;
+ 	struct pkg_install_data *install_data;
+@@ -722,6 +722,18 @@
+ 		 * as we don't need any output from this.
+ 		 */
+ 		for (pos = 0; control[pos] != NULL; pos++) {
++			if (prefix != NULL &amp;&amp;
++			    strcmp(pkgfile_get_name(control[pos]),
++			    &quot;+CONTENTS&quot;) == 0) {
++				struct pkg_freebsd_contents *contents;
++				contents = pkg_freebsd_get_contents(pkg);
++
++				pkg_freebsd_contents_update_prefix(contents,
++				    prefix);
++				pkgfile_free(control[pos]);
++				control[pos] = pkg_freebsd_contents_get_file(
++				    contents);
++			}
+ 			freebsd_install_file(pkg, pkg_action_null, data,
+ 			    control[pos]);
+ 		}
+
+Modified: trunk/src/pkg_freebsd.c
+===================================================================
+--- trunk/src/pkg_freebsd.c	2007-02-14 04:18:15 UTC (rev 260)
++++ trunk/src/pkg_freebsd.c	2007-02-14 04:21:53 UTC (rev 261)
+@@ -64,7 +64,7 @@
+ static int		  freebsd_deinstall(struct pkg *,
+ 				pkg_db_action *, void *,
+ 				pkg_db_chdir *, pkg_db_install_file *,
+-				pkg_db_exec *, pkg_db_register *);
++				pkg_db_exec *, pkg_db_deregister *);
+ static struct pkg	**freebsd_get_deps(struct pkg *);
+ static struct pkg	**freebsd_get_rdeps(struct pkg *);
+ static int		  freebsd_run_script(struct pkg *,const char *,
+@@ -601,7 +601,7 @@
+ 
+ 	if (reg) {
+ 		/* Register the package */
+-		pkg_register(pkg, pkg_action, data, control);
++		pkg_register(pkg, pkg_action, data, control, prefix);
+ 	}
+ 
+ 	/* Set the return to 0 as we have fully installed the package */
+@@ -622,7 +622,7 @@
+ static int
+ freebsd_deinstall(struct pkg *pkg, pkg_db_action *pkg_action, void *data,
+ 		pkg_db_chdir *db_chdir, pkg_db_install_file *deinstall_file,
+-		pkg_db_exec *do_exec, pkg_db_register *pkg_deregister)
++		pkg_db_exec *do_exec, pkg_db_deregister *pkg_deregister)
+ {
+ 	int ret;
+ 	unsigned int pos;
+
+Modified: trunk/src/pkg_private.h
+===================================================================
+--- trunk/src/pkg_private.h	2007-02-14 04:18:15 UTC (rev 260)
++++ trunk/src/pkg_private.h	2007-02-14 04:21:53 UTC (rev 261)
+@@ -109,14 +109,16 @@
+ typedef int		  pkg_db_exec(struct pkg *, pkg_db_action *, void *,
+ 				const char *);
+ typedef int		  pkg_db_register(struct pkg *, pkg_db_action *, void *,
+-				struct pkgfile **);
++				struct pkgfile **, const char *);
++typedef int		  pkg_db_deregister(struct pkg *, pkg_db_action *,
++				void *,	struct pkgfile **);
+ typedef int	  	  pkg_install_callback(struct pkg *, const char *, int,
+ 				pkg_db_action *, void *, pkg_db_chdir *,
+ 				pkg_db_install_file *, pkg_db_exec *,
+ 				pkg_db_register *);
+ typedef int		  pkg_deinstall_callback(struct pkg *, pkg_db_action *,
+ 				void *, pkg_db_chdir *, pkg_db_install_file *,
+-				pkg_db_exec *, pkg_db_register *);
++				pkg_db_exec *, pkg_db_deregister *);
+ typedef struct pkgfile	 *pkg_get_next_file_callback(struct pkg *);
+ typedef int		  pkg_run_script_callback(struct pkg *, const char *,
+ 				pkg_script);
+@@ -133,7 +135,7 @@
+ int			  pkg_deinstall(struct pkg *,
+ 				pkg_db_action *, void *, pkg_db_chdir *,
+ 				pkg_db_install_file *, pkg_db_exec *,
+-				pkg_db_register *);
++				pkg_db_deregister *);
+ 
+ struct pkg {
+ 	void	*data;
+
+
+</PRE>
+
+<!--endarticle-->
+    <HR>
+    <P><UL>
+        <!--threads-->
+	<LI>Previous message: <A HREF="000244.html">[Libpkg-svn] r260 - trunk/src
+</A></li>
+	<LI>Next message: <A HREF="000246.html">[Libpkg-svn] r262 - trunk/tests
+</A></li>
+         <LI> <B>Messages sorted by:</B> 
+              <a href="date.html#245">[ date ]</a>
+              <a href="thread.html#245">[ thread ]</a>
+              <a href="subject.html#245">[ subject ]</a>
+              <a href="author.html#245">[ author ]</a>
+         </LI>
+       </UL>
+
+<hr>
+<a href="https://lists.berlios.de/mailman/listinfo/libpkg-svn">More information about the Libpkg-svn
+mailing list</a><br>
+</body></html>

@@ -1,0 +1,94 @@
+<!DOCTYPE HTML PUBLIC "-//W3C//DTD HTML 4.01 Transitional//EN">
+<HTML>
+ <HEAD>
+   <TITLE> [Libpkg-svn] r191 - trunk/src
+   </TITLE>
+   <LINK REL="Index" HREF="http://lists.berlios.de/pipermail/libpkg-svn/2006-September/index.html" >
+   <LINK REL="made" HREF="mailto:libpkg-svn%40lists.berlios.de?Subject=Re%3A%20%5BLibpkg-svn%5D%20r191%20-%20trunk/src&In-Reply-To=%3C200609041023.k84ANVVu018654%40sheep.berlios.de%3E">
+   <META NAME="robots" CONTENT="index,nofollow">
+   <style type="text/css">
+       pre {
+           white-space: pre-wrap;       /* css-2.1, curent FF, Opera, Safari */
+           }
+   </style>
+   <META http-equiv="Content-Type" content="text/html; charset=us-ascii">
+   <LINK REL="Previous"  HREF="000174.html">
+   <LINK REL="Next"  HREF="000176.html">
+ </HEAD>
+ <BODY BGCOLOR="#ffffff">
+   <H1>[Libpkg-svn] r191 - trunk/src</H1>
+    <B>zxombie at BerliOS</B> 
+    <A HREF="mailto:libpkg-svn%40lists.berlios.de?Subject=Re%3A%20%5BLibpkg-svn%5D%20r191%20-%20trunk/src&In-Reply-To=%3C200609041023.k84ANVVu018654%40sheep.berlios.de%3E"
+       TITLE="[Libpkg-svn] r191 - trunk/src">zxombie at mail.berlios.de
+       </A><BR>
+    <I>Mon Sep  4 12:23:31 CEST 2006</I>
+    <P><UL>
+        <LI>Previous message: <A HREF="000174.html">[Libpkg-svn] r190 - trunk/src
+</A></li>
+        <LI>Next message: <A HREF="000176.html">[Libpkg-svn] r192 - trunk/tests
+</A></li>
+         <LI> <B>Messages sorted by:</B> 
+              <a href="date.html#175">[ date ]</a>
+              <a href="thread.html#175">[ thread ]</a>
+              <a href="subject.html#175">[ subject ]</a>
+              <a href="author.html#175">[ author ]</a>
+         </LI>
+       </UL>
+    <HR>  
+<!--beginarticle-->
+<PRE>Author: zxombie
+Date: 2006-09-04 12:23:30 +0200 (Mon, 04 Sep 2006)
+New Revision: 191
+
+Modified:
+   trunk/src/pkg_db_freebsd.c
+Log:
+Remove an unneeded __unused
+
+Revision 190 also contained:
+Make pkg_get_dependencies to work on an installed package
+Use freebsd_get_control_file in freebsd_install
+Use pkg_get_control_file in freebsd_deinstall
+Allow @ignore lines to exist and ignore them in installed packages
+Follow @dirrm run when deinstalling packages
+Force a change to the package directory after prodessing the +CONTENTS file when removing packages
+Allow freebsd_get_deps to be called with installed packages
+
+
+Modified: trunk/src/pkg_db_freebsd.c
+===================================================================
+--- trunk/src/pkg_db_freebsd.c	2006-09-04 10:03:50 UTC (rev 190)
++++ trunk/src/pkg_db_freebsd.c	2006-09-04 10:23:30 UTC (rev 191)
+@@ -634,7 +634,7 @@
+  * @return -1 on error
+  */
+ static int
+-freebsd_deregister(struct pkg *pkg __unused, pkg_db_action *pkg_action __unused, void *data,
++freebsd_deregister(struct pkg *pkg, pkg_db_action *pkg_action __unused, void *data,
+ 		struct pkgfile **control)
+ {
+ 	unsigned int pos;
+
+
+</PRE>
+
+<!--endarticle-->
+    <HR>
+    <P><UL>
+        <!--threads-->
+	<LI>Previous message: <A HREF="000174.html">[Libpkg-svn] r190 - trunk/src
+</A></li>
+	<LI>Next message: <A HREF="000176.html">[Libpkg-svn] r192 - trunk/tests
+</A></li>
+         <LI> <B>Messages sorted by:</B> 
+              <a href="date.html#175">[ date ]</a>
+              <a href="thread.html#175">[ thread ]</a>
+              <a href="subject.html#175">[ subject ]</a>
+              <a href="author.html#175">[ author ]</a>
+         </LI>
+       </UL>
+
+<hr>
+<a href="https://lists.berlios.de/mailman/listinfo/libpkg-svn">More information about the Libpkg-svn
+mailing list</a><br>
+</body></html>

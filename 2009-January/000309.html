@@ -1,0 +1,412 @@
+<!DOCTYPE HTML PUBLIC "-//W3C//DTD HTML 4.01 Transitional//EN">
+<HTML>
+ <HEAD>
+   <TITLE> r325 - trunk/src
+   </TITLE>
+   <LINK REL="Index" HREF="http://lists.berlios.de/pipermail/libpkg-svn/2009-January/index.html" >
+   <LINK REL="made" HREF="mailto:libpkg-svn%40lists.berlios.de?Subject=Re%3A%20r325%20-%20trunk/src&In-Reply-To=%3C200901032327.n03NRwm6008989%40sheep.berlios.de%3E">
+   <META NAME="robots" CONTENT="index,nofollow">
+   <style type="text/css">
+       pre {
+           white-space: pre-wrap;       /* css-2.1, curent FF, Opera, Safari */
+           }
+   </style>
+   <META http-equiv="Content-Type" content="text/html; charset=us-ascii">
+   <LINK REL="Previous"  HREF="000308.html">
+   <LINK REL="Next"  HREF="000310.html">
+ </HEAD>
+ <BODY BGCOLOR="#ffffff">
+   <H1>r325 - trunk/src</H1>
+    <B>zxombie at users.berlios.de</B> 
+    <A HREF="mailto:libpkg-svn%40lists.berlios.de?Subject=Re%3A%20r325%20-%20trunk/src&In-Reply-To=%3C200901032327.n03NRwm6008989%40sheep.berlios.de%3E"
+       TITLE="r325 - trunk/src">zxombie at users.berlios.de
+       </A><BR>
+    <I>Sun Jan  4 00:27:58 CET 2009</I>
+    <P><UL>
+        <LI>Previous message: <A HREF="000308.html">r324 - trunk/src
+</A></li>
+        <LI>Next message: <A HREF="000310.html">r326 - trunk/tests
+</A></li>
+         <LI> <B>Messages sorted by:</B> 
+              <a href="date.html#309">[ date ]</a>
+              <a href="thread.html#309">[ thread ]</a>
+              <a href="subject.html#309">[ subject ]</a>
+              <a href="author.html#309">[ author ]</a>
+         </LI>
+       </UL>
+    <HR>  
+<!--beginarticle-->
+<PRE>Author: zxombie
+Date: 2009-01-04 00:27:58 +0100 (Sun, 04 Jan 2009)
+New Revision: 325
+
+Modified:
+   trunk/src/pkg.c
+   trunk/src/pkg_db_freebsd.c
+   trunk/src/pkg_freebsd.c
+   trunk/src/pkg_private.h
+Log:
+Remove more of the need for the old FreeBSD contents parser
+
+
+Modified: trunk/src/pkg.c
+===================================================================
+--- trunk/src/pkg.c	2009-01-03 22:35:23 UTC (rev 324)
++++ trunk/src/pkg.c	2009-01-03 23:27:58 UTC (rev 325)
+@@ -46,6 +46,7 @@
+  * @brief Creates a new package and associates callbacks that are used
+  * by most types of packages.
+  * @param pkg_name The name of the package
++ * @param manifest the package manifest or NULL
+  * @param control_files A callback to be used by pkg_get_control_files()
+  * @param control_file A callback to be used by pkg_get_control_file()
+  * @param get_deps A callback to be used by pkg_get_dependencies()
+@@ -54,7 +55,7 @@
+  * @return A new pkg object, or NULL on error
+  */
+ struct pkg *
+-pkg_new(const char *pkg_name,
++pkg_new(const char *pkg_name, struct pkg_manifest *manifest,
+ 		pkg_get_control_files_callback *control_files,
+ 		pkg_get_control_file_callback *control_file,
+ 		pkg_get_manifest_callback *get_manifest,
+@@ -79,8 +80,8 @@
+ 		return NULL;
+ 	}
+ 
+-	/* Set the manifest to NULL */
+-	pkg-&gt;pkg_manifest = NULL;
++	/* Set the manifest to the manifest passed (NULL is valid) */
++	pkg-&gt;pkg_manifest = manifest;
+ 
+ 	/* Add the given callbacks to the struct */
+ 	pkg-&gt;pkg_get_control_files = control_files;
+@@ -208,7 +209,7 @@
+ struct pkg*
+ pkg_new_empty(const char *pkg_name)
+ {
+-	return pkg_new(pkg_name, NULL, NULL, NULL, NULL, NULL, NULL);
++	return pkg_new(pkg_name, NULL, NULL, NULL, NULL, NULL, NULL, NULL);
+ }
+ 
+ /**
+
+Modified: trunk/src/pkg_db_freebsd.c
+===================================================================
+--- trunk/src/pkg_db_freebsd.c	2009-01-03 22:35:23 UTC (rev 324)
++++ trunk/src/pkg_db_freebsd.c	2009-01-03 23:27:58 UTC (rev 325)
+@@ -90,9 +90,9 @@
+ static int	freebsd_do_exec(struct pkg *, pkg_db_action *, void *,
+ 				const char *);
+ static int	freebsd_register(struct pkg *, pkg_db_action *, void *,
+-				struct pkgfile **, const char *);
+-static int	freebsd_deregister(struct pkg *, pkg_db_action *, void *,
+-				struct pkgfile **);
++				const char *);
++static int	freebsd_deregister(struct pkg *, pkg_db_action *, void *);
++
+ /* Internal */
+ static void			 freebsd_format_cmd(char *, int, const char *,
+ 				const char *, const char *);
+@@ -685,23 +685,28 @@
+  */
+ static int
+ freebsd_register(struct pkg *pkg, pkg_db_action *pkg_action, void *data,
+-		struct pkgfile **control, const char *prefix)
++    const char *prefix)
+ {
+ 	unsigned int pos;
+ 	struct pkg_install_data *install_data;
+ 	struct pkg_db *db;
+ 	struct pkg **deps;
+ 	char dir[PATH_MAX], *real_dir;
++	struct pkgfile **control;
+ 
+ 	assert(pkg != NULL);
+ 	assert(pkg_action != NULL);
+ 	assert(data != NULL);
+-	assert(control != NULL);
+ 
+ 	install_data = data;
+ 	assert(install_data-&gt;db);
+ 	db = install_data-&gt;db;
+ 
++	/* Get the control files from the package */
++	control = pkg_get_control_files(pkg);
++	if (control == NULL) {
++		return -1;
++	}
+ 	snprintf(dir, PATH_MAX, DB_LOCATION &quot;%s/%s&quot;, db-&gt;db_base,
+ 	    pkg_get_name(pkg));
+ 
+@@ -787,18 +792,25 @@
+  * @return -1 on error
+  */
+ static int
+-freebsd_deregister(struct pkg *pkg, pkg_db_action *pkg_action __unused, void *data,
+-		struct pkgfile **control)
++freebsd_deregister(struct pkg *pkg, pkg_db_action *pkg_action __unused,
++    void *data)
+ {
+ 	unsigned int pos;
+ 	struct pkg_install_data *install_data;
+ 	struct pkgfile *dir;
+ 	char db_dir[FILENAME_MAX];
++	struct pkgfile **control;
+ 
+ 	install_data = data;
+ 	assert(install_data-&gt;db != NULL);
+ 
++	/* Get the control files from the package */
++	control = pkg_get_control_files(pkg);
+ 	assert(control != NULL);
++	if (control == NULL) {
++		return -1;
++	}
++
+ 	assert(control[0] != NULL);
+ 	/* Remove the control files */
+ 	for (pos = 0; control[pos] != NULL; pos++) {
+
+Modified: trunk/src/pkg_freebsd.c
+===================================================================
+--- trunk/src/pkg_freebsd.c	2009-01-03 22:35:23 UTC (rev 324)
++++ trunk/src/pkg_freebsd.c	2009-01-03 23:27:58 UTC (rev 325)
+@@ -123,7 +123,9 @@
+ {
+ 	struct pkg *pkg;
+ 	struct freebsd_package *fpkg;
++	struct pkg_manifest *manifest;
+ 	const char *pkg_name;
++	int i;
+ 
+ 	if (fd == NULL)
+ 		return NULL;
+@@ -140,7 +142,7 @@
+ 	archive_read_support_compression_gzip(fpkg-&gt;archive);
+ 	archive_read_support_format_tar(fpkg-&gt;archive);
+ 	archive_read_open_stream(fpkg-&gt;archive, fd, 10240);
+-	
++
+ 	/*
+ 	 * Get the +CONTENTS file.
+ 	 * We can't use the callbacks as we need the
+@@ -149,16 +151,22 @@
+ 	freebsd_open_control_files(fpkg);
+ 	assert(fpkg-&gt;control != NULL);
+ 
+-	freebsd_parse_contents(fpkg);
+-	assert(fpkg-&gt;contents != NULL);
+-	if (fpkg-&gt;contents-&gt;lines[1].line_type != PKG_LINE_NAME ||
+-	    fpkg-&gt;contents-&gt;lines[3].line_type != PKG_LINE_CWD) {
+-		/** @todo cleanup */
++	/* Read in the manifest to check if this is a FreeBSD package */
++	for (i = 0; fpkg-&gt;control[i] != NULL; i++) {
++		if (strcmp(&quot;+CONTENTS&quot;,
++		    basename(pkgfile_get_name(fpkg-&gt;control[i]))) == 0) {
++			manifest =
++			    pkg_manifest_new_freebsd_pkgfile(fpkg-&gt;control[i]);
++			break;
++		}
++	}
++	if (manifest == NULL) {
++		/* TODO: Cleanup */
+ 		return NULL;
+ 	}
+ 
+-	pkg_name = fpkg-&gt;contents-&gt;lines[1].data;
+-	pkg = pkg_new(pkg_name, freebsd_get_control_files,
++	pkg_name = pkg_manifest_get_name(manifest);
++	pkg = pkg_new(pkg_name, manifest, freebsd_get_control_files,
+ 	    freebsd_get_control_file, freebsd_get_manifest, freebsd_get_deps,
+ 	    NULL, freebsd_free);
+ 	if (pkg == NULL) {
+@@ -171,12 +179,6 @@
+ 	    freebsd_get_next_file, freebsd_run_script);
+ 	pkg-&gt;data = fpkg;
+ 
+-	/*
+-	 * Set the prefix to the first @cwd line.
+-	 * This should be line 3 otherwise we have a bad package
+-	 */
+-	pkg-&gt;pkg_prefix = strdup(fpkg-&gt;contents-&gt;lines[3].data);
+-
+ 	return pkg;
+ }
+ 
+@@ -206,7 +208,7 @@
+ 	if (!S_ISDIR(sb.st_mode))
+ 		return NULL;
+ 
+-	pkg = pkg_new(pkg_name, freebsd_get_control_files,
++	pkg = pkg_new(pkg_name, NULL, freebsd_get_control_files,
+ 	    freebsd_get_control_file, freebsd_get_manifest, freebsd_get_deps,
+ 	    freebsd_get_rdeps, freebsd_free);
+ 	if (pkg == NULL)
+@@ -249,7 +251,7 @@
+ 	struct freebsd_package *fpkg;
+ 
+ 	/* Create the package */
+-	pkg = pkg_new(pkg_name, NULL, NULL, NULL, NULL, NULL, freebsd_free);
++	pkg = pkg_new(pkg_name, NULL, NULL, NULL, NULL, NULL,NULL,freebsd_free);
+ 	if (pkg == NULL)
+ 		return NULL;
+ 
+@@ -510,10 +512,7 @@
+ 	struct pkg_manifest_item **items;
+ 	int ret;
+ 	unsigned int pos;
+-	struct pkgfile **control;
+-	struct pkgfile *contents_file;
+-	struct pkg_freebsd_contents *contents;
+-	const char *file_data, *cwd, *dir;
++	const char *cwd, *dir;
+ 	int only_control_files = 0;
+ 
+ 	assert(pkg != NULL);
+@@ -524,28 +523,8 @@
+ 	assert(pkg_register != NULL);
+ 
+ 	ret = -1;
+-	contents = NULL;
+ 	cwd = NULL;
+ 
+-	/* Get the control files from the package */
+-	control = pkg_get_control_files(pkg);
+-	if (control == NULL) {
+-		return -1;
+-	}
+-
+-	/* Find the +CONTENTS file in the control files */
+-	contents_file = freebsd_get_control_file(pkg, &quot;+CONTENTS&quot;);
+-	if (contents_file == NULL) {
+-		return -1;
+-	}
+-
+-	file_data = pkgfile_get_data(contents_file);
+-	contents = pkg_freebsd_contents_new(file_data,
+-	    pkgfile_get_size(contents_file));
+-	if (contents == NULL) {
+-		return -1;
+-	}
+-
+ 	pkg_get_manifest(pkg);
+ 	assert(pkg-&gt;pkg_manifest != NULL);
+ 
+@@ -638,26 +617,24 @@
+ 		}
+ 		case pmt_other:
+ 		case pmt_error:
+-		default:
+-			warnx(&quot;ERROR: Incorrect line in +CONTENTS file &quot;
+-			    &quot;\&quot;%s %s\&quot;\n&quot;, contents-&gt;lines[pos].line,
+-			    contents-&gt;lines[pos].data);
++			/*
++			 * This should never happen as pmt_other and
++			 * pmt_error don't appear in pkg_freebsd_parser.y
++			 */
++			abort();
+ 			break;
+ 		}
+ 	}
+ 
++	/* Set the return to 0 as we have fully installed the package */
++	ret = 0;
++
+ 	if (reg) {
+ 		/* Register the package */
+-		pkg_register(pkg, pkg_action, data, control, prefix);
++		ret = pkg_register(pkg, pkg_action, data, prefix);
+ 	}
+ 
+-	/* Set the return to 0 as we have fully installed the package */
+-	ret = 0;
+-
+ exit:
+-	if (contents != NULL)
+-		pkg_freebsd_contents_free(contents);
+-
+ 	return ret;
+ }
+ 
+@@ -674,7 +651,6 @@
+ 	struct pkg_manifest_item **items;
+ 	int ret;
+ 	unsigned int pos;
+-	struct pkgfile **control;
+ 	const char *cwd, *dir;
+ 
+ 	assert(pkg != NULL);
+@@ -687,13 +663,6 @@
+ 
+ 	ret = -1;
+ 
+-	/* Get the control files from the package */
+-	control = pkg_get_control_files(pkg);
+-	assert(control != NULL);
+-	if (control == NULL) {
+-		return -1;
+-	}
+-
+ 	/* Read the package manifest */
+ 	pkg_get_manifest(pkg);
+ 	assert(pkg-&gt;pkg_manifest != NULL);
+@@ -762,7 +731,7 @@
+ 
+ 	db_chdir(pkg, pkg_action, data, &quot;.&quot;);
+ 	/* Register the package */
+-	pkg_deregister(pkg, pkg_action, data, control);
++	pkg_deregister(pkg, pkg_action, data);
+ 
+ 	/* Set the return to 0 as we have fully installed the package */
+ 	ret = 0;
+
+Modified: trunk/src/pkg_private.h
+===================================================================
+--- trunk/src/pkg_private.h	2009-01-03 22:35:23 UTC (rev 324)
++++ trunk/src/pkg_private.h	2009-01-03 23:27:58 UTC (rev 325)
+@@ -136,7 +136,7 @@
+ typedef struct pkg_manifest *pkg_get_manifest_callback(struct pkg *);
+ typedef int		  pkg_free_callback(struct pkg *);
+ 
+-struct pkg		 *pkg_new(const char *,
++struct pkg		 *pkg_new(const char *, struct pkg_manifest *,
+ 				pkg_get_control_files_callback *,
+ 				pkg_get_control_file_callback *,
+ 				pkg_get_manifest_callback *,
+@@ -170,9 +170,9 @@
+ typedef int		  pkg_db_exec(struct pkg *, pkg_db_action *, void *,
+ 				const char *);
+ typedef int		  pkg_db_register(struct pkg *, pkg_db_action *, void *,
+-				struct pkgfile **, const char *);
++				const char *);
+ typedef int		  pkg_db_deregister(struct pkg *, pkg_db_action *,
+-				void *,	struct pkgfile **);
++				void *);
+ typedef int	  	  pkg_install_callback(struct pkg *, const char *, int,
+ 				pkg_db_action *, void *, pkg_db_chdir *,
+ 				pkg_db_install_file *, pkg_db_exec *,
+
+
+</PRE>
+
+<!--endarticle-->
+    <HR>
+    <P><UL>
+        <!--threads-->
+	<LI>Previous message: <A HREF="000308.html">r324 - trunk/src
+</A></li>
+	<LI>Next message: <A HREF="000310.html">r326 - trunk/tests
+</A></li>
+         <LI> <B>Messages sorted by:</B> 
+              <a href="date.html#309">[ date ]</a>
+              <a href="thread.html#309">[ thread ]</a>
+              <a href="subject.html#309">[ subject ]</a>
+              <a href="author.html#309">[ author ]</a>
+         </LI>
+       </UL>
+
+<hr>
+<a href="https://lists.berlios.de/mailman/listinfo/libpkg-svn">More information about the Libpkg-svn
+mailing list</a><br>
+</body></html>

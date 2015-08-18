@@ -1,0 +1,129 @@
+<!DOCTYPE HTML PUBLIC "-//W3C//DTD HTML 4.01 Transitional//EN">
+<HTML>
+ <HEAD>
+   <TITLE> [Libpkg-svn] r170 - trunk/src
+   </TITLE>
+   <LINK REL="Index" HREF="http://lists.berlios.de/pipermail/libpkg-svn/2006-July/index.html" >
+   <LINK REL="made" HREF="mailto:libpkg-svn%40lists.berlios.de?Subject=Re%3A%20%5BLibpkg-svn%5D%20r170%20-%20trunk/src&In-Reply-To=%3C200607310614.k6V6Eu83028769%40sheep.berlios.de%3E">
+   <META NAME="robots" CONTENT="index,nofollow">
+   <style type="text/css">
+       pre {
+           white-space: pre-wrap;       /* css-2.1, curent FF, Opera, Safari */
+           }
+   </style>
+   <META http-equiv="Content-Type" content="text/html; charset=us-ascii">
+   <LINK REL="Previous"  HREF="000153.html">
+   <LINK REL="Next"  HREF="000155.html">
+ </HEAD>
+ <BODY BGCOLOR="#ffffff">
+   <H1>[Libpkg-svn] r170 - trunk/src</H1>
+    <B>zxombie at BerliOS</B> 
+    <A HREF="mailto:libpkg-svn%40lists.berlios.de?Subject=Re%3A%20%5BLibpkg-svn%5D%20r170%20-%20trunk/src&In-Reply-To=%3C200607310614.k6V6Eu83028769%40sheep.berlios.de%3E"
+       TITLE="[Libpkg-svn] r170 - trunk/src">zxombie at mail.berlios.de
+       </A><BR>
+    <I>Mon Jul 31 08:14:56 CEST 2006</I>
+    <P><UL>
+        <LI>Previous message: <A HREF="000153.html">[Libpkg-svn] r169 - trunk/src
+</A></li>
+        <LI>Next message: <A HREF="000155.html">[Libpkg-svn] r171 - trunk/tools/pkg_add
+</A></li>
+         <LI> <B>Messages sorted by:</B> 
+              <a href="date.html#154">[ date ]</a>
+              <a href="thread.html#154">[ thread ]</a>
+              <a href="subject.html#154">[ subject ]</a>
+              <a href="author.html#154">[ author ]</a>
+         </LI>
+       </UL>
+    <HR>  
+<!--beginarticle-->
+<PRE>Author: zxombie
+Date: 2006-07-31 08:14:53 +0200 (Mon, 31 Jul 2006)
+New Revision: 170
+
+Modified:
+   trunk/src/pkg_freebsd.c
+Log:
+Set the package prefix when creating a FreeBSD package object
+Rework the @cwd code to only have one call to db_chdir
+
+
+Modified: trunk/src/pkg_freebsd.c
+===================================================================
+--- trunk/src/pkg_freebsd.c	2006-07-31 06:08:14 UTC (rev 169)
++++ trunk/src/pkg_freebsd.c	2006-07-31 06:14:53 UTC (rev 170)
+@@ -145,7 +145,8 @@
+ 
+ 	freebsd_parse_contents(fpkg);
+ 	assert(fpkg-&gt;contents != NULL);
+-	if (fpkg-&gt;contents-&gt;lines[1].line_type != PKG_LINE_NAME) {
++	if (fpkg-&gt;contents-&gt;lines[1].line_type != PKG_LINE_NAME ||
++	    fpkg-&gt;contents-&gt;lines[3].line_type != PKG_LINE_CWD) {
+ 		/** @todo cleanup */
+ 		return NULL;
+ 	}
+@@ -162,6 +163,12 @@
+ 	    freebsd_run_script);
+ 	pkg-&gt;data = fpkg;
+ 
++	/*
++	 * Set the prefix to the first @cwd line.
++	 * This should be line 3 otherwise we have a bad package
++	 */
++	pkg-&gt;pkg_prefix = strdup(fpkg-&gt;contents-&gt;lines[3].data);
++
+ 	return pkg;
+ }
+ 
+@@ -510,20 +517,22 @@
+ 			break;
+ 		case PKG_LINE_CWD:
+ 		{
+-			const char *dir;
++			const char *dir = NULL;
+ 
+-			dir = contents-&gt;lines[pos].data;
+-			if (strcmp(dir, &quot;.&quot;) == 0) {
++			if (strcmp(contents-&gt;lines[pos].data, &quot;.&quot;) == 0) {
+ 				if (reg)
+-					db_chdir(pkg, pkg_action, data, dir);
++					dir = contents-&gt;lines[pos].data;
+ 			} else {
+ 				if (chdir_first &amp;&amp; prefix != NULL)
+-					db_chdir(pkg, pkg_action, data, prefix);
++					dir = prefix;
+ 				else
+-					db_chdir(pkg, pkg_action, data, dir);
++					dir = contents-&gt;lines[pos].data;
+ 				chdir_first = 0;
+ 			}
++			if (dir != NULL)
++				db_chdir(pkg, pkg_action, data, dir);
+ 
++
+ 			break;
+ 		}
+ 		case PKG_LINE_FILE:
+
+
+</PRE>
+
+<!--endarticle-->
+    <HR>
+    <P><UL>
+        <!--threads-->
+	<LI>Previous message: <A HREF="000153.html">[Libpkg-svn] r169 - trunk/src
+</A></li>
+	<LI>Next message: <A HREF="000155.html">[Libpkg-svn] r171 - trunk/tools/pkg_add
+</A></li>
+         <LI> <B>Messages sorted by:</B> 
+              <a href="date.html#154">[ date ]</a>
+              <a href="thread.html#154">[ thread ]</a>
+              <a href="subject.html#154">[ subject ]</a>
+              <a href="author.html#154">[ author ]</a>
+         </LI>
+       </UL>
+
+<hr>
+<a href="https://lists.berlios.de/mailman/listinfo/libpkg-svn">More information about the Libpkg-svn
+mailing list</a><br>
+</body></html>

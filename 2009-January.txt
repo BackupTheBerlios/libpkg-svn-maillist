@@ -1,0 +1,4059 @@
+From zxombie at users.berlios.de  Sat Jan  3 01:53:47 2009
+From: zxombie at users.berlios.de (zxombie at users.berlios.de)
+Date: Sat, 3 Jan 2009 01:53:47 +0100
+Subject: r318 - trunk/src
+Message-ID: <200901030053.n030rlcp018191@sheep.berlios.de>
+
+Author: zxombie
+Date: 2009-01-03 01:53:46 +0100 (Sat, 03 Jan 2009)
+New Revision: 318
+
+Modified:
+   trunk/src/pkg_manifest.c
+Log:
+Fix the type used to size the attrs array
+
+
+Modified: trunk/src/pkg_manifest.c
+===================================================================
+--- trunk/src/pkg_manifest.c	2007-10-27 04:24:35 UTC (rev 317)
++++ trunk/src/pkg_manifest.c	2009-01-03 00:53:46 UTC (rev 318)
+@@ -639,11 +639,11 @@
+ 		return -1;
+ 
+ 	if (item->attrs == NULL) {
+-		item->attrs = malloc(pmia_max * sizeof(pkg_manifest_item_attr));
++		item->attrs = malloc(pmia_max * sizeof(char *));
+ 		if (item->attrs == NULL)
+ 			return -1;
+-		memset(item->attrs, 0, pmia_max *
+-		    sizeof(pkg_manifest_item_attr));
++		memset(item->attrs, 0x0, pmia_max *
++		    sizeof(char *));
+ 	}
+ 
+ 	if (item->attrs[attr] != NULL) {
+
+
+
+From zxombie at users.berlios.de  Sat Jan  3 10:34:19 2009
+From: zxombie at users.berlios.de (zxombie at users.berlios.de)
+Date: Sat, 3 Jan 2009 10:34:19 +0100
+Subject: r319 - trunk/src
+Message-ID: <200901030934.n039YJfQ022755@sheep.berlios.de>
+
+Author: zxombie
+Date: 2009-01-03 10:34:18 +0100 (Sat, 03 Jan 2009)
+New Revision: 319
+
+Modified:
+   trunk/src/pkg_freebsd_parser.y
+Log:
+Ignore the current file notg the previous file
+
+
+Modified: trunk/src/pkg_freebsd_parser.y
+===================================================================
+--- trunk/src/pkg_freebsd_parser.y	2009-01-03 00:53:46 UTC (rev 318)
++++ trunk/src/pkg_freebsd_parser.y	2009-01-03 09:34:18 UTC (rev 319)
+@@ -149,7 +149,7 @@
+ 	| IGNORE NL PKGFILE {
+ 		$$ = pkg_manifest_item_new(pmt_file, $3);
+ 		free($3);
+-		pkg_manifest_item_set_attr(curitem, pmia_ignore, "YES");
++		pkg_manifest_item_set_attr($$, pmia_ignore, "YES");
+ 		curitem = $$;
+ 		curdep = NULL;
+ 	}
+
+
+
+From zxombie at users.berlios.de  Sat Jan  3 10:44:08 2009
+From: zxombie at users.berlios.de (zxombie at users.berlios.de)
+Date: Sat, 3 Jan 2009 10:44:08 +0100
+Subject: r320 - trunk/src
+Message-ID: <200901030944.n039i8kt023261@sheep.berlios.de>
+
+Author: zxombie
+Date: 2009-01-03 10:44:08 +0100 (Sat, 03 Jan 2009)
+New Revision: 320
+
+Modified:
+   trunk/src/pkg_db_freebsd.c
+Log:
+Fix three strings to be closer to expected
+Change the mode of the +INSTALL file to 0755
+
+
+Modified: trunk/src/pkg_db_freebsd.c
+===================================================================
+--- trunk/src/pkg_db_freebsd.c	2009-01-03 09:34:18 UTC (rev 319)
++++ trunk/src/pkg_db_freebsd.c	2009-01-03 09:44:08 UTC (rev 320)
+@@ -573,7 +573,7 @@
+ 	pkg_remove_extra_slashes(install_data->directory);
+ 
+ 	if (strcmp(dir, ".") == 0) {
+-		pkg_action(PKG_DB_PACKAGE, "Change working directory to .");
++		pkg_action(PKG_DB_PACKAGE, "CWD to .");
+ 	} else {
+ 		pkg_action(PKG_DB_PACKAGE, "Change working directory to %s",
+ 		    install_data->directory);
+@@ -670,7 +670,7 @@
+ 	freebsd_format_cmd(the_cmd, FILENAME_MAX, cmd, install_data->directory,
+ 	    install_data->last_file);
+ 
+-	pkg_action(PKG_DB_PACKAGE, "Execute '%s'", the_cmd);
++	pkg_action(PKG_DB_PACKAGE, "execute '%s'", the_cmd);
+ 	if (!install_data->fake) {
+ 		return pkg_exec(the_cmd);
+ 	}
+@@ -734,6 +734,12 @@
+ 			}
+ 			freebsd_install_file(pkg, pkg_action_null, data,
+ 			    control[pos]);
++
++			/* Make the +INSTALL file installable */
++			if (strcmp(pkgfile_get_name(control[pos]), "+INSTALL")
++			    == 0) {
++				chmod("+INSTALL", 0755);
++			}
+ 		}
+ 	}
+ 
+@@ -745,7 +751,7 @@
+ 		FILE *fd;
+ 
+ 		pkg_action(PKG_DB_INFO, "Trying to record dependency on "
+-		    "package '%s' with '%s' origin.", pkg_get_name(pkg),
++		    "package '%s' with '%s' origin.", pkg_get_name(deps[pos]),
+ 		    pkg_get_origin(deps[pos]));
+ 
+ 		/* Skip writing to +REQUIRED_BY when in a faked run */
+
+
+
+From zxombie at users.berlios.de  Sat Jan  3 10:45:53 2009
+From: zxombie at users.berlios.de (zxombie at users.berlios.de)
+Date: Sat, 3 Jan 2009 10:45:53 +0100
+Subject: r321 - trunk/src
+Message-ID: <200901030945.n039jrpG023390@sheep.berlios.de>
+
+Author: zxombie
+Date: 2009-01-03 10:45:53 +0100 (Sat, 03 Jan 2009)
+New Revision: 321
+
+Modified:
+   trunk/src/pkg_manifest.c
+   trunk/src/pkg_private.h
+Log:
+Add pkg_manifest_replace_dependency to allow one package to be replaced with another, eg. replace the empty package with it's FreeBSD package
+
+
+Modified: trunk/src/pkg_manifest.c
+===================================================================
+--- trunk/src/pkg_manifest.c	2009-01-03 09:44:08 UTC (rev 320)
++++ trunk/src/pkg_manifest.c	2009-01-03 09:45:53 UTC (rev 321)
+@@ -63,8 +63,14 @@
+ 	manifest->file = NULL;
+ 	manifest->manifest_version = NULL;
+ 	manifest->name = NULL;
++
++	manifest->deps_list_clean = 1;
++	manifest->deps_list_count = 0;
+ 	manifest->deps_list = NULL;
++
+ 	manifest->conflict_list = NULL;
++
++	manifest->item_list_clean = 1;
+ 	manifest->item_list = NULL;
+ 
+ 	for (pos = 0; pos < pkgm_max; pos++) {
+@@ -199,10 +205,7 @@
+ 	if (manifest == NULL || dep == NULL)
+ 		return -1;
+ 
+-	if (manifest->deps_list != NULL) {
+-		free(manifest->deps_list);
+-		manifest->deps_list = NULL;
+-	}
++	manifest->deps_list_clean = 0;
+ 
+ 	/* Create the new dependency */
+ 	the_dep = malloc(sizeof(struct pkgm_deps));
+@@ -217,6 +220,38 @@
+ }
+ 
+ /**
++ * @brief Replaces one dependent package with another
++ * @param manifest The manifest to adjust
++ * @param orig_pkg The original package
++ * @param new_pkg The new package
++ * @return  0 on success
++ * @return -1 on error
++ */
++int
++pkg_manifest_replace_dependency(struct pkg_manifest *manifest,
++    struct pkg *orig_pkg, struct pkg *new_pkg)
++{
++	struct pkgm_deps *dep;
++
++	if (manifest == NULL || orig_pkg == NULL || new_pkg == NULL)
++		return -1;
++
++	/* Replace the old package with the new package */
++	STAILQ_FOREACH(dep, &manifest->deps, list) {
++		if (dep->pkg == orig_pkg) {
++			pkg_free(dep->pkg);
++			dep->pkg = new_pkg;
++			manifest->deps_list_clean = 0;
++
++			return 0;
++		}
++	}
++
++	return -1;
++}
++
++
++/**
+  * @brief Gets an array of packages depended on
+  * @param manifest The manifest
+  * @return A NULL terminated array of packages
+@@ -231,7 +266,10 @@
+ 	if (manifest == NULL)
+ 		return NULL;
+ 
+-	if (manifest->deps_list != NULL)
++	if (manifest->deps_list_clean == 0) {
++	}
++
++	if (manifest->deps_list != NULL && manifest->deps_list_clean != 0)
+ 		return manifest->deps_list;
+ 
+ 	/* Find out how much space is needed */
+@@ -242,18 +280,29 @@
+ 	if (count == 0)
+ 		return NULL;
+ 
+-	/* Allocate the space for the conflict list */
+-	manifest->deps_list = malloc((count + 1) * sizeof(struct pkg *));
+-	if (manifest->deps_list == NULL)
+-		return NULL;
++	/* Only reallocate the memory when the list is a different size */
++	if (manifest->deps_list_count != count) {
++		if (manifest->deps_list != NULL) {
++			/* remove the old list to be replaces later */
++			free(manifest->deps_list);
++		}
+ 
+-	/* Populate the conflict list */
++		/* Allocate the space for the dependency list */
++		manifest->deps_list = malloc((count + 1) * sizeof(struct pkg*));
++		if (manifest->deps_list == NULL)
++			return NULL;
++
++		manifest->deps_list_count = count;
++	}
++
++	/* Populate the depend list */
+ 	count = 0;
+ 	STAILQ_FOREACH(dep, &manifest->deps, list) {
+ 		manifest->deps_list[count] = dep->pkg;
+ 		count++;
+ 	}
+ 	manifest->deps_list[count] = NULL;
++	manifest->deps_list_clean = 1;
+ 
+ 	return manifest->deps_list;
+ }
+@@ -400,10 +449,7 @@
+ 	if (manifest == NULL || item == NULL)
+ 		return -1;
+ 
+-	if (manifest->item_list) {
+-		free(manifest->item_list);
+-		manifest->item_list = NULL;
+-	}
++	manifest->item_list_clean = 0;
+ 
+ 	/* Create the new item */
+ 	the_item = malloc(sizeof(struct pkgm_items));
+@@ -494,7 +540,7 @@
+ 	if (manifest == NULL)
+ 		return NULL;
+ 
+-	if (manifest->item_list != NULL)
++	if (manifest->item_list != NULL && manifest->item_list_clean != 0)
+ 		return manifest->item_list;
+ 
+ 	/* Find out how much space is needed */
+@@ -510,6 +556,7 @@
+ 	    sizeof(struct pkg_manifest_itemi *));
+ 	if (manifest->item_list == NULL)
+ 		return NULL;
++	manifest->item_list_clean = 1;
+ 
+ 	/* Populate the conflict list */
+ 	count = 0;
+
+Modified: trunk/src/pkg_private.h
+===================================================================
+--- trunk/src/pkg_private.h	2009-01-03 09:44:08 UTC (rev 320)
++++ trunk/src/pkg_private.h	2009-01-03 09:45:53 UTC (rev 321)
+@@ -112,8 +112,13 @@
+ 	STAILQ_HEAD(, pkgm_items) items;
+ 
+ 	/* These are used as caches */
++	int		deps_list_clean;
++	unsigned int	deps_list_count;
+ 	struct pkg	**deps_list;
++
+ 	char		**conflict_list;
++
++	int		item_list_clean;
+ 	struct pkg_manifest_item **item_list;
+ 
+ 	pkg_manifest_get_file_callback	*manifest_get_file;
+
+
+
+From zxombie at users.berlios.de  Sat Jan  3 10:46:34 2009
+From: zxombie at users.berlios.de (zxombie at users.berlios.de)
+Date: Sat, 3 Jan 2009 10:46:34 +0100
+Subject: r322 - trunk/src
+Message-ID: <200901030946.n039kYiV023426@sheep.berlios.de>
+
+Author: zxombie
+Date: 2009-01-03 10:46:33 +0100 (Sat, 03 Jan 2009)
+New Revision: 322
+
+Modified:
+   trunk/src/pkg.h
+Log:
+Add the signature for pkg_manifest_replace_dependency
+
+Modified: trunk/src/pkg.h
+===================================================================
+--- trunk/src/pkg.h	2009-01-03 09:45:53 UTC (rev 321)
++++ trunk/src/pkg.h	2009-01-03 09:46:33 UTC (rev 322)
+@@ -219,6 +219,8 @@
+ 			    struct pkg_manifest *);
+ int			  pkg_manifest_add_dependency(struct pkg_manifest *,
+ 			    struct pkg *);
++int			  pkg_manifest_replace_dependency(struct pkg_manifest *,
++			    struct pkg *, struct pkg *);
+ struct pkg		**pkg_manifest_get_dependencies(struct pkg_manifest *);
+ int			  pkg_manifest_add_conflict(struct pkg_manifest *,
+ 			    const char *);
+
+
+
+From zxombie at users.berlios.de  Sat Jan  3 10:47:08 2009
+From: zxombie at users.berlios.de (zxombie at users.berlios.de)
+Date: Sat, 3 Jan 2009 10:47:08 +0100
+Subject: r323 - trunk/src
+Message-ID: <200901030947.n039l8lI023464@sheep.berlios.de>
+
+Author: zxombie
+Date: 2009-01-03 10:47:08 +0100 (Sat, 03 Jan 2009)
+New Revision: 323
+
+Modified:
+   trunk/src/pkg_freebsd.c
+Log:
+Use the package manifest when installing a FreeBSD package
+
+
+Modified: trunk/src/pkg_freebsd.c
+===================================================================
+--- trunk/src/pkg_freebsd.c	2009-01-03 09:46:33 UTC (rev 322)
++++ trunk/src/pkg_freebsd.c	2009-01-03 09:47:08 UTC (rev 323)
+@@ -513,8 +513,7 @@
+ 	struct pkgfile **control;
+ 	struct pkgfile *contents_file;
+ 	struct pkg_freebsd_contents *contents;
+-	const char *file_data, *cwd;
+-	int chdir_first = 1;
++	const char *file_data, *cwd, *dir;
+ 	int only_control_files = 0;
+ 
+ 	assert(pkg != NULL);
+@@ -550,6 +549,13 @@
+ 	pkg_get_manifest(pkg);
+ 	assert(pkg->pkg_manifest != NULL);
+ 
++	/* chdir to the packages prefix */
++	dir = prefix;
++	if (dir == NULL)
++		dir = pkg_manifest_get_attr(pkg->pkg_manifest, pkgm_prefix);
++	cwd = dir;
++	db_chdir(pkg, pkg_action, data, dir);
++
+ 	items = pkg_manifest_get_items(pkg->pkg_manifest);
+ 	for (pos = 0; items[pos] != NULL; pos++) {
+ 		switch(pkg_manifest_item_get_type(items[pos])) {
+@@ -559,87 +565,17 @@
+ 		case pmt_dirlist:
+ 			break;
+ 		case pmt_file:
+-			printf("%s\n", (const char *)pkg_manifest_item_get_data(items[pos]));
+-			break;
+-		case pmt_chdir:
+-			printf("%s\n", (const char *)pkg_manifest_item_get_data(items[pos]));
+-			break;
+-		case pmt_output:
+-			printf("%s\n", (const char *)pkg_manifest_item_get_data(items[pos]));
+-			break;
+-		case pmt_execute:
+-			printf("%s\n", (const char *)pkg_manifest_item_get_data(items[pos]));
+-			break;
+-		case pmt_other:
+-		case pmt_error:
+-		default:
+-			warnx("ERROR: Incorrect line in +CONTENTS file "
+-			    "\"%s %s\"\n", contents->lines[pos].line,
+-			    contents->lines[pos].data);
+-			break;
+-		}
+-	}
+-
+-	for (pos = 0; pos < contents->line_count; pos++) {
+-		char ignore;
+-
+-		ignore = 0;
+-		if (contents->lines[pos].line_type == PKG_LINE_IGNORE) {
+-			ignore = ~0;
+-			pos++;
+-		}
+-		switch (contents->lines[pos].line_type) {
+-		case PKG_LINE_IGNORE:
+-			/* Error in contents file */
+-			ret = -1;
+-			goto exit;
+-		case PKG_LINE_COMMENT:
+-		case PKG_LINE_UNEXEC:
+-		case PKG_LINE_DIRRM:
+-		case PKG_LINE_MTREE:
+-		case PKG_LINE_PKGDEP:
+-		case PKG_LINE_CONFLICTS:
+-			break;
+-		case PKG_LINE_NAME:
+-			/* Check the name is the same as the packages name */
+-			if (strcmp(pkg_get_name(pkg),
+-			    contents->lines[pos].data) != 0) {
+-				ret = -1;
+-				goto exit;
+-			}
+-			break;
+-		case PKG_LINE_CWD:
+ 		{
+-			const char *dir = NULL;
+-
+-			if (strcmp(contents->lines[pos].data, ".") == 0) {
+-				if (reg)
+-					dir = contents->lines[pos].data;
+-			} else {
+-				if (chdir_first && prefix != NULL)
+-					dir = prefix;
+-				else
+-					dir = contents->lines[pos].data;
+-				chdir_first = 0;
+-			}
+-			if (dir != NULL) {
+-				cwd = dir;
+-				db_chdir(pkg, pkg_action, data, dir);
+-			}
+-
+-
+-			break;
+-		}
+-		case PKG_LINE_FILE:
+-		{
+ 			struct pkgfile *file = NULL;
++			const char *name;
+ 
+-			if (!only_control_files)
++			name = pkg_manifest_item_get_data(items[pos]);
++
++			if (only_control_files == 0)
+ 				file = pkg_get_next_file(pkg);
+-			if (only_control_files || file == NULL) {
++			if (only_control_files != 0 || file == NULL) {
+ 				only_control_files = ~0;
+-				file = pkg_get_control_file(pkg,
+-				    contents->lines[pos].line);
++				file = pkg_get_control_file(pkg, name);
+ 			}
+ 			if (file == NULL) {
+ 				/* File not found in the package */
+@@ -648,44 +584,65 @@
+ 			}
+ 
+ 			/* Check the file name is correct */
+-			if (strcmp(contents->lines[pos].line,
+-			    pkgfile_get_name(file)) != 0) {
++			if (strcmp(name, pkgfile_get_name(file)) != 0) {
+ 				ret = -1;
+ 				goto exit;
+ 			}
+ 
+-			if (contents->lines[pos+1].line_type ==
+-			    PKG_LINE_COMMENT) {
+-				char *p;
+-
+-				p = strchr(contents->lines[pos+1].data, ':');
+-				p++;
+-				pkgfile_set_checksum_md5(file, p);
+-				if (pkgfile_compare_checksum_md5(file) == 0) {
+-					if (!ignore) {
+-						pkgfile_set_cwd(file, cwd);
+-						install_file(pkg, pkg_action,
+-						    data, file);
+-					}
+-				} else {
+-					ret = -1;
+-					goto exit;
++			/* Install the file */
++			if (pkgfile_compare_checksum_md5(file) == 0 || 1) {
++				if (pkg_manifest_item_get_attr(items[pos],
++				    pmia_ignore) == NULL) {
++					pkgfile_set_cwd(file, cwd);
++					install_file(pkg, pkg_action, data, file);
+ 				}
+-				pos++;
++			} else {
++				ret = -1;
++				goto exit;
+ 			}
+ 			break;
+ 		}
+-		case PKG_LINE_EXEC:
++		case pmt_chdir:
+ 		{
+-			do_exec(pkg, pkg_action, data,
+-			    contents->lines[pos].data);
++			const char *new_dir;
++			dir = NULL;
++			new_dir = pkg_manifest_item_get_data(items[pos]);
++			if (strcmp(new_dir, ".") == 0) {
++				if (reg)
++					dir = new_dir;
++			} else
++				dir = new_dir;
++
++			if (dir != NULL) {
++				cwd = dir;
++				db_chdir(pkg, pkg_action, data, dir);
++			}
++
+ 			break;
+ 		}
++		case pmt_output:
++			printf("%s\n",
++			  (const char *)pkg_manifest_item_get_data(items[pos]));
++			break;
++		case pmt_execute:
++		{
++			const char *cmd, *attr;
+ 
++			attr = pkg_manifest_item_get_attr(items[pos],
++			    pmia_deinstall);
++			if (attr == NULL || strcasecmp(attr, "NO") == 0) {
++				cmd = pkg_manifest_item_get_data(items[pos]);
++				do_exec(pkg, pkg_action, data, cmd);
++			}
++			break;
++		}
++		case pmt_other:
++		case pmt_error:
+ 		default:
+ 			warnx("ERROR: Incorrect line in +CONTENTS file "
+ 			    "\"%s %s\"\n", contents->lines[pos].line,
+ 			    contents->lines[pos].data);
++			break;
+ 		}
+ 	}
+ 
+
+
+
+From zxombie at users.berlios.de  Sat Jan  3 23:35:23 2009
+From: zxombie at users.berlios.de (zxombie at users.berlios.de)
+Date: Sat, 3 Jan 2009 23:35:23 +0100
+Subject: r324 - trunk/src
+Message-ID: <200901032235.n03MZNaU004367@sheep.berlios.de>
+
+Author: zxombie
+Date: 2009-01-03 23:35:23 +0100 (Sat, 03 Jan 2009)
+New Revision: 324
+
+Modified:
+   trunk/src/pkg_freebsd.c
+Log:
+Move the pkg_manifest for package removal
+
+
+Modified: trunk/src/pkg_freebsd.c
+===================================================================
+--- trunk/src/pkg_freebsd.c	2009-01-03 09:47:08 UTC (rev 323)
++++ trunk/src/pkg_freebsd.c	2009-01-03 22:35:23 UTC (rev 324)
+@@ -671,12 +671,11 @@
+ 		pkg_db_chdir *db_chdir, pkg_db_install_file *deinstall_file,
+ 		pkg_db_exec *do_exec, pkg_db_deregister *pkg_deregister)
+ {
++	struct pkg_manifest_item **items;
+ 	int ret;
+ 	unsigned int pos;
+ 	struct pkgfile **control;
+-	struct pkgfile *contents_file;
+-	struct pkg_freebsd_contents *contents;
+-	const char *file_data;
++	const char *cwd, *dir;
+ 
+ 	assert(pkg != NULL);
+ 	assert(pkg_action != NULL);
+@@ -687,7 +686,6 @@
+ 	assert(pkg_deregister != NULL);
+ 
+ 	ret = -1;
+-	contents = NULL;
+ 
+ 	/* Get the control files from the package */
+ 	control = pkg_get_control_files(pkg);
+@@ -696,68 +694,72 @@
+ 		return -1;
+ 	}
+ 
+-	/* Find the +CONTENTS file in the control files */
+-	contents_file = pkg_get_control_file(pkg, "+CONTENTS");
+-	assert(contents_file != NULL);
+-	if (contents_file == NULL) {
+-		return -1;
+-	}
++	/* Read the package manifest */
++	pkg_get_manifest(pkg);
++	assert(pkg->pkg_manifest != NULL);
+ 
+-	file_data = pkgfile_get_data(contents_file);
+-	contents = pkg_freebsd_contents_new(file_data,
+-	    pkgfile_get_size(contents_file));
+-	assert(contents != NULL);
+-	if (contents == NULL) {
+-		return -1;
+-	}
++	dir = pkg_manifest_get_attr(pkg->pkg_manifest, pkgm_prefix);
++	cwd = dir;
++	db_chdir(pkg, pkg_action, data, dir);
+ 
+-	for (pos = 0; pos < contents->line_count; pos++) {
+-		switch (contents->lines[pos].line_type) {
+-		case PKG_LINE_IGNORE:
+-			/* Skip 2 lines for the file and checksum */
+-			pos += 2;
++	items = pkg_manifest_get_items(pkg->pkg_manifest);
++	for (pos = 0; items[pos] != NULL; pos++) {
++		switch(pkg_manifest_item_get_type(items[pos])) {
++		/* Unused item types */
++		case pmt_comment:
++		case pmt_dirlist:
+ 			break;
+-		case PKG_LINE_COMMENT:
+-		case PKG_LINE_EXEC:
+-		case PKG_LINE_MTREE:
+-		case PKG_LINE_PKGDEP:
+-		case PKG_LINE_CONFLICTS:
+-		case PKG_LINE_NAME:
+-			/* These are not used when removing packages */
+-			break;
+-		case PKG_LINE_CWD:
++		case pmt_dir:
++		case pmt_file:
+ 		{
+-			const char *dir = contents->lines[pos].data;
++			const char *attr, *file_name;
++			struct pkgfile *file;
+ 
+-			if (dir != NULL)
+-				db_chdir(pkg, pkg_action, data, dir);
++			attr =
++			    pkg_manifest_item_get_attr(items[pos], pmia_ignore);
++
++			if (attr == NULL || strcasecmp(attr, "NO") == 0) {
++				file_name =
++				    pkg_manifest_item_get_data(items[pos]);
++				file = pkgfile_new_from_disk(file_name, 0);
++				deinstall_file(pkg, pkg_action, data, file);
++			}
+ 			break;
+ 		}
+-		case PKG_LINE_DIRRM:
+-		case PKG_LINE_FILE:
++		case pmt_chdir:
++			dir = pkg_manifest_item_get_data(items[pos]);
++
++			if (dir != NULL) {
++				cwd = dir;
++				db_chdir(pkg, pkg_action, data, dir);
++			}
++
++			break;
++		case pmt_output:
++			break;
++		case pmt_execute:
+ 		{
+-			struct pkgfile *file;
++			const char *cmd, *attr;
+ 
+-			if (contents->lines[pos].line_type == PKG_LINE_FILE) {
+-				file = pkgfile_new_from_disk(
+-				    contents->lines[pos].line, 0);
+-			} else {
+-				file = pkgfile_new_from_disk(
+-				    contents->lines[pos].data, 0);
++			attr = pkg_manifest_item_get_attr(items[pos],
++			    pmia_deinstall);
++			if (attr != NULL && strcasecmp(attr, "YES") == 0) {
++				cmd = pkg_manifest_item_get_data(items[pos]);
++				do_exec(pkg, pkg_action, data, cmd);
+ 			}
+-			deinstall_file(pkg, pkg_action, data, file);
+ 			break;
+ 		}
+-		case PKG_LINE_UNEXEC:
+-			do_exec(pkg, pkg_action, data,
+-			    contents->lines[pos].data);
++		case pmt_other:
++		case pmt_error:
++			/*
++			 * This should never happen as pmt_other and
++			 * pmt_error don't appear in pkg_freebsd_parser.y
++			 */
++			abort();
+ 			break;
+-		default:
+-			warnx("ERROR: Incorrect line in +CONTENTS file "
+-			    "\"%s %s\"\n", contents->lines[pos].line,
+-			    contents->lines[pos].data);
+ 		}
+ 	}
++
+ 	db_chdir(pkg, pkg_action, data, ".");
+ 	/* Register the package */
+ 	pkg_deregister(pkg, pkg_action, data, control);
+@@ -765,9 +767,6 @@
+ 	/* Set the return to 0 as we have fully installed the package */
+ 	ret = 0;
+ 
+-	if (contents != NULL)
+-		pkg_freebsd_contents_free(contents);
+-
+ 	return ret;
+ }
+ 
+
+
+
+From zxombie at users.berlios.de  Sun Jan  4 00:27:58 2009
+From: zxombie at users.berlios.de (zxombie at users.berlios.de)
+Date: Sun, 4 Jan 2009 00:27:58 +0100
+Subject: r325 - trunk/src
+Message-ID: <200901032327.n03NRwm6008989@sheep.berlios.de>
+
+Author: zxombie
+Date: 2009-01-04 00:27:58 +0100 (Sun, 04 Jan 2009)
+New Revision: 325
+
+Modified:
+   trunk/src/pkg.c
+   trunk/src/pkg_db_freebsd.c
+   trunk/src/pkg_freebsd.c
+   trunk/src/pkg_private.h
+Log:
+Remove more of the need for the old FreeBSD contents parser
+
+
+Modified: trunk/src/pkg.c
+===================================================================
+--- trunk/src/pkg.c	2009-01-03 22:35:23 UTC (rev 324)
++++ trunk/src/pkg.c	2009-01-03 23:27:58 UTC (rev 325)
+@@ -46,6 +46,7 @@
+  * @brief Creates a new package and associates callbacks that are used
+  * by most types of packages.
+  * @param pkg_name The name of the package
++ * @param manifest the package manifest or NULL
+  * @param control_files A callback to be used by pkg_get_control_files()
+  * @param control_file A callback to be used by pkg_get_control_file()
+  * @param get_deps A callback to be used by pkg_get_dependencies()
+@@ -54,7 +55,7 @@
+  * @return A new pkg object, or NULL on error
+  */
+ struct pkg *
+-pkg_new(const char *pkg_name,
++pkg_new(const char *pkg_name, struct pkg_manifest *manifest,
+ 		pkg_get_control_files_callback *control_files,
+ 		pkg_get_control_file_callback *control_file,
+ 		pkg_get_manifest_callback *get_manifest,
+@@ -79,8 +80,8 @@
+ 		return NULL;
+ 	}
+ 
+-	/* Set the manifest to NULL */
+-	pkg->pkg_manifest = NULL;
++	/* Set the manifest to the manifest passed (NULL is valid) */
++	pkg->pkg_manifest = manifest;
+ 
+ 	/* Add the given callbacks to the struct */
+ 	pkg->pkg_get_control_files = control_files;
+@@ -208,7 +209,7 @@
+ struct pkg*
+ pkg_new_empty(const char *pkg_name)
+ {
+-	return pkg_new(pkg_name, NULL, NULL, NULL, NULL, NULL, NULL);
++	return pkg_new(pkg_name, NULL, NULL, NULL, NULL, NULL, NULL, NULL);
+ }
+ 
+ /**
+
+Modified: trunk/src/pkg_db_freebsd.c
+===================================================================
+--- trunk/src/pkg_db_freebsd.c	2009-01-03 22:35:23 UTC (rev 324)
++++ trunk/src/pkg_db_freebsd.c	2009-01-03 23:27:58 UTC (rev 325)
+@@ -90,9 +90,9 @@
+ static int	freebsd_do_exec(struct pkg *, pkg_db_action *, void *,
+ 				const char *);
+ static int	freebsd_register(struct pkg *, pkg_db_action *, void *,
+-				struct pkgfile **, const char *);
+-static int	freebsd_deregister(struct pkg *, pkg_db_action *, void *,
+-				struct pkgfile **);
++				const char *);
++static int	freebsd_deregister(struct pkg *, pkg_db_action *, void *);
++
+ /* Internal */
+ static void			 freebsd_format_cmd(char *, int, const char *,
+ 				const char *, const char *);
+@@ -685,23 +685,28 @@
+  */
+ static int
+ freebsd_register(struct pkg *pkg, pkg_db_action *pkg_action, void *data,
+-		struct pkgfile **control, const char *prefix)
++    const char *prefix)
+ {
+ 	unsigned int pos;
+ 	struct pkg_install_data *install_data;
+ 	struct pkg_db *db;
+ 	struct pkg **deps;
+ 	char dir[PATH_MAX], *real_dir;
++	struct pkgfile **control;
+ 
+ 	assert(pkg != NULL);
+ 	assert(pkg_action != NULL);
+ 	assert(data != NULL);
+-	assert(control != NULL);
+ 
+ 	install_data = data;
+ 	assert(install_data->db);
+ 	db = install_data->db;
+ 
++	/* Get the control files from the package */
++	control = pkg_get_control_files(pkg);
++	if (control == NULL) {
++		return -1;
++	}
+ 	snprintf(dir, PATH_MAX, DB_LOCATION "%s/%s", db->db_base,
+ 	    pkg_get_name(pkg));
+ 
+@@ -787,18 +792,25 @@
+  * @return -1 on error
+  */
+ static int
+-freebsd_deregister(struct pkg *pkg, pkg_db_action *pkg_action __unused, void *data,
+-		struct pkgfile **control)
++freebsd_deregister(struct pkg *pkg, pkg_db_action *pkg_action __unused,
++    void *data)
+ {
+ 	unsigned int pos;
+ 	struct pkg_install_data *install_data;
+ 	struct pkgfile *dir;
+ 	char db_dir[FILENAME_MAX];
++	struct pkgfile **control;
+ 
+ 	install_data = data;
+ 	assert(install_data->db != NULL);
+ 
++	/* Get the control files from the package */
++	control = pkg_get_control_files(pkg);
+ 	assert(control != NULL);
++	if (control == NULL) {
++		return -1;
++	}
++
+ 	assert(control[0] != NULL);
+ 	/* Remove the control files */
+ 	for (pos = 0; control[pos] != NULL; pos++) {
+
+Modified: trunk/src/pkg_freebsd.c
+===================================================================
+--- trunk/src/pkg_freebsd.c	2009-01-03 22:35:23 UTC (rev 324)
++++ trunk/src/pkg_freebsd.c	2009-01-03 23:27:58 UTC (rev 325)
+@@ -123,7 +123,9 @@
+ {
+ 	struct pkg *pkg;
+ 	struct freebsd_package *fpkg;
++	struct pkg_manifest *manifest;
+ 	const char *pkg_name;
++	int i;
+ 
+ 	if (fd == NULL)
+ 		return NULL;
+@@ -140,7 +142,7 @@
+ 	archive_read_support_compression_gzip(fpkg->archive);
+ 	archive_read_support_format_tar(fpkg->archive);
+ 	archive_read_open_stream(fpkg->archive, fd, 10240);
+-	
++
+ 	/*
+ 	 * Get the +CONTENTS file.
+ 	 * We can't use the callbacks as we need the
+@@ -149,16 +151,22 @@
+ 	freebsd_open_control_files(fpkg);
+ 	assert(fpkg->control != NULL);
+ 
+-	freebsd_parse_contents(fpkg);
+-	assert(fpkg->contents != NULL);
+-	if (fpkg->contents->lines[1].line_type != PKG_LINE_NAME ||
+-	    fpkg->contents->lines[3].line_type != PKG_LINE_CWD) {
+-		/** @todo cleanup */
++	/* Read in the manifest to check if this is a FreeBSD package */
++	for (i = 0; fpkg->control[i] != NULL; i++) {
++		if (strcmp("+CONTENTS",
++		    basename(pkgfile_get_name(fpkg->control[i]))) == 0) {
++			manifest =
++			    pkg_manifest_new_freebsd_pkgfile(fpkg->control[i]);
++			break;
++		}
++	}
++	if (manifest == NULL) {
++		/* TODO: Cleanup */
+ 		return NULL;
+ 	}
+ 
+-	pkg_name = fpkg->contents->lines[1].data;
+-	pkg = pkg_new(pkg_name, freebsd_get_control_files,
++	pkg_name = pkg_manifest_get_name(manifest);
++	pkg = pkg_new(pkg_name, manifest, freebsd_get_control_files,
+ 	    freebsd_get_control_file, freebsd_get_manifest, freebsd_get_deps,
+ 	    NULL, freebsd_free);
+ 	if (pkg == NULL) {
+@@ -171,12 +179,6 @@
+ 	    freebsd_get_next_file, freebsd_run_script);
+ 	pkg->data = fpkg;
+ 
+-	/*
+-	 * Set the prefix to the first @cwd line.
+-	 * This should be line 3 otherwise we have a bad package
+-	 */
+-	pkg->pkg_prefix = strdup(fpkg->contents->lines[3].data);
+-
+ 	return pkg;
+ }
+ 
+@@ -206,7 +208,7 @@
+ 	if (!S_ISDIR(sb.st_mode))
+ 		return NULL;
+ 
+-	pkg = pkg_new(pkg_name, freebsd_get_control_files,
++	pkg = pkg_new(pkg_name, NULL, freebsd_get_control_files,
+ 	    freebsd_get_control_file, freebsd_get_manifest, freebsd_get_deps,
+ 	    freebsd_get_rdeps, freebsd_free);
+ 	if (pkg == NULL)
+@@ -249,7 +251,7 @@
+ 	struct freebsd_package *fpkg;
+ 
+ 	/* Create the package */
+-	pkg = pkg_new(pkg_name, NULL, NULL, NULL, NULL, NULL, freebsd_free);
++	pkg = pkg_new(pkg_name, NULL, NULL, NULL, NULL, NULL,NULL,freebsd_free);
+ 	if (pkg == NULL)
+ 		return NULL;
+ 
+@@ -510,10 +512,7 @@
+ 	struct pkg_manifest_item **items;
+ 	int ret;
+ 	unsigned int pos;
+-	struct pkgfile **control;
+-	struct pkgfile *contents_file;
+-	struct pkg_freebsd_contents *contents;
+-	const char *file_data, *cwd, *dir;
++	const char *cwd, *dir;
+ 	int only_control_files = 0;
+ 
+ 	assert(pkg != NULL);
+@@ -524,28 +523,8 @@
+ 	assert(pkg_register != NULL);
+ 
+ 	ret = -1;
+-	contents = NULL;
+ 	cwd = NULL;
+ 
+-	/* Get the control files from the package */
+-	control = pkg_get_control_files(pkg);
+-	if (control == NULL) {
+-		return -1;
+-	}
+-
+-	/* Find the +CONTENTS file in the control files */
+-	contents_file = freebsd_get_control_file(pkg, "+CONTENTS");
+-	if (contents_file == NULL) {
+-		return -1;
+-	}
+-
+-	file_data = pkgfile_get_data(contents_file);
+-	contents = pkg_freebsd_contents_new(file_data,
+-	    pkgfile_get_size(contents_file));
+-	if (contents == NULL) {
+-		return -1;
+-	}
+-
+ 	pkg_get_manifest(pkg);
+ 	assert(pkg->pkg_manifest != NULL);
+ 
+@@ -638,26 +617,24 @@
+ 		}
+ 		case pmt_other:
+ 		case pmt_error:
+-		default:
+-			warnx("ERROR: Incorrect line in +CONTENTS file "
+-			    "\"%s %s\"\n", contents->lines[pos].line,
+-			    contents->lines[pos].data);
++			/*
++			 * This should never happen as pmt_other and
++			 * pmt_error don't appear in pkg_freebsd_parser.y
++			 */
++			abort();
+ 			break;
+ 		}
+ 	}
+ 
++	/* Set the return to 0 as we have fully installed the package */
++	ret = 0;
++
+ 	if (reg) {
+ 		/* Register the package */
+-		pkg_register(pkg, pkg_action, data, control, prefix);
++		ret = pkg_register(pkg, pkg_action, data, prefix);
+ 	}
+ 
+-	/* Set the return to 0 as we have fully installed the package */
+-	ret = 0;
+-
+ exit:
+-	if (contents != NULL)
+-		pkg_freebsd_contents_free(contents);
+-
+ 	return ret;
+ }
+ 
+@@ -674,7 +651,6 @@
+ 	struct pkg_manifest_item **items;
+ 	int ret;
+ 	unsigned int pos;
+-	struct pkgfile **control;
+ 	const char *cwd, *dir;
+ 
+ 	assert(pkg != NULL);
+@@ -687,13 +663,6 @@
+ 
+ 	ret = -1;
+ 
+-	/* Get the control files from the package */
+-	control = pkg_get_control_files(pkg);
+-	assert(control != NULL);
+-	if (control == NULL) {
+-		return -1;
+-	}
+-
+ 	/* Read the package manifest */
+ 	pkg_get_manifest(pkg);
+ 	assert(pkg->pkg_manifest != NULL);
+@@ -762,7 +731,7 @@
+ 
+ 	db_chdir(pkg, pkg_action, data, ".");
+ 	/* Register the package */
+-	pkg_deregister(pkg, pkg_action, data, control);
++	pkg_deregister(pkg, pkg_action, data);
+ 
+ 	/* Set the return to 0 as we have fully installed the package */
+ 	ret = 0;
+
+Modified: trunk/src/pkg_private.h
+===================================================================
+--- trunk/src/pkg_private.h	2009-01-03 22:35:23 UTC (rev 324)
++++ trunk/src/pkg_private.h	2009-01-03 23:27:58 UTC (rev 325)
+@@ -136,7 +136,7 @@
+ typedef struct pkg_manifest *pkg_get_manifest_callback(struct pkg *);
+ typedef int		  pkg_free_callback(struct pkg *);
+ 
+-struct pkg		 *pkg_new(const char *,
++struct pkg		 *pkg_new(const char *, struct pkg_manifest *,
+ 				pkg_get_control_files_callback *,
+ 				pkg_get_control_file_callback *,
+ 				pkg_get_manifest_callback *,
+@@ -170,9 +170,9 @@
+ typedef int		  pkg_db_exec(struct pkg *, pkg_db_action *, void *,
+ 				const char *);
+ typedef int		  pkg_db_register(struct pkg *, pkg_db_action *, void *,
+-				struct pkgfile **, const char *);
++				const char *);
+ typedef int		  pkg_db_deregister(struct pkg *, pkg_db_action *,
+-				void *,	struct pkgfile **);
++				void *);
+ typedef int	  	  pkg_install_callback(struct pkg *, const char *, int,
+ 				pkg_db_action *, void *, pkg_db_chdir *,
+ 				pkg_db_install_file *, pkg_db_exec *,
+
+
+
+From zxombie at users.berlios.de  Sun Jan  4 00:33:35 2009
+From: zxombie at users.berlios.de (zxombie at users.berlios.de)
+Date: Sun, 4 Jan 2009 00:33:35 +0100
+Subject: r326 - trunk/tests
+Message-ID: <200901032333.n03NXZG0012353@sheep.berlios.de>
+
+Author: zxombie
+Date: 2009-01-04 00:33:27 +0100 (Sun, 04 Jan 2009)
+New Revision: 326
+
+Modified:
+   trunk/tests/pkg_manifest.c
+Log:
+Test pkg_manifest_replace_dependency
+
+Modified: trunk/tests/pkg_manifest.c
+===================================================================
+--- trunk/tests/pkg_manifest.c	2009-01-03 23:27:58 UTC (rev 325)
++++ trunk/tests/pkg_manifest.c	2009-01-03 23:33:27 UTC (rev 326)
+@@ -38,6 +38,7 @@
+ 	fail_unless(pkg_manifest_set_manifest_version(NULL, "str") == -1);
+ 	fail_unless(pkg_manifest_get_manifest_version(NULL) == NULL);
+ 	fail_unless(pkg_manifest_add_dependency(NULL, NULL) == -1);
++	fail_unless(pkg_manifest_replace_dependency(NULL, NULL, NULL) == -1);
+ 	fail_unless(pkg_manifest_get_dependencies(NULL) == NULL);
+ 	fail_unless(pkg_manifest_add_conflict(NULL, NULL) == -1);
+ 	fail_unless(pkg_manifest_add_conflict(NULL, "str") == -1);
+@@ -62,6 +63,7 @@
+ 
+ 	fail_unless(pkg_manifest_set_manifest_version(manifest, NULL) == -1);
+ 	fail_unless(pkg_manifest_add_dependency(manifest, NULL) == -1);
++	fail_unless(pkg_manifest_replace_dependency(manifest, NULL, NULL) ==-1);
+ 	fail_unless(pkg_manifest_add_conflict(manifest, NULL) == -1);
+ 	fail_unless(pkg_manifest_set_name(manifest, NULL) == -1);
+ 	fail_unless(pkg_manifest_get_name(manifest) == NULL);
+@@ -92,25 +94,37 @@
+ START_TEST(pkg_manifest_dependency)
+ {
+ 	struct pkg_manifest *manifest;
+-	struct pkg *pkg1, *pkg2, **pkg_list;
++	struct pkg *pkg1, *pkg2, *pkg3, **pkg_list;
+ 
+ 	fail_unless((manifest = pkg_manifest_new()) != NULL);
+ 	fail_unless((pkg1 = pkg_new_freebsd_empty("foo")) != NULL);
+ 	fail_unless((pkg2 = pkg_new_freebsd_empty("bar")) != NULL);
++	fail_unless((pkg3 = pkg_new_freebsd_empty("baz")) != NULL);
+ 
+ 	fail_unless(pkg_manifest_get_dependencies(manifest) == NULL);
+ 	fail_unless(pkg_manifest_add_dependency(manifest, pkg1) == 0);
+ 	fail_unless((pkg_list = pkg_manifest_get_dependencies(manifest)) !=
+ 	    NULL);
+ 	fail_unless(pkg_list[0] == pkg1);
++	fail_unless(pkg_list[1] == NULL);
+ 
+ 	pkg_list = NULL;
+ 	fail_unless(pkg_manifest_add_dependency(manifest, pkg2) == 0);
+ 	fail_unless((pkg_list = pkg_manifest_get_dependencies(manifest)) !=
+ 	    NULL);
+-	fail_unless(pkg_list[0] == pkg1);
+-	fail_unless(pkg_list[1] == pkg2);
++	fail_unless(pkg_list[0] == pkg1 || pkg_list[0] == pkg2);
++	fail_unless(pkg_list[1] == pkg1 || pkg_list[1] == pkg2);
++	fail_unless(pkg_list[0] != pkg_list[1]);
++	fail_unless(pkg_list[2] == NULL);
+ 
++	fail_unless(pkg_manifest_replace_dependency(manifest, pkg2, pkg3) == 0);
++	fail_unless((pkg_list = pkg_manifest_get_dependencies(manifest)) !=
++	    NULL);
++	fail_unless(pkg_list[0] == pkg1 || pkg_list[0] == pkg3);
++	fail_unless(pkg_list[1] == pkg1 || pkg_list[1] == pkg3);
++	fail_unless(pkg_list[0] != pkg_list[1]);
++	fail_unless(pkg_list[2] == NULL);
++
+ 	fail_unless(pkg_manifest_free(manifest) == 0);
+ }
+ END_TEST
+
+
+
+From zxombie at users.berlios.de  Sun Jan  4 02:20:55 2009
+From: zxombie at users.berlios.de (zxombie at users.berlios.de)
+Date: Sun, 4 Jan 2009 02:20:55 +0100
+Subject: r327 - trunk/src
+Message-ID: <200901040120.n041KtrP010060@sheep.berlios.de>
+
+Author: zxombie
+Date: 2009-01-04 02:20:54 +0100 (Sun, 04 Jan 2009)
+New Revision: 327
+
+Modified:
+   trunk/src/pkg.c
+Log:
+If the manifest is NULL attempt to read it
+
+Modified: trunk/src/pkg.c
+===================================================================
+--- trunk/src/pkg.c	2009-01-03 23:33:27 UTC (rev 326)
++++ trunk/src/pkg.c	2009-01-04 01:20:54 UTC (rev 327)
+@@ -272,6 +272,9 @@
+ 	if (pkg == NULL)
+ 		return NULL;
+ 
++	if (pkg->pkg_manifest == NULL)
++		pkg_get_manifest(pkg);
++
+ 	/* Read the prefix from the manifest */
+ 	if (pkg->pkg_prefix == NULL && pkg->pkg_manifest != NULL) {
+ 		const char *prefix;
+
+
+
+From zxombie at users.berlios.de  Sun Jan  4 02:23:31 2009
+From: zxombie at users.berlios.de (zxombie at users.berlios.de)
+Date: Sun, 4 Jan 2009 02:23:31 +0100
+Subject: r328 - trunk/src
+Message-ID: <200901040123.n041NVMi013059@sheep.berlios.de>
+
+Author: zxombie
+Date: 2009-01-04 02:23:31 +0100 (Sun, 04 Jan 2009)
+New Revision: 328
+
+Modified:
+   trunk/src/pkg_freebsd.c
+Log:
+Remove the need for the old FreeBSD contents from freebsd_get_next_file
+
+Modified: trunk/src/pkg_freebsd.c
+===================================================================
+--- trunk/src/pkg_freebsd.c	2009-01-04 01:20:54 UTC (rev 327)
++++ trunk/src/pkg_freebsd.c	2009-01-04 01:23:31 UTC (rev 328)
+@@ -746,6 +746,7 @@
+ static struct pkgfile *
+ freebsd_get_next_file(struct pkg *pkg)
+ {
++	struct pkg_manifest_item **items;
+ 	struct freebsd_package *fpkg;
+ 	struct pkgfile *file;
+ 
+@@ -765,43 +766,75 @@
+ 		fpkg->next_file = NULL;
+ 	} else if (fpkg->archive == NULL)  {
+ 		/* Read the file from disk */
+-		freebsd_parse_contents(fpkg);
+-		while (fpkg->line < fpkg->contents->line_count) {
+-			if (fpkg->contents->lines[fpkg->line].line_type ==
+-			    PKG_LINE_CWD) {
++		items = pkg_manifest_get_items(pkg->pkg_manifest);
++		for (; items[fpkg->line] != NULL; fpkg->line++) {
++			switch(pkg_manifest_item_get_type(items[fpkg->line])) {
++			/* Unused item types */
++			case pmt_comment:
++			case pmt_dir:
++			case pmt_dirlist:
++			case pmt_output:
++			case pmt_execute:
++				break;
++			case pmt_chdir:
++			{
++				const char *dir;
+ 				if (fpkg->curdir != NULL)
+ 					free(fpkg->curdir);
+-				fpkg->curdir = strdup(
+-				    fpkg->contents->lines[fpkg->line].data);
++				dir = pkg_manifest_item_get_data(
++				    items[fpkg->line]);
++				fpkg->curdir = strdup(dir);
++				break;
+ 			}
+-			if (fpkg->contents->lines[fpkg->line].line_type ==
+-			    PKG_LINE_FILE) {
++			case pmt_file:
++			{
++				const char *file_name, *md5;
+ 				char the_file[FILENAME_MAX + 1];
+ 
++				/*
++				 * We will always return from
++				 * this so increment the line
++				 * now to stop an infinite loop
++				*/
++				fpkg->line++;
++
++				/* Get the file's absolute name */
++				file_name = pkg_manifest_item_get_data(
++				    items[fpkg->line]);
+ 				snprintf(the_file, FILENAME_MAX, "%s/%s",
+-				    fpkg->curdir,
+-				    fpkg->contents->lines[fpkg->line].line);
++				    fpkg->curdir, file_name);
+ 				/* Remove extra slashes from the path */
+ 				pkg_remove_extra_slashes(the_file);
+ 
++				/* Open the file */
+ 				file = pkgfile_new_from_disk(the_file, 1);
+ 
+ 				if (file == NULL)
+ 					return NULL;
+-				fpkg->line++;
+ 
+ 				/* Add the recorded md5 to the file */
+-				if (fpkg->contents->lines[fpkg->line].line_type
+-				  == PKG_LINE_COMMENT) {
+-					strncpy(file->md5,
+-					    fpkg->contents->lines[fpkg->line].data + 4,
+-					    32);
++				md5 = pkg_manifest_item_get_attr(
++				    items[fpkg->line], pmia_md5);
++				if (md5 != NULL) {
++					strncpy(file->md5, md5, 32);
+ 					file->md5[33] = '\0';
+ 				}
+ 				return file;
+ 			}
+-			fpkg->line++;
++			case pmt_other:
++			case pmt_error:
++				/*
++				 * This should never happen as
++				 * pmt_other and pmt_error don't
++				 * appear in pkg_freebsd_parser.y
++				 */
++				abort();
++				break;
++			}
+ 		}
++
++
++		/* If we are here there must be no more files in the manifest */
+ 		fpkg->line = 0;
+ 		return NULL;
+ 	} else {
+
+
+
+From zxombie at users.berlios.de  Sun Jan  4 09:16:30 2009
+From: zxombie at users.berlios.de (zxombie at users.berlios.de)
+Date: Sun, 4 Jan 2009 09:16:30 +0100
+Subject: r329 - trunk/src
+Message-ID: <200901040816.n048GUPe008956@sheep.berlios.de>
+
+Author: zxombie
+Date: 2009-01-04 09:16:29 +0100 (Sun, 04 Jan 2009)
+New Revision: 329
+
+Modified:
+   trunk/src/pkg_freebsd_lexer.l
+Log:
+Suppress all output from the FreeBSD +CONTENTS lexer
+
+
+Modified: trunk/src/pkg_freebsd_lexer.l
+===================================================================
+--- trunk/src/pkg_freebsd_lexer.l	2009-01-04 01:23:31 UTC (rev 328)
++++ trunk/src/pkg_freebsd_lexer.l	2009-01-04 08:16:29 UTC (rev 329)
+@@ -37,6 +37,11 @@
+ static unsigned int pkg_line = 1;
+ 
+ #define YY_NO_UNPUT
++
++#ifdef ECHO
++#undef ECHO
++#endif
++#define ECHO
+ %}
+ 
+ %x IN_COMMENT
+@@ -120,5 +125,5 @@
+ void
+ pkg_freebsd_error(const char *msg __unused)
+ {
+-	printf("ERROR line %d: %s\n", pkg_line, msg);
++	/* Do nothing */
+ }
+
+
+
+From zxombie at users.berlios.de  Sun Jan  4 10:26:39 2009
+From: zxombie at users.berlios.de (zxombie at users.berlios.de)
+Date: Sun, 4 Jan 2009 10:26:39 +0100
+Subject: r330 - trunk/tests
+Message-ID: <200901040926.n049Qda0014924@sheep.berlios.de>
+
+Author: zxombie
+Date: 2009-01-04 10:26:39 +0100 (Sun, 04 Jan 2009)
+New Revision: 330
+
+Added:
+   trunk/tests/pkg_manifest_freebsd.c
+Removed:
+   trunk/tests/pkg_freebsd_contents.c
+Modified:
+   trunk/tests/Makefile
+   trunk/tests/main.c
+   trunk/tests/test.h
+Log:
+Mobe the pkg_freebsd_contents tests to pkg_manifest_freebsd tests
+
+
+Modified: trunk/tests/Makefile
+===================================================================
+--- trunk/tests/Makefile	2009-01-04 08:16:29 UTC (rev 329)
++++ trunk/tests/Makefile	2009-01-04 09:26:39 UTC (rev 330)
+@@ -1,7 +1,8 @@
+ PROG=		tests
+ 
+-SRCS=		main.c pkgfile.c pkg_freebsd_contents.c pkg_manifest_item.c
+-SRCS+=		pkg_manifest.c
++SRCS=		main.c pkgfile.c
++SRCS+=		pkg_manifest.c pkg_manifest_item.c pkg_manifest_freebsd.c
++
+ CFLAGS+=	-I/usr/local/include -I${.CURDIR}/../src
+ LDADD+=		-L/usr/local/lib -lcheck
+ LDADD+=		${.OBJDIR}/../src/libpkg.a
+
+Modified: trunk/tests/main.c
+===================================================================
+--- trunk/tests/main.c	2009-01-04 08:16:29 UTC (rev 329)
++++ trunk/tests/main.c	2009-01-04 09:26:39 UTC (rev 330)
+@@ -51,9 +51,9 @@
+ 	SRunner *sr;
+ 
+ 	sr = srunner_create(pkgfile_suite());
+-	srunner_add_suite(sr, pkg_freebsd_contents_suite());
+ 	srunner_add_suite(sr, pkg_manifest_item_suite());
+ 	srunner_add_suite(sr, pkg_manifest_suite());
++	srunner_add_suite(sr, pkg_manifest_freebsd_suite());
+ 
+ 	srunner_run_all(sr, CK_NORMAL);
+ 	fail_count = srunner_ntests_failed(sr);
+
+Deleted: trunk/tests/pkg_freebsd_contents.c
+===================================================================
+--- trunk/tests/pkg_freebsd_contents.c	2009-01-04 08:16:29 UTC (rev 329)
++++ trunk/tests/pkg_freebsd_contents.c	2009-01-04 09:26:39 UTC (rev 330)
+@@ -1,475 +0,0 @@
+-/*
+- * Copyright (C) 2007, Andrew Turner, All rights reserved.
+- *
+- * Redistribution and use in source and binary forms, with or without
+- * modification, are permitted provided that the following conditions
+- * are met:
+- * 1. Redistributions of source code must retain the above copyright
+- *    notice, this list of conditions and the following disclaimer.
+- * 2. Redistributions in binary form must reproduce the above copyright
+- *    notice, this list of conditions and the following disclaimer in the
+- *    documentation and/or other materials provided with the distribution.
+- *
+- * THIS SOFTWARE IS PROVIDED BY THE AUTHOR AND CONTRIBUTORS ``AS IS'' AND
+- * ANY EXPRESS OR IMPLIED WARRANTIES, INCLUDING, BUT NOT LIMITED TO, THE
+- * IMPLIED WARRANTIES OF MERCHANTABILITY AND FITNESS FOR A PARTICULAR PURPOSE
+- * ARE DISCLAIMED.  IN NO EVENT SHALL THE AUTHOR OR CONTRIBUTORS BE LIABLE
+- * FOR ANY DIRECT, INDIRECT, INCIDENTAL, SPECIAL, EXEMPLARY, OR CONSEQUENTIAL
+- * DAMAGES (INCLUDING, BUT NOT LIMITED TO, PROCUREMENT OF SUBSTITUTE GOODS
+- * OR SERVICES; LOSS OF USE, DATA, OR PROFITS; OR BUSINESS INTERRUPTION)
+- * HOWEVER CAUSED AND ON ANY THEORY OF LIABILITY, WHETHER IN CONTRACT, STRICT
+- * LIABILITY, OR TORT (INCLUDING NEGLIGENCE OR OTHERWISE) ARISING IN ANY WAY
+- * OUT OF THE USE OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF
+- * SUCH DAMAGE.
+- *
+- */
+-
+-#include "test.h"
+-
+-#include <pkg.h>
+-#include <pkg_freebsd.h>
+-#include <pkg_freebsd_private.h>
+-
+-#include <string.h>
+-
+-START_TEST(pkg_freebsd_contents_empty_test)
+-{
+-	struct pkg_freebsd_contents *contents;
+-
+-	contents = pkg_freebsd_contents_new("", 0);
+-	fail_unless(contents == NULL, NULL);
+-	pkg_freebsd_contents_free(contents);
+-}
+-END_TEST
+-
+-START_TEST(pkg_freebsd_contents_good_empty_ignore_test)
+-{
+-	struct pkg_freebsd_contents *contents;
+-	const char *pkg_data = "@ignore\n at ignore\n";
+-
+-	contents = pkg_freebsd_contents_new(pkg_data, strlen(pkg_data));
+-	fail_unless(contents != NULL, NULL);
+-	pkg_freebsd_contents_free(contents);
+-}
+-END_TEST
+-
+-/* Test if a minimal config file will work */
+-START_TEST(pkg_freebsd_contents_good_basic_test)
+-{
+-	struct pkg_freebsd_contents *contents;
+-	const char *pkg_data = "@comment PKG_FORMAT_REVISION:1.1\n"
+-	    "@name package_name-1.0\n"
+-	    "@comment ORIGIN:package/origin\n"
+-	    "@cwd /usr/local\n";
+-
+-	contents = pkg_freebsd_contents_new(pkg_data, strlen(pkg_data));
+-	fail_unless(contents != NULL, NULL);
+-	fail_unless(contents->line_count == 4, NULL);
+-	fail_unless(contents->lines[0].line_type == PKG_LINE_COMMENT, NULL);
+-	fail_unless(contents->lines[1].line_type == PKG_LINE_NAME, NULL);
+-	fail_unless(contents->lines[2].line_type == PKG_LINE_COMMENT, NULL);
+-	fail_unless(contents->lines[3].line_type == PKG_LINE_CWD, NULL);
+-
+-	fail_unless(strcmp(contents->lines[0].line, "@comment") == 0, NULL);
+-	fail_unless(strcmp(contents->lines[1].line, "@name") == 0, NULL);
+-	fail_unless(strcmp(contents->lines[2].line, "@comment") == 0, NULL);
+-	fail_unless(strcmp(contents->lines[3].line, "@cwd") == 0, NULL);
+-
+-	fail_unless(strcmp(contents->lines[0].data, "PKG_FORMAT_REVISION:1.1")
+-	    == 0, NULL);
+-	fail_unless(strcmp(contents->lines[1].data, "package_name-1.0") == 0,
+-	    NULL);
+-	fail_unless(strcmp(contents->lines[2].data, "ORIGIN:package/origin")
+-	    == 0, NULL);
+-	fail_unless(strcmp(contents->lines[3].data, "/usr/local") == 0, NULL);
+-	pkg_freebsd_contents_free(contents);
+-}
+-END_TEST
+-
+-static void
+-check_good_command(struct pkg_freebsd_contents *contents, int line_type)
+-{
+-	fail_unless(contents != NULL, NULL);
+-	fail_unless(contents->line_count == 2, NULL);
+-	fail_unless(contents->lines[1].line_type == line_type, NULL);
+-	fail_unless(strcmp(contents->lines[1].line,
+-	    pkg_freebsd_contents_line_str[line_type]) == 0, NULL);
+-	fail_unless(strcmp(contents->lines[1].data, "data") == 0, NULL);
+-}
+-
+-/*
+- * Check a command with no data fails
+- */
+-START_TEST(pkg_freebsd_contents_good_comment_test)
+-{
+-	struct pkg_freebsd_contents *contents;
+-	const char *pkg_data = "@comment PKG_FORMAT_REVISION:1.1\n at comment data\n";
+-
+-	contents = pkg_freebsd_contents_new(pkg_data, strlen(pkg_data));
+-	check_good_command(contents, PKG_LINE_COMMENT);
+-	pkg_freebsd_contents_free(contents);
+-}
+-END_TEST
+-
+-START_TEST(pkg_freebsd_contents_good_name_test)
+-{
+-	struct pkg_freebsd_contents *contents;
+-	const char *pkg_data = "@comment PKG_FORMAT_REVISION:1.1\n at name data\n";
+-
+-	contents = pkg_freebsd_contents_new(pkg_data, strlen(pkg_data));
+-	check_good_command(contents, PKG_LINE_NAME);
+-	pkg_freebsd_contents_free(contents);
+-}
+-END_TEST
+-
+-START_TEST(pkg_freebsd_contents_good_cwd_test)
+-{
+-	struct pkg_freebsd_contents *contents;
+-	const char *pkg_data = "@comment PKG_FORMAT_REVISION:1.1\n at cwd data\n";
+-
+-	contents = pkg_freebsd_contents_new(pkg_data, strlen(pkg_data));
+-	check_good_command(contents, PKG_LINE_CWD);
+-	pkg_freebsd_contents_free(contents);
+-}
+-END_TEST
+-
+-START_TEST(pkg_freebsd_contents_good_pkgdep_test)
+-{
+-	struct pkg_freebsd_contents *contents;
+-	const char *pkg_data = "@comment PKG_FORMAT_REVISION:1.1\n at pkgdep data\n";
+-
+-	contents = pkg_freebsd_contents_new(pkg_data, strlen(pkg_data));
+-	check_good_command(contents, PKG_LINE_PKGDEP);
+-	pkg_freebsd_contents_free(contents);
+-}
+-END_TEST
+-
+-START_TEST(pkg_freebsd_contents_good_conflicts_test)
+-{
+-	struct pkg_freebsd_contents *contents;
+-	const char *pkg_data = "@comment PKG_FORMAT_REVISION:1.1\n at conflicts data\n";
+-
+-	contents = pkg_freebsd_contents_new(pkg_data, strlen(pkg_data));
+-	check_good_command(contents, PKG_LINE_CONFLICTS);
+-	pkg_freebsd_contents_free(contents);
+-}
+-END_TEST
+-
+-START_TEST(pkg_freebsd_contents_good_exec_test)
+-{
+-	struct pkg_freebsd_contents *contents;
+-	const char *pkg_data = "@comment PKG_FORMAT_REVISION:1.1\n at exec data\n";
+-
+-	contents = pkg_freebsd_contents_new(pkg_data, strlen(pkg_data));
+-	check_good_command(contents, PKG_LINE_EXEC);
+-	pkg_freebsd_contents_free(contents);
+-}
+-END_TEST
+-
+-START_TEST(pkg_freebsd_contents_good_unexec_test)
+-{
+-	struct pkg_freebsd_contents *contents;
+-	const char *pkg_data = "@comment PKG_FORMAT_REVISION:1.1\n at unexec data\n";
+-
+-	contents = pkg_freebsd_contents_new(pkg_data, strlen(pkg_data));
+-	check_good_command(contents, PKG_LINE_UNEXEC);
+-	pkg_freebsd_contents_free(contents);
+-}
+-END_TEST
+-
+-START_TEST(pkg_freebsd_contents_good_dirrm_test)
+-{
+-	struct pkg_freebsd_contents *contents;
+-	const char *pkg_data = "@comment PKG_FORMAT_REVISION:1.1\n at dirrm data\n";
+-
+-	contents = pkg_freebsd_contents_new(pkg_data, strlen(pkg_data));
+-	check_good_command(contents, PKG_LINE_DIRRM);
+-	pkg_freebsd_contents_free(contents);
+-}
+-END_TEST
+-
+-START_TEST(pkg_freebsd_contents_good_mtree_test)
+-{
+-	struct pkg_freebsd_contents *contents;
+-	const char *pkg_data = "@comment PKG_FORMAT_REVISION:1.1\n at mtree data\n";
+-
+-	contents = pkg_freebsd_contents_new(pkg_data, strlen(pkg_data));
+-	check_good_command(contents, PKG_LINE_MTREE);
+-	pkg_freebsd_contents_free(contents);
+-}
+-END_TEST
+-
+-START_TEST(pkg_freebsd_contents_good_display_test)
+-{
+-	struct pkg_freebsd_contents *contents;
+-	const char *pkg_data = "@comment PKG_FORMAT_REVISION:1.1\n at display data\n";
+-
+-	contents = pkg_freebsd_contents_new(pkg_data, strlen(pkg_data));
+-	check_good_command(contents, PKG_LINE_DISPLAY);
+-	pkg_freebsd_contents_free(contents);
+-}
+-END_TEST
+-
+-/*
+- * Check a command with no data fails
+- */
+-START_TEST(pkg_freebsd_contents_bad_empty_comment_test)
+-{
+-	struct pkg_freebsd_contents *contents;
+-	const char *pkg_data = "@comment PKG_FORMAT_REVISION:1.1\n at comment\n";
+-
+-	contents = pkg_freebsd_contents_new(pkg_data, strlen(pkg_data));
+-	fail_unless(contents == NULL, NULL);
+-}
+-END_TEST
+-
+-START_TEST(pkg_freebsd_contents_bad_empty_name_test)
+-{
+-	struct pkg_freebsd_contents *contents;
+-	const char *pkg_data = "@comment PKG_FORMAT_REVISION:1.1\n at name\n";
+-
+-	contents = pkg_freebsd_contents_new(pkg_data, strlen(pkg_data));
+-	fail_unless(contents == NULL, NULL);
+-}
+-END_TEST
+-
+-START_TEST(pkg_freebsd_contents_bad_empty_cwd_test)
+-{
+-	struct pkg_freebsd_contents *contents;
+-	const char *pkg_data = "@comment PKG_FORMAT_REVISION:1.1\n at cwd\n";
+-
+-	contents = pkg_freebsd_contents_new(pkg_data, strlen(pkg_data));
+-	fail_unless(contents == NULL, NULL);
+-}
+-END_TEST
+-
+-START_TEST(pkg_freebsd_contents_bad_empty_pkgdep_test)
+-{
+-	struct pkg_freebsd_contents *contents;
+-	const char *pkg_data = "@comment PKG_FORMAT_REVISION:1.1\n at pkgdep\n";
+-
+-	contents = pkg_freebsd_contents_new(pkg_data, strlen(pkg_data));
+-	fail_unless(contents == NULL, NULL);
+-}
+-END_TEST
+-
+-START_TEST(pkg_freebsd_contents_bad_empty_conflicts_test)
+-{
+-	struct pkg_freebsd_contents *contents;
+-	const char *pkg_data = "@comment PKG_FORMAT_REVISION:1.1\n at conflicts\n";
+-
+-	contents = pkg_freebsd_contents_new(pkg_data, strlen(pkg_data));
+-	fail_unless(contents == NULL, NULL);
+-}
+-END_TEST
+-
+-START_TEST(pkg_freebsd_contents_bad_empty_exec_test)
+-{
+-	struct pkg_freebsd_contents *contents;
+-	const char *pkg_data = "@comment PKG_FORMAT_REVISION:1.1\n at exec\n";
+-
+-	contents = pkg_freebsd_contents_new(pkg_data, strlen(pkg_data));
+-	fail_unless(contents == NULL, NULL);
+-}
+-END_TEST
+-
+-START_TEST(pkg_freebsd_contents_bad_empty_unexec_test)
+-{
+-	struct pkg_freebsd_contents *contents;
+-	const char *pkg_data = "@comment PKG_FORMAT_REVISION:1.1\n at unexec\n";
+-
+-	contents = pkg_freebsd_contents_new(pkg_data, strlen(pkg_data));
+-	fail_unless(contents == NULL, NULL);
+-}
+-END_TEST
+-
+-START_TEST(pkg_freebsd_contents_bad_empty_dirrm_test)
+-{
+-	struct pkg_freebsd_contents *contents;
+-	const char *pkg_data = "@comment PKG_FORMAT_REVISION:1.1\n at dirrm\n";
+-
+-	contents = pkg_freebsd_contents_new(pkg_data, strlen(pkg_data));
+-	fail_unless(contents == NULL, NULL);
+-}
+-END_TEST
+-
+-START_TEST(pkg_freebsd_contents_bad_empty_mtree_test)
+-{
+-	struct pkg_freebsd_contents *contents;
+-	const char *pkg_data = "@comment PKG_FORMAT_REVISION:1.1\n at mtree\n";
+-
+-	contents = pkg_freebsd_contents_new(pkg_data, strlen(pkg_data));
+-	fail_unless(contents == NULL, NULL);
+-}
+-END_TEST
+-
+-START_TEST(pkg_freebsd_contents_bad_empty_display_test)
+-{
+-	struct pkg_freebsd_contents *contents;
+-	const char *pkg_data = "@comment PKG_FORMAT_REVISION:1.1\n at display\n";
+-
+-	contents = pkg_freebsd_contents_new(pkg_data, strlen(pkg_data));
+-	fail_unless(contents == NULL, NULL);
+-}
+-END_TEST
+-
+-/*
+- * Test if a command on the second line with no contents fails
+- */
+-START_TEST(pkg_freebsd_contents_bad_empty2_comment_test)
+-{
+-	struct pkg_freebsd_contents *contents;
+-	const char *pkg_data = "@comment PKG_FORMAT_REVISION:1.1\n at ignore\n at comment\n";
+-
+-	contents = pkg_freebsd_contents_new(pkg_data, strlen(pkg_data));
+-	fail_unless(contents == NULL, NULL);
+-}
+-END_TEST
+-
+-START_TEST(pkg_freebsd_contents_bad_empty2_name_test)
+-{
+-	struct pkg_freebsd_contents *contents;
+-	const char *pkg_data = "@comment PKG_FORMAT_REVISION:1.1\n at ignore\n at name\n";
+-
+-	contents = pkg_freebsd_contents_new(pkg_data, strlen(pkg_data));
+-	fail_unless(contents == NULL, NULL);
+-}
+-END_TEST
+-
+-START_TEST(pkg_freebsd_contents_bad_empty2_cwd_test)
+-{
+-	struct pkg_freebsd_contents *contents;
+-	const char *pkg_data = "@comment PKG_FORMAT_REVISION:1.1\n at ignore\n at cwd\n";
+-
+-	contents = pkg_freebsd_contents_new(pkg_data, strlen(pkg_data));
+-	fail_unless(contents == NULL, NULL);
+-}
+-END_TEST
+-
+-START_TEST(pkg_freebsd_contents_bad_empty2_pkgdep_test)
+-{
+-	struct pkg_freebsd_contents *contents;
+-	const char *pkg_data = "@comment PKG_FORMAT_REVISION:1.1\n at ignore\n at pkgdep\n";
+-
+-	contents = pkg_freebsd_contents_new(pkg_data, strlen(pkg_data));
+-	fail_unless(contents == NULL, NULL);
+-}
+-END_TEST
+-
+-START_TEST(pkg_freebsd_contents_bad_empty2_conflicts_test)
+-{
+-	struct pkg_freebsd_contents *contents;
+-	const char *pkg_data = "@comment PKG_FORMAT_REVISION:1.1\n at ignore\n at conflicts\n";
+-
+-	contents = pkg_freebsd_contents_new(pkg_data, strlen(pkg_data));
+-	fail_unless(contents == NULL, NULL);
+-}
+-END_TEST
+-
+-START_TEST(pkg_freebsd_contents_bad_empty2_exec_test)
+-{
+-	struct pkg_freebsd_contents *contents;
+-	const char *pkg_data = "@comment PKG_FORMAT_REVISION:1.1\n at ignore\n at exec\n";
+-
+-	contents = pkg_freebsd_contents_new(pkg_data, strlen(pkg_data));
+-	fail_unless(contents == NULL, NULL);
+-}
+-END_TEST
+-
+-START_TEST(pkg_freebsd_contents_bad_empty2_unexec_test)
+-{
+-	struct pkg_freebsd_contents *contents;
+-	const char *pkg_data = "@comment PKG_FORMAT_REVISION:1.1\n at ignore\n at unexec\n";
+-
+-	contents = pkg_freebsd_contents_new(pkg_data, strlen(pkg_data));
+-	fail_unless(contents == NULL, NULL);
+-}
+-END_TEST
+-
+-START_TEST(pkg_freebsd_contents_bad_empty2_dirrm_test)
+-{
+-	struct pkg_freebsd_contents *contents;
+-	const char *pkg_data = "@comment PKG_FORMAT_REVISION:1.1\n at ignore\n at dirrm\n";
+-
+-	contents = pkg_freebsd_contents_new(pkg_data, strlen(pkg_data));
+-	fail_unless(contents == NULL, NULL);
+-}
+-END_TEST
+-
+-START_TEST(pkg_freebsd_contents_bad_empty2_mtree_test)
+-{
+-	struct pkg_freebsd_contents *contents;
+-	const char *pkg_data = "@comment PKG_FORMAT_REVISION:1.1\n at ignore\n at mtree\n";
+-
+-	contents = pkg_freebsd_contents_new(pkg_data, strlen(pkg_data));
+-	fail_unless(contents == NULL, NULL);
+-}
+-END_TEST
+-
+-START_TEST(pkg_freebsd_contents_bad_empty2_display_test)
+-{
+-	struct pkg_freebsd_contents *contents;
+-	const char *pkg_data = "@comment PKG_FORMAT_REVISION:1.1\n at ignore\n at display\n";
+-
+-	contents = pkg_freebsd_contents_new(pkg_data, strlen(pkg_data));
+-	fail_unless(contents == NULL, NULL);
+-}
+-END_TEST
+-
+-Suite *
+-pkg_freebsd_contents_suite()
+-{
+-	Suite *s;
+-	TCase *tc;
+-
+-	s = suite_create("pkg_freebsd_contents");
+-
+-	tc = tcase_create("empty");
+-	tcase_add_test(tc, pkg_freebsd_contents_empty_test);
+-	suite_add_tcase(s, tc);
+-
+-
+-	tc = tcase_create("good");
+-	tcase_add_test(tc, pkg_freebsd_contents_good_empty_ignore_test);
+-	tcase_add_test(tc, pkg_freebsd_contents_good_basic_test);
+-
+-	tcase_add_test(tc, pkg_freebsd_contents_good_comment_test);
+-	tcase_add_test(tc, pkg_freebsd_contents_good_name_test);
+-	tcase_add_test(tc, pkg_freebsd_contents_good_cwd_test);
+-	tcase_add_test(tc, pkg_freebsd_contents_good_pkgdep_test);
+-	tcase_add_test(tc, pkg_freebsd_contents_good_conflicts_test);
+-	tcase_add_test(tc, pkg_freebsd_contents_good_exec_test);
+-	tcase_add_test(tc, pkg_freebsd_contents_good_unexec_test);
+-	tcase_add_test(tc, pkg_freebsd_contents_good_dirrm_test);
+-	tcase_add_test(tc, pkg_freebsd_contents_good_mtree_test);
+-	tcase_add_test(tc, pkg_freebsd_contents_good_display_test);
+-	suite_add_tcase(s, tc);
+-
+-	tc = tcase_create("bad");
+-	tcase_add_test(tc, pkg_freebsd_contents_bad_empty_comment_test);
+-	tcase_add_test(tc, pkg_freebsd_contents_bad_empty_name_test);
+-	tcase_add_test(tc, pkg_freebsd_contents_bad_empty_cwd_test);
+-	tcase_add_test(tc, pkg_freebsd_contents_bad_empty_pkgdep_test);
+-	tcase_add_test(tc, pkg_freebsd_contents_bad_empty_conflicts_test);
+-	tcase_add_test(tc, pkg_freebsd_contents_bad_empty_exec_test);
+-	tcase_add_test(tc, pkg_freebsd_contents_bad_empty_unexec_test);
+-	tcase_add_test(tc, pkg_freebsd_contents_bad_empty_dirrm_test);
+-	tcase_add_test(tc, pkg_freebsd_contents_bad_empty_mtree_test);
+-	tcase_add_test(tc, pkg_freebsd_contents_bad_empty_display_test);
+-
+-	tcase_add_test(tc, pkg_freebsd_contents_bad_empty2_comment_test);
+-	tcase_add_test(tc, pkg_freebsd_contents_bad_empty2_name_test);
+-	tcase_add_test(tc, pkg_freebsd_contents_bad_empty2_cwd_test);
+-	tcase_add_test(tc, pkg_freebsd_contents_bad_empty2_pkgdep_test);
+-	tcase_add_test(tc, pkg_freebsd_contents_bad_empty2_conflicts_test);
+-	tcase_add_test(tc, pkg_freebsd_contents_bad_empty2_exec_test);
+-	tcase_add_test(tc, pkg_freebsd_contents_bad_empty2_unexec_test);
+-	tcase_add_test(tc, pkg_freebsd_contents_bad_empty2_dirrm_test);
+-	tcase_add_test(tc, pkg_freebsd_contents_bad_empty2_mtree_test);
+-	tcase_add_test(tc, pkg_freebsd_contents_bad_empty2_display_test);
+-	suite_add_tcase(s, tc);
+-
+-	return s;
+-}
+-
+-
+
+Copied: trunk/tests/pkg_manifest_freebsd.c (from rev 317, trunk/tests/pkg_freebsd_contents.c)
+===================================================================
+--- trunk/tests/pkg_freebsd_contents.c	2007-10-27 04:24:35 UTC (rev 317)
++++ trunk/tests/pkg_manifest_freebsd.c	2009-01-04 09:26:39 UTC (rev 330)
+@@ -0,0 +1,599 @@
++/*
++ * Copyright (C) 2007, 2009 Andrew Turner, All rights reserved.
++ *
++ * Redistribution and use in source and binary forms, with or without
++ * modification, are permitted provided that the following conditions
++ * are met:
++ * 1. Redistributions of source code must retain the above copyright
++ *    notice, this list of conditions and the following disclaimer.
++ * 2. Redistributions in binary form must reproduce the above copyright
++ *    notice, this list of conditions and the following disclaimer in the
++ *    documentation and/or other materials provided with the distribution.
++ *
++ * THIS SOFTWARE IS PROVIDED BY THE AUTHOR AND CONTRIBUTORS ``AS IS'' AND
++ * ANY EXPRESS OR IMPLIED WARRANTIES, INCLUDING, BUT NOT LIMITED TO, THE
++ * IMPLIED WARRANTIES OF MERCHANTABILITY AND FITNESS FOR A PARTICULAR PURPOSE
++ * ARE DISCLAIMED.  IN NO EVENT SHALL THE AUTHOR OR CONTRIBUTORS BE LIABLE
++ * FOR ANY DIRECT, INDIRECT, INCIDENTAL, SPECIAL, EXEMPLARY, OR CONSEQUENTIAL
++ * DAMAGES (INCLUDING, BUT NOT LIMITED TO, PROCUREMENT OF SUBSTITUTE GOODS
++ * OR SERVICES; LOSS OF USE, DATA, OR PROFITS; OR BUSINESS INTERRUPTION)
++ * HOWEVER CAUSED AND ON ANY THEORY OF LIABILITY, WHETHER IN CONTRACT, STRICT
++ * LIABILITY, OR TORT (INCLUDING NEGLIGENCE OR OTHERWISE) ARISING IN ANY WAY
++ * OUT OF THE USE OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF
++ * SUCH DAMAGE.
++ *
++ */
++
++#include "test.h"
++
++#include <pkg.h>
++#include <pkg_freebsd.h>
++#include <pkg_freebsd_private.h>
++
++#include <string.h>
++
++#define pkg_manifest_default "@comment PKG_FORMAT_REVISION:1.1\n" \
++    "@name package_name-1.0\n" \
++    "@comment ORIGIN:package/origin\n" \
++    "@cwd /usr/local\n"
++
++START_TEST(pkg_manifest_freebsd_empty_test)
++{
++	struct pkgfile *file;
++	struct pkg_manifest *manifest;
++
++	file = pkgfile_new_regular("+CONTENTS", "", 0);
++
++	manifest = pkg_manifest_new_freebsd_pkgfile(file);
++	fail_unless(manifest == NULL, NULL);
++	pkg_manifest_free(manifest);
++	pkgfile_free(file);
++}
++END_TEST
++
++static void
++pkg_manifest_freebsd_good_common(struct pkg_manifest *manifest)
++{
++	fail_unless(manifest != NULL, NULL);
++
++	fail_unless(pkg_manifest_get_manifest_version(manifest) != NULL);
++	fail_unless(strcmp(pkg_manifest_get_manifest_version(manifest),
++	    "1.1") == 0);
++
++	fail_unless(pkg_manifest_get_name(manifest) != NULL);
++	fail_unless(strcmp(pkg_manifest_get_name(manifest),
++	    "package_name-1.0") == 0);
++
++	fail_unless(pkg_manifest_get_attrs(manifest) != NULL);
++
++	fail_unless(pkg_manifest_get_attr(manifest, pkgm_other) == NULL);
++
++	fail_unless(pkg_manifest_get_attr(manifest, pkgm_origin) != NULL);
++	fail_unless(strcmp(pkg_manifest_get_attr(manifest, pkgm_origin),
++	    "package/origin") == 0);
++
++	fail_unless(pkg_manifest_get_attr(manifest, pkgm_prefix) != NULL);
++	fail_unless(strcmp(pkg_manifest_get_attr(manifest, pkgm_prefix),
++	    "/usr/local") == 0);
++
++	fail_unless(pkg_manifest_get_attr(manifest, pkgm_max) == NULL);
++
++	fail_unless(pkg_manifest_get_file(manifest) != NULL);
++}
++
++static void
++pkg_manifest_freebsd_good_basic_test_run(struct pkg_manifest *manifest)
++{
++	pkg_manifest_freebsd_good_common(manifest);
++
++	fail_unless(pkg_manifest_get_conflicts(manifest) == NULL);
++	fail_unless(pkg_manifest_get_dependencies(manifest) == NULL);
++	fail_unless(pkg_manifest_get_items(manifest) == NULL);
++}
++
++/* Test if a minimal config file will work */
++START_TEST(pkg_manifest_freebsd_good_basic_test)
++{
++	const char *pkg_data = pkg_manifest_default;
++	struct pkgfile *file, *file2;
++	struct pkg_manifest *manifest, *manifest2;
++
++	file = pkgfile_new_regular("+CONTENTS", pkg_data, strlen(pkg_data));
++	manifest = pkg_manifest_new_freebsd_pkgfile(file);
++	pkg_manifest_freebsd_good_basic_test_run(manifest);
++
++	file2 = pkg_manifest_get_file(manifest);
++	manifest2 = pkg_manifest_new_freebsd_pkgfile(file2);
++	pkg_manifest_freebsd_good_basic_test_run(manifest2);
++
++	pkg_manifest_free(manifest2);
++	pkg_manifest_free(manifest);
++	pkgfile_free(file);
++}
++END_TEST
++
++static void
++check_good_command(struct pkg_manifest *manifest,
++    pkg_manifest_item_type type)
++{
++	struct pkg_manifest_item **items;
++
++	pkg_manifest_freebsd_good_common(manifest);
++
++	fail_unless(pkg_manifest_get_conflicts(manifest) == NULL);
++	fail_unless(pkg_manifest_get_dependencies(manifest) == NULL);
++
++	items = pkg_manifest_get_items(manifest);
++	fail_unless(items != NULL);
++	fail_unless(items[0] != NULL);
++	fail_unless(items[1] == NULL);
++	fail_unless(pkg_manifest_item_get_type(items[0]) == type);
++}
++
++/*
++ * Check a command with no data fails
++ */
++START_TEST(pkg_manifest_freebsd_good_comment_test)
++{
++	const char *pkg_data = pkg_manifest_default "@comment data\n";
++	struct pkgfile *file;
++	struct pkg_manifest *manifest;
++
++	file = pkgfile_new_regular("+CONTENTS", pkg_data, strlen(pkg_data));
++	manifest = pkg_manifest_new_freebsd_pkgfile(file);
++	check_good_command(manifest, pmt_comment);
++
++	pkg_manifest_free(manifest);
++	pkgfile_free(file);
++}
++END_TEST
++
++START_TEST(pkg_manifest_freebsd_good_cwd_test)
++{
++	const char *pkg_data = pkg_manifest_default "@cwd data\n";
++	struct pkgfile *file;
++	struct pkg_manifest *manifest;
++
++	file = pkgfile_new_regular("+CONTENTS", pkg_data, strlen(pkg_data));
++	manifest = pkg_manifest_new_freebsd_pkgfile(file);
++	check_good_command(manifest, pmt_chdir);
++
++	pkg_manifest_free(manifest);
++	pkgfile_free(file);
++}
++END_TEST
++
++START_TEST(pkg_manifest_freebsd_good_exec_test)
++{
++	const char *pkg_data = pkg_manifest_default "@exec data\n";
++	struct pkgfile *file;
++	struct pkg_manifest *manifest;
++
++	file = pkgfile_new_regular("+CONTENTS", pkg_data, strlen(pkg_data));
++	manifest = pkg_manifest_new_freebsd_pkgfile(file);
++	check_good_command(manifest, pmt_execute);
++
++	pkg_manifest_free(manifest);
++	pkgfile_free(file);
++}
++END_TEST
++
++START_TEST(pkg_manifest_freebsd_good_unexec_test)
++{
++	const char *pkg_data = pkg_manifest_default "@unexec data\n";
++	struct pkgfile *file;
++	struct pkg_manifest *manifest;
++
++	file = pkgfile_new_regular("+CONTENTS", pkg_data, strlen(pkg_data));
++	manifest = pkg_manifest_new_freebsd_pkgfile(file);
++	check_good_command(manifest, pmt_execute);
++
++	pkg_manifest_free(manifest);
++	pkgfile_free(file);
++}
++END_TEST
++
++START_TEST(pkg_manifest_freebsd_good_dirrm_test)
++{
++	const char *pkg_data = pkg_manifest_default "@dirrm data\n";
++	struct pkgfile *file;
++	struct pkg_manifest *manifest;
++
++	file = pkgfile_new_regular("+CONTENTS", pkg_data, strlen(pkg_data));
++	manifest = pkg_manifest_new_freebsd_pkgfile(file);
++	check_good_command(manifest, pmt_dir);
++
++	pkg_manifest_free(manifest);
++	pkgfile_free(file);
++}
++END_TEST
++
++START_TEST(pkg_manifest_freebsd_good_mtree_test)
++{
++	const char *pkg_data = pkg_manifest_default "@mtree data\n";
++	struct pkgfile *file;
++	struct pkg_manifest *manifest;
++
++	file = pkgfile_new_regular("+CONTENTS", pkg_data, strlen(pkg_data));
++	manifest = pkg_manifest_new_freebsd_pkgfile(file);
++	check_good_command(manifest, pmt_dirlist);
++
++	pkg_manifest_free(manifest);
++	pkgfile_free(file);
++}
++END_TEST
++
++START_TEST(pkg_manifest_freebsd_good_display_test)
++{
++	const char *pkg_data = pkg_manifest_default "@display data\n";
++	struct pkgfile *file;
++	struct pkg_manifest *manifest;
++
++	file = pkgfile_new_regular("+CONTENTS", pkg_data, strlen(pkg_data));
++	manifest = pkg_manifest_new_freebsd_pkgfile(file);
++	check_good_command(manifest, pmt_output);
++
++	pkg_manifest_free(manifest);
++	pkgfile_free(file);
++}
++END_TEST
++
++START_TEST(pkg_manifest_freebsd_good_pkgdep_test)
++{
++	const char *pkg_data = pkg_manifest_default "@pkgdep data\n";
++	struct pkgfile *file;
++	struct pkg_manifest *manifest;
++	struct pkg **deps;
++
++	file = pkgfile_new_regular("+CONTENTS", pkg_data, strlen(pkg_data));
++	manifest = pkg_manifest_new_freebsd_pkgfile(file);
++
++	pkg_manifest_freebsd_good_common(manifest);
++	fail_unless(pkg_manifest_get_conflicts(manifest) == NULL);
++	fail_unless(pkg_manifest_get_items(manifest) == NULL);
++
++	deps = pkg_manifest_get_dependencies(manifest);
++	fail_unless(deps != NULL);
++	fail_unless(deps[0] != NULL);
++	fail_unless(deps[1] == NULL);
++	fail_unless(strcmp(pkg_get_name(deps[0]), "data") == 0);
++
++	pkg_manifest_free(manifest);
++	pkgfile_free(file);
++}
++END_TEST
++
++START_TEST(pkg_manifest_freebsd_good_conflicts_test)
++{
++	const char *pkg_data = pkg_manifest_default "@conflicts data\n";
++	struct pkgfile *file;
++	struct pkg_manifest *manifest;
++	struct pkg **conflicts;
++
++	file = pkgfile_new_regular("+CONTENTS", pkg_data, strlen(pkg_data));
++	manifest = pkg_manifest_new_freebsd_pkgfile(file);
++
++	pkg_manifest_freebsd_good_common(manifest);
++	fail_unless(pkg_manifest_get_dependencies(manifest) == NULL);
++	fail_unless(pkg_manifest_get_items(manifest) == NULL);
++
++	conflicts = pkg_manifest_get_conflicts(manifest);
++	fail_unless(conflicts != NULL);
++	fail_unless(conflicts[0] != NULL);
++	fail_unless(conflicts[1] == NULL);
++	fail_unless(strcmp(conflicts[0], "data") == 0);
++
++	pkg_manifest_free(manifest);
++	pkgfile_free(file);
++}
++END_TEST
++
++/*
++ * Check a command with no data fails
++ */
++START_TEST(pkg_manifest_freebsd_bad_empty_comment_test)
++{
++	const char *pkg_data = pkg_manifest_default "@comment\n";
++	struct pkgfile *file;
++	struct pkg_manifest *manifest;
++
++	file = pkgfile_new_regular("+CONTENTS", pkg_data, strlen(pkg_data));
++	manifest = pkg_manifest_new_freebsd_pkgfile(file);
++	fail_unless(manifest == NULL);
++
++	pkgfile_free(file);
++}
++END_TEST
++
++START_TEST(pkg_manifest_freebsd_bad_empty_cwd_test)
++{
++	const char *pkg_data = pkg_manifest_default "@cwd\n";
++	struct pkgfile *file;
++	struct pkg_manifest *manifest;
++
++	file = pkgfile_new_regular("+CONTENTS", pkg_data, strlen(pkg_data));
++	manifest = pkg_manifest_new_freebsd_pkgfile(file);
++	fail_unless(manifest == NULL);
++
++	pkgfile_free(file);
++}
++END_TEST
++
++START_TEST(pkg_manifest_freebsd_bad_empty_pkgdep_test)
++{
++	const char *pkg_data = pkg_manifest_default "@pkgdep\n";
++	struct pkgfile *file;
++	struct pkg_manifest *manifest;
++
++	file = pkgfile_new_regular("+CONTENTS", pkg_data, strlen(pkg_data));
++	manifest = pkg_manifest_new_freebsd_pkgfile(file);
++	fail_unless(manifest == NULL);
++
++	pkgfile_free(file);
++}
++END_TEST
++
++START_TEST(pkg_manifest_freebsd_bad_empty_conflicts_test)
++{
++	const char *pkg_data = pkg_manifest_default "@conflicts\n";
++	struct pkgfile *file;
++	struct pkg_manifest *manifest;
++
++	file = pkgfile_new_regular("+CONTENTS", pkg_data, strlen(pkg_data));
++	manifest = pkg_manifest_new_freebsd_pkgfile(file);
++	fail_unless(manifest == NULL);
++
++	pkgfile_free(file);
++}
++END_TEST
++
++START_TEST(pkg_manifest_freebsd_bad_empty_exec_test)
++{
++	const char *pkg_data = pkg_manifest_default "@exec\n";
++	struct pkgfile *file;
++	struct pkg_manifest *manifest;
++
++	file = pkgfile_new_regular("+CONTENTS", pkg_data, strlen(pkg_data));
++	manifest = pkg_manifest_new_freebsd_pkgfile(file);
++	fail_unless(manifest == NULL);
++
++	pkgfile_free(file);
++}
++END_TEST
++
++START_TEST(pkg_manifest_freebsd_bad_empty_unexec_test)
++{
++	const char *pkg_data = pkg_manifest_default "@unexec\n";
++	struct pkgfile *file;
++	struct pkg_manifest *manifest;
++
++	file = pkgfile_new_regular("+CONTENTS", pkg_data, strlen(pkg_data));
++	manifest = pkg_manifest_new_freebsd_pkgfile(file);
++	fail_unless(manifest == NULL);
++
++	pkgfile_free(file);
++}
++END_TEST
++
++START_TEST(pkg_manifest_freebsd_bad_empty_dirrm_test)
++{
++	const char *pkg_data = pkg_manifest_default "@dirrm\n";
++	struct pkgfile *file;
++	struct pkg_manifest *manifest;
++
++	file = pkgfile_new_regular("+CONTENTS", pkg_data, strlen(pkg_data));
++	manifest = pkg_manifest_new_freebsd_pkgfile(file);
++	fail_unless(manifest == NULL);
++
++	pkgfile_free(file);
++}
++END_TEST
++
++START_TEST(pkg_manifest_freebsd_bad_empty_mtree_test)
++{
++	const char *pkg_data = pkg_manifest_default "@mtree\n";
++	struct pkgfile *file;
++	struct pkg_manifest *manifest;
++
++	file = pkgfile_new_regular("+CONTENTS", pkg_data, strlen(pkg_data));
++	manifest = pkg_manifest_new_freebsd_pkgfile(file);
++	fail_unless(manifest == NULL);
++
++	pkgfile_free(file);
++}
++END_TEST
++
++START_TEST(pkg_manifest_freebsd_bad_empty_display_test)
++{
++	const char *pkg_data = pkg_manifest_default "@display\n";
++	struct pkgfile *file;
++	struct pkg_manifest *manifest;
++
++	file = pkgfile_new_regular("+CONTENTS", pkg_data, strlen(pkg_data));
++	manifest = pkg_manifest_new_freebsd_pkgfile(file);
++	fail_unless(manifest == NULL);
++
++	pkgfile_free(file);
++}
++END_TEST
++
++/*
++ * Test if a command on the second line with no contents fails
++ */
++START_TEST(pkg_manifest_freebsd_bad_empty2_comment_test)
++{
++	const char *pkg_data = pkg_manifest_default "@ignore\n at comment\n";
++	struct pkgfile *file;
++	struct pkg_manifest *manifest;
++
++	file = pkgfile_new_regular("+CONTENTS", pkg_data, strlen(pkg_data));
++	manifest = pkg_manifest_new_freebsd_pkgfile(file);
++	fail_unless(manifest == NULL);
++
++	pkgfile_free(file);
++}
++END_TEST
++
++START_TEST(pkg_manifest_freebsd_bad_empty2_cwd_test)
++{
++	const char *pkg_data = pkg_manifest_default "@ignore\n at cwd\n";
++	struct pkgfile *file;
++	struct pkg_manifest *manifest;
++
++	file = pkgfile_new_regular("+CONTENTS", pkg_data, strlen(pkg_data));
++	manifest = pkg_manifest_new_freebsd_pkgfile(file);
++	fail_unless(manifest == NULL);
++
++	pkgfile_free(file);
++}
++END_TEST
++
++START_TEST(pkg_manifest_freebsd_bad_empty2_pkgdep_test)
++{
++	const char *pkg_data = pkg_manifest_default "@ignore\n at pkgdep\n";
++	struct pkgfile *file;
++	struct pkg_manifest *manifest;
++
++	file = pkgfile_new_regular("+CONTENTS", pkg_data, strlen(pkg_data));
++	manifest = pkg_manifest_new_freebsd_pkgfile(file);
++	fail_unless(manifest == NULL);
++
++	pkgfile_free(file);
++}
++END_TEST
++
++START_TEST(pkg_manifest_freebsd_bad_empty2_conflicts_test)
++{
++	const char *pkg_data = pkg_manifest_default "@ignore\n at conflicts\n";
++	struct pkgfile *file;
++	struct pkg_manifest *manifest;
++
++	file = pkgfile_new_regular("+CONTENTS", pkg_data, strlen(pkg_data));
++	manifest = pkg_manifest_new_freebsd_pkgfile(file);
++	fail_unless(manifest == NULL);
++
++	pkgfile_free(file);
++}
++END_TEST
++
++START_TEST(pkg_manifest_freebsd_bad_empty2_exec_test)
++{
++	const char *pkg_data = pkg_manifest_default "@ignore\n at exec\n";
++	struct pkgfile *file;
++	struct pkg_manifest *manifest;
++
++	file = pkgfile_new_regular("+CONTENTS", pkg_data, strlen(pkg_data));
++	manifest = pkg_manifest_new_freebsd_pkgfile(file);
++	fail_unless(manifest == NULL);
++
++	pkgfile_free(file);
++}
++END_TEST
++
++START_TEST(pkg_manifest_freebsd_bad_empty2_unexec_test)
++{
++	const char *pkg_data = pkg_manifest_default "@ignore\n at unexec\n";
++	struct pkgfile *file;
++	struct pkg_manifest *manifest;
++
++	file = pkgfile_new_regular("+CONTENTS", pkg_data, strlen(pkg_data));
++	manifest = pkg_manifest_new_freebsd_pkgfile(file);
++	fail_unless(manifest == NULL);
++
++	pkgfile_free(file);
++}
++END_TEST
++
++START_TEST(pkg_manifest_freebsd_bad_empty2_dirrm_test)
++{
++	const char *pkg_data = pkg_manifest_default "@ignore\n at dirrm\n";
++	struct pkgfile *file;
++	struct pkg_manifest *manifest;
++
++	file = pkgfile_new_regular("+CONTENTS", pkg_data, strlen(pkg_data));
++	manifest = pkg_manifest_new_freebsd_pkgfile(file);
++	fail_unless(manifest == NULL);
++
++	pkgfile_free(file);
++}
++END_TEST
++
++START_TEST(pkg_manifest_freebsd_bad_empty2_mtree_test)
++{
++	const char *pkg_data = pkg_manifest_default "@ignore\n at mtree\n";
++	struct pkgfile *file;
++	struct pkg_manifest *manifest;
++
++	file = pkgfile_new_regular("+CONTENTS", pkg_data, strlen(pkg_data));
++	manifest = pkg_manifest_new_freebsd_pkgfile(file);
++	fail_unless(manifest == NULL);
++
++	pkgfile_free(file);
++}
++END_TEST
++
++START_TEST(pkg_manifest_freebsd_bad_empty2_display_test)
++{
++	const char *pkg_data = pkg_manifest_default "@ignore\n at display\n";
++	struct pkgfile *file;
++	struct pkg_manifest *manifest;
++
++	file = pkgfile_new_regular("+CONTENTS", pkg_data, strlen(pkg_data));
++	manifest = pkg_manifest_new_freebsd_pkgfile(file);
++	fail_unless(manifest == NULL);
++
++	pkgfile_free(file);
++}
++END_TEST
++
++Suite *
++pkg_manifest_freebsd_suite()
++{
++	Suite *s;
++	TCase *tc;
++
++	s = suite_create("pkg_manifest_freebsd");
++
++	tc = tcase_create("empty");
++	tcase_add_test(tc, pkg_manifest_freebsd_empty_test);
++	suite_add_tcase(s, tc);
++
++	tc = tcase_create("good");
++	tcase_add_test(tc, pkg_manifest_freebsd_good_basic_test);
++	tcase_add_test(tc, pkg_manifest_freebsd_good_comment_test);
++	tcase_add_test(tc, pkg_manifest_freebsd_good_cwd_test);
++	tcase_add_test(tc, pkg_manifest_freebsd_good_exec_test);
++	tcase_add_test(tc, pkg_manifest_freebsd_good_unexec_test);
++	tcase_add_test(tc, pkg_manifest_freebsd_good_dirrm_test);
++	tcase_add_test(tc, pkg_manifest_freebsd_good_mtree_test);
++	tcase_add_test(tc, pkg_manifest_freebsd_good_display_test);
++	tcase_add_test(tc, pkg_manifest_freebsd_good_pkgdep_test);
++	tcase_add_test(tc, pkg_manifest_freebsd_good_conflicts_test);
++	suite_add_tcase(s, tc);
++
++	tc = tcase_create("bad");
++	tcase_add_test(tc, pkg_manifest_freebsd_bad_empty_comment_test);
++	tcase_add_test(tc, pkg_manifest_freebsd_bad_empty_cwd_test);
++	tcase_add_test(tc, pkg_manifest_freebsd_bad_empty_pkgdep_test);
++	tcase_add_test(tc, pkg_manifest_freebsd_bad_empty_conflicts_test);
++	tcase_add_test(tc, pkg_manifest_freebsd_bad_empty_exec_test);
++	tcase_add_test(tc, pkg_manifest_freebsd_bad_empty_unexec_test);
++	tcase_add_test(tc, pkg_manifest_freebsd_bad_empty_dirrm_test);
++	tcase_add_test(tc, pkg_manifest_freebsd_bad_empty_mtree_test);
++	tcase_add_test(tc, pkg_manifest_freebsd_bad_empty_display_test);
++
++	tcase_add_test(tc, pkg_manifest_freebsd_bad_empty2_comment_test);
++	tcase_add_test(tc, pkg_manifest_freebsd_bad_empty2_cwd_test);
++	tcase_add_test(tc, pkg_manifest_freebsd_bad_empty2_pkgdep_test);
++	tcase_add_test(tc, pkg_manifest_freebsd_bad_empty2_conflicts_test);
++	tcase_add_test(tc, pkg_manifest_freebsd_bad_empty2_exec_test);
++	tcase_add_test(tc, pkg_manifest_freebsd_bad_empty2_unexec_test);
++	tcase_add_test(tc, pkg_manifest_freebsd_bad_empty2_dirrm_test);
++	tcase_add_test(tc, pkg_manifest_freebsd_bad_empty2_mtree_test);
++	tcase_add_test(tc, pkg_manifest_freebsd_bad_empty2_display_test);
++	suite_add_tcase(s, tc);
++
++	return s;
++}
++
++
+
+
+Property changes on: trunk/tests/pkg_manifest_freebsd.c
+___________________________________________________________________
+Name: svn:mergeinfo
+   + 
+
+Modified: trunk/tests/test.h
+===================================================================
+--- trunk/tests/test.h	2009-01-04 08:16:29 UTC (rev 329)
++++ trunk/tests/test.h	2009-01-04 09:26:39 UTC (rev 330)
+@@ -35,4 +35,5 @@
+ Suite *pkg_freebsd_contents_suite(void);
+ Suite *pkg_manifest_suite(void);
+ Suite *pkg_manifest_item_suite(void);
++Suite *pkg_manifest_freebsd_suite(void);
+ 
+
+
+
+From zxombie at users.berlios.de  Sun Jan  4 10:28:34 2009
+From: zxombie at users.berlios.de (zxombie at users.berlios.de)
+Date: Sun, 4 Jan 2009 10:28:34 +0100
+Subject: r331 - trunk/src
+Message-ID: <200901040928.n049SY86015000@sheep.berlios.de>
+
+Author: zxombie
+Date: 2009-01-04 10:28:33 +0100 (Sun, 04 Jan 2009)
+New Revision: 331
+
+Modified:
+   trunk/src/pkg_manifest_freebsd.c
+Log:
+When parsing fails return NULL
+
+Modified: trunk/src/pkg_manifest_freebsd.c
+===================================================================
+--- trunk/src/pkg_manifest_freebsd.c	2009-01-04 09:26:39 UTC (rev 330)
++++ trunk/src/pkg_manifest_freebsd.c	2009-01-04 09:28:33 UTC (rev 331)
+@@ -58,7 +58,10 @@
+ 
+ 	pkgfile_seek(file, 0, SEEK_SET);
+ 	pkg_freebsd_in = pkgfile_get_fileptr(file);
+-	pkg_freebsd_parse(&manifest);
++	manifest = NULL;
++	if (pkg_freebsd_parse(&manifest) != 0) {
++		return NULL;
++	}
+ 
+ 	manifest->manifest_get_file = freebsd_manifest_get_file;
+ 
+
+
+
+From zxombie at users.berlios.de  Sun Jan  4 10:29:28 2009
+From: zxombie at users.berlios.de (zxombie at users.berlios.de)
+Date: Sun, 4 Jan 2009 10:29:28 +0100
+Subject: r332 - trunk/src
+Message-ID: <200901040929.n049TSQ9015064@sheep.berlios.de>
+
+Author: zxombie
+Date: 2009-01-04 10:29:28 +0100 (Sun, 04 Jan 2009)
+New Revision: 332
+
+Modified:
+   trunk/src/pkgfile.c
+Log:
+Call stat when we are following links to get the data on the link endpoint
+
+Modified: trunk/src/pkgfile.c
+===================================================================
+--- trunk/src/pkgfile.c	2009-01-04 09:28:33 UTC (rev 331)
++++ trunk/src/pkgfile.c	2009-01-04 09:29:28 UTC (rev 332)
+@@ -150,11 +150,15 @@
+ 	if (file->type == pkgfile_none) {
+ 		struct stat sb;
+ 
+-		if (lstat(pkgfile_real_name(file), &sb) != 0)
+-			return -1;
++		if (file->follow_link) {
++			if (stat(pkgfile_real_name(file), &sb) != 0)
++				return -1;
++		} else {
++			if (lstat(pkgfile_real_name(file), &sb) != 0)
++				return -1;
++		}
+ 
+-		if (S_ISREG(sb.st_mode) ||
+-		    (file->follow_link && S_ISLNK(sb.st_mode))) {
++		if (S_ISREG(sb.st_mode)) {
+ 			file->type = pkgfile_regular;
+ 			file->length = sb.st_size;
+ 		} else if(S_ISLNK(sb.st_mode)) {
+
+
+
+From zxombie at users.berlios.de  Mon Jan  5 08:02:46 2009
+From: zxombie at users.berlios.de (zxombie at users.berlios.de)
+Date: Mon, 5 Jan 2009 08:02:46 +0100
+Subject: r333 - trunk/src
+Message-ID: <200901050702.n0572kx6029783@sheep.berlios.de>
+
+Author: zxombie
+Date: 2009-01-05 08:02:45 +0100 (Mon, 05 Jan 2009)
+New Revision: 333
+
+Removed:
+   trunk/src/pkg_freebsd.h
+   trunk/src/pkg_freebsd_contents.c
+   trunk/src/pkg_freebsd_private.h
+Modified:
+   trunk/src/Makefile
+   trunk/src/pkg_db_freebsd.c
+   trunk/src/pkg_freebsd.c
+   trunk/src/pkg_repo_ftp.c
+Log:
+Finish move from pkg_freebsd_contents to a FreeBSD pkg_manifest
+
+
+Modified: trunk/src/Makefile
+===================================================================
+--- trunk/src/Makefile	2009-01-04 09:29:28 UTC (rev 332)
++++ trunk/src/Makefile	2009-01-05 07:02:45 UTC (rev 333)
+@@ -9,7 +9,7 @@
+ SRCS		+= pkg_manifest.c pkg_manifest_freebsd.c
+ 
+ # Handle FreeBSD +CONTENTS files
+-SRCS		+= pkg_freebsd_contents.c pkg_freebsd_parser.c pkg_freebsd_lexer.c
++SRCS		+= pkg_freebsd_parser.c pkg_freebsd_lexer.c
+ 
+ # Package files
+ SRCS		+= pkgfile.c
+
+Modified: trunk/src/pkg_db_freebsd.c
+===================================================================
+--- trunk/src/pkg_db_freebsd.c	2009-01-04 09:29:28 UTC (rev 332)
++++ trunk/src/pkg_db_freebsd.c	2009-01-05 07:02:45 UTC (rev 333)
+@@ -40,10 +40,8 @@
+ 
+ #include "pkg.h"
+ #include "pkg_db.h"
+-#include "pkg_freebsd.h"
+ #include "pkg_private.h"
+ #include "pkg_db_private.h"
+-#include "pkg_freebsd_private.h"
+ 
+ #define DB_LOCATION	"/var/db/pkg"
+ 
+@@ -725,24 +723,24 @@
+ 		 * as we don't need any output from this.
+ 		 */
+ 		for (pos = 0; control[pos] != NULL; pos++) {
++			struct pkgfile *file;
+ 			if (prefix != NULL &&
+ 			    strcmp(pkgfile_get_name(control[pos]),
+ 			    "+CONTENTS") == 0) {
+-				struct pkg_freebsd_contents *contents;
+-				contents = pkg_freebsd_get_contents(pkg);
++				struct pkg_manifest *manifest;
+ 
+-				pkg_freebsd_contents_update_prefix(contents,
+-				    prefix);
+-				pkgfile_free(control[pos]);
+-				control[pos] = pkg_freebsd_contents_get_file(
+-				    contents);
+-			}
+-			freebsd_install_file(pkg, pkg_action_null, data,
+-			    control[pos]);
++				manifest = pkg_get_manifest(pkg);
++				pkg_manifest_set_attr(pkg->pkg_manifest,
++				    pkgm_prefix, prefix);
+ 
+-			/* Make the +INSTALL file installable */
+-			if (strcmp(pkgfile_get_name(control[pos]), "+INSTALL")
+-			    == 0) {
++				file = pkg_manifest_get_file(manifest);
++			} else
++				file = control[pos];
++			freebsd_install_file(pkg, pkg_action_null, data, file);
++
++			/* Make the +INSTALL file executable */
++			if (strcmp(pkgfile_get_name(control[pos]),
++			    "+INSTALL") == 0) {
+ 				chmod("+INSTALL", 0755);
+ 			}
+ 		}
+
+Modified: trunk/src/pkg_freebsd.c
+===================================================================
+--- trunk/src/pkg_freebsd.c	2009-01-04 09:29:28 UTC (rev 332)
++++ trunk/src/pkg_freebsd.c	2009-01-05 07:02:45 UTC (rev 333)
+@@ -27,8 +27,6 @@
+ 
+ #include "pkg.h"
+ #include "pkg_private.h"
+-#include "pkg_freebsd.h"
+-#include "pkg_freebsd_private.h"
+ 
+ #include <sys/param.h>
+ #include <sys/types.h>
+@@ -76,8 +74,6 @@
+ static int			  freebsd_open_control_files(
+ 					struct freebsd_package *);
+ static struct pkgfile		 *freebsd_get_next_entry(struct archive *);
+-static int			  freebsd_parse_contents(
+-					struct freebsd_package *);
+ 
+ typedef enum {
+ 	fpkg_unknown,
+@@ -93,7 +89,6 @@
+ 	const char *version;
+ 	char *origin;
+ 	struct pkgfile **control;
+-	struct pkg_freebsd_contents *contents;
+ 	struct pkgfile *next_file;
+ 	struct pkgfile *cur_file;
+ 	unsigned int line;
+@@ -141,7 +136,7 @@
+ 	archive_read_support_compression_bzip2(fpkg->archive);
+ 	archive_read_support_compression_gzip(fpkg->archive);
+ 	archive_read_support_format_tar(fpkg->archive);
+-	archive_read_open_stream(fpkg->archive, fd, 10240);
++	archive_read_open_FILE(fpkg->archive, fd);
+ 
+ 	/*
+ 	 * Get the +CONTENTS file.
+@@ -272,25 +267,6 @@
+ }
+ 
+ /**
+- * @brief Gets the contents struct from a package
+- *
+- * This will go away before 0.2
+- * @return The contents struct
+- */
+-struct pkg_freebsd_contents *
+-pkg_freebsd_get_contents(struct pkg *pkg)
+-{
+-	struct freebsd_package *fpkg;
+-
+-	if (pkg == NULL || pkg->data == NULL)
+-		return NULL;
+-	fpkg = pkg->data;
+-	freebsd_open_control_files(fpkg);
+-
+-	return fpkg->contents;
+-}
+-
+-/**
+  * @}
+  */
+ 
+@@ -482,16 +458,12 @@
+ static struct pkg_manifest *
+ freebsd_get_manifest(struct pkg *pkg)
+ {
+-	struct freebsd_package *fpkg;
+ 	struct pkgfile *contents_file;
+ 
+ 	assert(pkg != NULL);
+ 	assert(pkg->pkg_manifest == NULL);
+ 
+ 	/* Get the +CONTENTS file */
+-	fpkg = pkg->data;
+-	assert(fpkg != NULL);
+-	freebsd_parse_contents(fpkg);
+ 	contents_file = pkg_get_control_file(pkg, "+CONTENTS");
+ 
+ 	pkg->pkg_manifest = pkg_manifest_new_freebsd_pkgfile(contents_file);
+@@ -1106,8 +1078,6 @@
+ 			fclose(fpkg->fd);
+ 		if (fpkg->archive != NULL)
+ 			archive_read_finish(fpkg->archive);
+-		if (fpkg->contents != NULL)
+-			pkg_freebsd_contents_free(fpkg->contents);
+ 
+ 		if (fpkg->curdir != NULL)
+ 			free(fpkg->curdir);
+@@ -1156,7 +1126,6 @@
+ 	fpkg->archive = NULL;
+ 	fpkg->db_dir = NULL;
+ 	fpkg->control = NULL;
+-	fpkg->contents = NULL;
+ 	fpkg->origin = NULL;
+ 	fpkg->version = NULL;
+ 	fpkg->next_file = NULL;
+@@ -1329,41 +1298,5 @@
+ }
+ 
+ /**
+- * @brief Parses the packages +CONTENTS file
+- * @return 0 on success, or -1 on error
+- */
+-static int
+-freebsd_parse_contents(struct freebsd_package *fpkg)
+-{
+-	const char *file_data;
+-	struct pkgfile *contents_file;
+-	int i;
+-	
+-	assert(fpkg != NULL);
+-
+-	if (fpkg->contents != NULL)
+-		return 0;
+-
+-	freebsd_open_control_files(fpkg);
+-
+-	contents_file = NULL;
+-	for (i = 0; fpkg->control[i] != NULL; i++) {
+-		if (strcmp("+CONTENTS",
+-		    basename(pkgfile_get_name(fpkg->control[i]))) == 0) {
+-			contents_file = fpkg->control[i];
+-			break;
+-		}
+-	}
+-	if (contents_file == NULL)
+-		return -1;
+-
+-	file_data = pkgfile_get_data(contents_file);
+-	fpkg->contents = pkg_freebsd_contents_new(file_data,
+-	    pkgfile_get_size(contents_file));
+-
+-	return 0;
+-}
+-
+-/**
+  * @}
+  */
+
+Deleted: trunk/src/pkg_freebsd.h
+===================================================================
+--- trunk/src/pkg_freebsd.h	2009-01-04 09:29:28 UTC (rev 332)
++++ trunk/src/pkg_freebsd.h	2009-01-05 07:02:45 UTC (rev 333)
+@@ -1,73 +0,0 @@
+-/*
+- * Copyright (C) 2005, Andrew Turner
+- * All rights reserved.
+- *
+- * Redistribution and use in source and binary forms, with or without
+- * modification, are permitted provided that the following conditions
+- * are met:
+- * 1. Redistributions of source code must retain the above copyright
+- *    notice, this list of conditions and the following disclaimer.
+- * 2. Redistributions in binary form must reproduce the above copyright
+- *    notice, this list of conditions and the following disclaimer in the
+- *    documentation and/or other materials provided with the distribution.
+- *
+- * THIS SOFTWARE IS PROVIDED BY THE AUTHOR AND CONTRIBUTORS ``AS IS'' AND
+- * ANY EXPRESS OR IMPLIED WARRANTIES, INCLUDING, BUT NOT LIMITED TO, THE
+- * IMPLIED WARRANTIES OF MERCHANTABILITY AND FITNESS FOR A PARTICULAR PURPOSE
+- * ARE DISCLAIMED.  IN NO EVENT SHALL THE AUTHOR OR CONTRIBUTORS BE LIABLE
+- * FOR ANY DIRECT, INDIRECT, INCIDENTAL, SPECIAL, EXEMPLARY, OR CONSEQUENTIAL
+- * DAMAGES (INCLUDING, BUT NOT LIMITED TO, PROCUREMENT OF SUBSTITUTE GOODS
+- * OR SERVICES; LOSS OF USE, DATA, OR PROFITS; OR BUSINESS INTERRUPTION)
+- * HOWEVER CAUSED AND ON ANY THEORY OF LIABILITY, WHETHER IN CONTRACT, STRICT
+- * LIABILITY, OR TORT (INCLUDING NEGLIGENCE OR OTHERWISE) ARISING IN ANY WAY
+- * OUT OF THE USE OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF
+- * SUCH DAMAGE.
+- *
+- */
+-
+-#ifndef __LIBPKG_PKG_FREEBSD_H__
+-#define __LIBPKG_PKG_FREEBSD_H__
+-
+-struct pkg_freebsd_contents;
+-
+-enum {
+-	PKG_LINE_UNKNOWN = 0,
+-	PKG_LINE_FILE = 1,
+-	PKG_LINE_COMMENT = 2,
+-	PKG_LINE_NAME = 3,
+-	PKG_LINE_CWD = 4,
+-	PKG_LINE_PKGDEP = 5,
+-	PKG_LINE_CONFLICTS = 6,
+-	PKG_LINE_EXEC = 7,
+-	PKG_LINE_UNEXEC = 8,
+-	PKG_LINE_IGNORE = 9,
+-	PKG_LINE_DIRRM = 10,
+-	PKG_LINE_MTREE = 11,
+-	PKG_LINE_DISPLAY = 12
+-};
+-
+-struct pkg_freebsd_contents_line {
+-	int	 line_type;
+-	char	*line;
+-	char	*data;
+-};
+-
+-extern const char *pkg_freebsd_contents_line_str[];
+-
+-struct pkg_freebsd_contents *pkg_freebsd_get_contents(struct pkg *);
+-
+-struct pkg_freebsd_contents *pkg_freebsd_contents_new(const char *, uint64_t);
+-int	 pkg_freebsd_contents_add_line(struct pkg_freebsd_contents *, int,
+-	    const char *);
+-int	 pkg_freebsd_contents_add_dependency(struct pkg_freebsd_contents *,
+-	    struct pkg *);
+-int	 pkg_freebsd_contents_add_file(struct pkg_freebsd_contents *,
+-	    struct pkgfile *);
+-struct pkg_freebsd_contents_line *pkg_freebsd_contents_get_line
+-					(struct pkg_freebsd_contents *,
+-					 unsigned int);
+-int	pkg_freebsd_contents_update_prefix(struct pkg_freebsd_contents *, const char *);
+-struct pkgfile *pkg_freebsd_contents_get_file(struct pkg_freebsd_contents *);
+-int	 pkg_freebsd_contents_free(struct pkg_freebsd_contents *);
+-
+-#endif /* __LIBPKG_PKG_FREEBSD_H__ */
+
+Deleted: trunk/src/pkg_freebsd_contents.c
+===================================================================
+--- trunk/src/pkg_freebsd_contents.c	2009-01-04 09:29:28 UTC (rev 332)
++++ trunk/src/pkg_freebsd_contents.c	2009-01-05 07:02:45 UTC (rev 333)
+@@ -1,425 +0,0 @@
+-/*
+- * Copyright (C) 2005, 2007 Andrew Turner
+- * All rights reserved.
+- *
+- * Redistribution and use in source and binary forms, with or without
+- * modification, are permitted provided that the following conditions
+- * are met:
+- * 1. Redistributions of source code must retain the above copyright
+- *    notice, this list of conditions and the following disclaimer.
+- * 2. Redistributions in binary form must reproduce the above copyright
+- *    notice, this list of conditions and the following disclaimer in the
+- *    documentation and/or other materials provided with the distribution.
+- *
+- * THIS SOFTWARE IS PROVIDED BY THE AUTHOR AND CONTRIBUTORS ``AS IS'' AND
+- * ANY EXPRESS OR IMPLIED WARRANTIES, INCLUDING, BUT NOT LIMITED TO, THE
+- * IMPLIED WARRANTIES OF MERCHANTABILITY AND FITNESS FOR A PARTICULAR PURPOSE
+- * ARE DISCLAIMED.  IN NO EVENT SHALL THE AUTHOR OR CONTRIBUTORS BE LIABLE
+- * FOR ANY DIRECT, INDIRECT, INCIDENTAL, SPECIAL, EXEMPLARY, OR CONSEQUENTIAL
+- * DAMAGES (INCLUDING, BUT NOT LIMITED TO, PROCUREMENT OF SUBSTITUTE GOODS
+- * OR SERVICES; LOSS OF USE, DATA, OR PROFITS; OR BUSINESS INTERRUPTION)
+- * HOWEVER CAUSED AND ON ANY THEORY OF LIABILITY, WHETHER IN CONTRACT, STRICT
+- * LIABILITY, OR TORT (INCLUDING NEGLIGENCE OR OTHERWISE) ARISING IN ANY WAY
+- * OUT OF THE USE OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF
+- * SUCH DAMAGE.
+- *
+- */
+-
+-#include <sys/param.h>
+-#include <sys/types.h>
+-
+-#include <assert.h>
+-#include <md5.h>
+-#include <stdlib.h>
+-#include <string.h>
+-
+-#include "pkg.h"
+-#include "pkg_freebsd.h"
+-#include "pkg_private.h"
+-#include "pkg_freebsd_private.h"
+-
+-/**
+- * @defgroup FreebsdContents FreeBSD +CONTENTS handling
+- *
+- * @{
+- */
+-
+-/**
+- * @brief All possible line types in a +CONTENTS file
+- */
+-const char *pkg_freebsd_contents_line_str[] = {
+-	"",
+-	"",
+-	"@comment",
+-	"@name",
+-	"@cwd",
+-	"@pkgdep",
+-	"@conflicts",
+-	"@exec",
+-	"@unexec",
+-	"@ignore",
+-	"@dirrm",
+-	"@mtree",
+-	"@display",
+-	NULL
+-};
+-
+-/**
+- * Reads a FreeBSD +CONTENTS file create a struct pkg_freebsd_contents
+- */
+-struct pkg_freebsd_contents *
+-pkg_freebsd_contents_new(const char *contents, uint64_t length)
+-{
+-	struct pkg_freebsd_contents *cont;
+-	unsigned int pos;
+-
+-	cont = malloc(sizeof(struct pkg_freebsd_contents));
+-	if (!cont)
+-		return NULL;
+-
+-	cont->cnts_file = NULL;
+-	cont->cnts_prefix = NULL;
+-
+-	if (contents == NULL) {
+-		cont->file = NULL;
+-		cont->line_count = 0;
+-		cont->line_size = 0;
+-		cont->lines = NULL;
+-	} else {
+-		cont->file = malloc(length + 1);
+-		if (!cont->file) {
+-			free(cont);
+-			return NULL;
+-		}
+-		memcpy(cont->file, contents, length);
+-		cont->file[length] = '\0';
+-		cont->lines = NULL;
+-
+-		pos = 0;
+-		cont->line_count = 0;
+-		while (pos != length) {
+-			if (cont->file[pos] == '\n')
+-				cont->line_count++;
+-			pos++;
+-		}
+-		/* Check the last line contains data */
+-		if (pos > 0 && cont->file[pos-1] != '\n')
+-			cont->line_count++;
+-
+-		if (cont->line_count == 0) {
+-			pkg_freebsd_contents_free(cont);
+-			return NULL;
+-		}
+-		cont->lines = malloc(sizeof(struct pkg_freebsd_contents_line) *
+-		    cont->line_count);
+-		if (!cont->lines) {
+-			pkg_freebsd_contents_free(cont);
+-			return NULL;
+-		}
+-
+-		/*
+-		 * Make each line in cont->lines point to the start of it's line
+-		 * and be a valid string
+-		 */
+-		cont->lines[0].line = cont->file;
+-		cont->lines[0].data = NULL;
+-		pos = 1;
+-		while (pos < cont->line_count) {
+-			cont->lines[pos].data = NULL;
+-			cont->lines[pos].line = strchr(cont->lines[pos-1].line, '\n');
+-			if (cont->lines[pos].line) {
+-				/* Terminate the last line */
+-				cont->lines[pos].line[0] = '\0';
+-				cont->lines[pos].line++;
+-			} else
+-				break;
+-			pos++;
+-		}
+-		/* The last line may need to be terminated at the correct place */
+-		pos = strlen(cont->lines[cont->line_count-1].line);
+-		if (cont->lines[cont->line_count-1].line[--pos] == '\n') {
+-			cont->lines[cont->line_count-1].line[pos] = '\0';
+-		}
+-
+-		/*
+-	         * Set the data part of the line. ie not the control word 
+-	         * Set the line_type
+-	         */
+-		for(pos = 0; pos < cont->line_count; pos++) {
+-			char *space;
+-
+-			if (cont->lines[pos].line[0] != '@') {
+-				cont->lines[pos].line_type = PKG_LINE_FILE;
+-				assert(cont->lines[pos].data == NULL);
+-				continue;
+-			} else if (!strcmp(cont->lines[pos].line, "@ignore")) {
+-				cont->lines[pos].line_type = PKG_LINE_IGNORE;
+-				assert(cont->lines[pos].data == NULL);
+-				continue;
+-			}
+-
+-			space = strchr(cont->lines[pos].line, ' ');
+-			if (space && space[0] != '\0') {
+-				space[0] = '\0';
+-				space++;
+-				if (space[0] != '\0')
+-					cont->lines[pos].data = space;
+-			} else {
+-				/* There must be a space in the line */
+-				pkg_freebsd_contents_free(cont);
+-				return NULL;
+-			}
+-
+-			/* Get the correct line type for the line */
+-			if (!strcmp(cont->lines[pos].line, "@comment")) {
+-				cont->lines[pos].line_type = PKG_LINE_COMMENT;
+-			} else if (!strcmp(cont->lines[pos].line, "@name")) {
+-				cont->lines[pos].line_type = PKG_LINE_NAME;
+-			} else if (!strcmp(cont->lines[pos].line, "@cwd")) {
+-				cont->lines[pos].line_type = PKG_LINE_CWD;
+-			} else if (!strcmp(cont->lines[pos].line, "@pkgdep")) {
+-				cont->lines[pos].line_type = PKG_LINE_PKGDEP;
+-			} else if (!strcmp(cont->lines[pos].line, "@conflicts"))
+-			    {
+-				cont->lines[pos].line_type = PKG_LINE_CONFLICTS;
+-			} else if (!strcmp(cont->lines[pos].line, "@exec")) {
+-				cont->lines[pos].line_type = PKG_LINE_EXEC;
+-			} else if (!strcmp(cont->lines[pos].line, "@unexec")) {
+-				cont->lines[pos].line_type = PKG_LINE_UNEXEC;
+-			} else if (!strcmp(cont->lines[pos].line, "@dirrm")) {
+-				cont->lines[pos].line_type = PKG_LINE_DIRRM;
+-			} else if (!strcmp(cont->lines[pos].line, "@mtree")) {
+-				cont->lines[pos].line_type = PKG_LINE_MTREE;
+-			} else if (!strcmp(cont->lines[pos].line, "@display")) {
+-				cont->lines[pos].line_type = PKG_LINE_DISPLAY;
+-			} else {
+-				cont->lines[pos].line_type = PKG_LINE_UNKNOWN;
+-				fprintf(stderr, "Unknown line type %s\n",
+-				    cont->lines[pos].line);
+-			}
+-		}
+-	}
+-	return cont;
+-}
+-
+-/**
+- * Adds a line of type with the value of data the fiven contents file
+- */
+-int
+-pkg_freebsd_contents_add_line(struct pkg_freebsd_contents *contents, int type,
+-	const char *data)
+-{
+-	if (!contents || !data)
+-		return -1;
+-
+-	if (!(type > 0 && type <= PKG_LINE_FILE)) {
+-		return -1;
+-	}
+-
+-	/* Add the lines to the +CONTENTS file */
+-	contents->line_size += sizeof(struct pkg_freebsd_contents_line);
+-	if (contents->lines == NULL)
+-		contents->lines = malloc(contents->line_size);
+-	else
+-		contents->lines = realloc(contents->lines, contents->line_size);
+-
+-	/* Init the values */
+-	contents->lines[contents->line_count].data = NULL;
+-	contents->lines[contents->line_count].line = NULL;
+-	contents->lines[contents->line_count].line_type = type;
+-
+-	/*
+-	 * If the line is a file then the line will be the filename,
+-	 * the data will be NULL
+-	 */
+-	if (type == PKG_LINE_FILE) {
+-		contents->lines[contents->line_count].line = strdup(data);
+-		assert(contents->lines[contents->line_count].line != NULL);
+-		assert(contents->lines[contents->line_count].data == NULL);
+-	} else {
+-		contents->lines[contents->line_count].line =
+-		    strdup(pkg_freebsd_contents_line_str[type]);
+-		contents->lines[contents->line_count].data = strdup(data);
+-		assert(contents->lines[contents->line_count].data != NULL);
+-	}
+-	contents->line_count++;
+-
+-	if (contents->cnts_file != NULL) {
+-		pkgfile_free(contents->cnts_file);
+-		contents->cnts_file = NULL;
+-	}
+-	return 0;
+-}
+-
+-/**
+- * Adds a dependency to a +CONTENTS file
+- */
+-int
+-pkg_freebsd_contents_add_dependency(struct pkg_freebsd_contents *contents,
+-		struct pkg *pkg)
+-{
+-	const char *origin;
+-
+-	if (contents == NULL || contents->file != NULL || pkg == NULL)
+-		return -1;
+-
+-	if (pkg_freebsd_contents_add_line(contents, PKG_LINE_PKGDEP,
+-	    pkg_get_name(pkg)) != 0) {
+-		return -1;
+-	}
+-
+-	origin = pkg_get_origin(pkg);
+-	if (origin != NULL) {
+-		char *data;
+-
+-		asprintf(&data, "ORIGIN:%s", origin);
+-		if (pkg_freebsd_contents_add_line(contents, PKG_LINE_COMMENT,
+-		    data) != 0) {
+-			free(data);
+-			return -1;
+-		}
+-		free(data);
+-	}	
+-
+-	if (contents->cnts_file != NULL) {
+-		pkgfile_free(contents->cnts_file);
+-		contents->cnts_file = NULL;
+-	}
+-	return -1;
+-}
+-
+-/**
+- * Add's a file the the +CONTENTS file
+- */
+-int
+-pkg_freebsd_contents_add_file(struct pkg_freebsd_contents *contents,
+-		struct pkgfile *file)
+-{
+-	char md5[33], tmp[37];
+-	const char *data;
+-
+-	if (contents == NULL || contents->file != NULL || file == NULL)
+-		return -1;
+-
+-	if (pkg_freebsd_contents_add_line(contents, PKG_LINE_FILE,
+-	    pkgfile_get_name(file)) != 0) {
+-		return -1;
+-	}
+-
+-	data = pkgfile_get_data(file);
+-	if (!data)
+-		return -1;
+-	MD5Data(data, pkgfile_get_size(file), md5);
+-	snprintf(tmp, 37, "MD5:%s", md5);
+-	if (pkg_freebsd_contents_add_line(contents, PKG_LINE_COMMENT, tmp)
+-	    != 0) {
+-		return -1;
+-	}
+-
+-	if (contents->cnts_file != NULL) {
+-		pkgfile_free(contents->cnts_file);
+-		contents->cnts_file = NULL;
+-	}
+-	return 0;
+-}
+-
+-/**
+- * Gets the given line from the contents file
+- */
+-struct pkg_freebsd_contents_line*
+-pkg_freebsd_contents_get_line(struct pkg_freebsd_contents *contents,
+-		unsigned int line)
+-{
+-	if (contents == NULL)
+-		return NULL;
+-
+-	if (line > contents->line_count)
+-		return NULL;
+-
+-	return &contents->lines[line];
+-}
+-
+-int
+-pkg_freebsd_contents_update_prefix(struct pkg_freebsd_contents *contents,
+-    const char *prefix)
+-{
+-	unsigned int pos;
+-
+-	if (contents == NULL)
+-		return -1;
+-
+-	/* Find the package prefix and change it */
+-	for (pos = 0; pos < contents->line_count; pos++) {
+-		if (contents->lines[pos].line_type == PKG_LINE_CWD) {
+-			if (contents->cnts_prefix != NULL) {
+-				free(contents->cnts_prefix);
+-			}
+-			contents->cnts_prefix = strdup(prefix);
+-			contents->lines[pos].data = contents->cnts_prefix;
+-			break;
+-		}
+-	}
+-	if (contents->cnts_file != NULL) {
+-		pkgfile_free(contents->cnts_file);
+-		contents->cnts_file = NULL;
+-	}
+-	return 0;
+-}
+-
+-struct pkgfile *
+-pkg_freebsd_contents_get_file(struct pkg_freebsd_contents *contents)
+-{
+-	unsigned int pos;
+-
+-	if (contents == NULL)
+-		return NULL;
+-
+-	if (contents->cnts_file == NULL) {
+-		contents->cnts_file = pkgfile_new_regular("+CONTENTS", "", 0);
+-		if (contents->cnts_file == NULL)
+-			return NULL;
+-
+-		for (pos = 0; pos < contents->line_count; pos++) {
+-			struct pkg_freebsd_contents_line *line;
+-			char *data;
+-
+-			line = &contents->lines[pos];
+-			if (line->data == NULL) {
+-				pkgfile_append(contents->cnts_file, line->line,
+-				    strlen(line->line));
+-				pkgfile_append(contents->cnts_file, "\n", 1);
+-			} else {
+-				asprintf(&data, "%s %s\n",
+-				    line->line,line->data);
+-				pkgfile_append(contents->cnts_file, data,
+-				    strlen(data));
+-				free(data);
+-			}
+-		}
+-	}
+-	return contents->cnts_file;
+-}
+-
+-/**
+- * Frees a contents struct
+- */
+-int
+-pkg_freebsd_contents_free(struct pkg_freebsd_contents *contents)
+-{
+-	if (!contents) {
+-		return -1;
+-	}
+-
+-	if (contents->file)
+-		free(contents->file);
+-
+-	if (contents->lines)
+-		free(contents->lines);
+-
+-	free(contents);
+-
+-	return 0;
+-}
+-/**
+- * @}
+- */
+
+Deleted: trunk/src/pkg_freebsd_private.h
+===================================================================
+--- trunk/src/pkg_freebsd_private.h	2009-01-04 09:29:28 UTC (rev 332)
++++ trunk/src/pkg_freebsd_private.h	2009-01-05 07:02:45 UTC (rev 333)
+@@ -1,41 +0,0 @@
+-/*
+- * Copyright (C) 2005, 2006 Andrew Turner
+- * All rights reserved.
+- *
+- * Redistribution and use in source and binary forms, with or without
+- * modification, are permitted provided that the following conditions
+- * are met:
+- * 1. Redistributions of source code must retain the above copyright
+- *    notice, this list of conditions and the following disclaimer.
+- * 2. Redistributions in binary form must reproduce the above copyright
+- *    notice, this list of conditions and the following disclaimer in the
+- *    documentation and/or other materials provided with the distribution.
+- *
+- * THIS SOFTWARE IS PROVIDED BY THE AUTHOR AND CONTRIBUTORS ``AS IS'' AND
+- * ANY EXPRESS OR IMPLIED WARRANTIES, INCLUDING, BUT NOT LIMITED TO, THE
+- * IMPLIED WARRANTIES OF MERCHANTABILITY AND FITNESS FOR A PARTICULAR PURPOSE
+- * ARE DISCLAIMED.  IN NO EVENT SHALL THE AUTHOR OR CONTRIBUTORS BE LIABLE
+- * FOR ANY DIRECT, INDIRECT, INCIDENTAL, SPECIAL, EXEMPLARY, OR CONSEQUENTIAL
+- * DAMAGES (INCLUDING, BUT NOT LIMITED TO, PROCUREMENT OF SUBSTITUTE GOODS
+- * OR SERVICES; LOSS OF USE, DATA, OR PROFITS; OR BUSINESS INTERRUPTION)
+- * HOWEVER CAUSED AND ON ANY THEORY OF LIABILITY, WHETHER IN CONTRACT, STRICT
+- * LIABILITY, OR TORT (INCLUDING NEGLIGENCE OR OTHERWISE) ARISING IN ANY WAY
+- * OUT OF THE USE OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF
+- * SUCH DAMAGE.
+- *
+- */
+-
+-#ifndef __LIBPKG_PKG_FREEBSD_PRIVATE_H__
+-#define __LIBPKG_PKG_FREEBSD_PRIVATE_H__
+-
+-struct pkg_freebsd_contents {
+-	char		*file;
+-	unsigned int	 line_count;
+-	unsigned int	 line_size;
+-	struct pkg_freebsd_contents_line *lines;
+-
+-	char		*cnts_prefix;
+-	struct pkgfile	*cnts_file;
+-};
+-
+-#endif /* __LIBPKG_PKG_FREEBSD_PRIVATE_H__ */
+
+Modified: trunk/src/pkg_repo_ftp.c
+===================================================================
+--- trunk/src/pkg_repo_ftp.c	2009-01-04 09:29:28 UTC (rev 332)
++++ trunk/src/pkg_repo_ftp.c	2009-01-05 07:02:45 UTC (rev 333)
+@@ -39,7 +39,6 @@
+ 
+ #include "pkg.h"
+ #include "pkg_repo.h"
+-#include "pkg_freebsd.h"
+ #include "pkg_private.h"
+ #include "pkg_repo_private.h"
+ 
+
+
+
+From zxombie at users.berlios.de  Mon Jan  5 08:04:40 2009
+From: zxombie at users.berlios.de (zxombie at users.berlios.de)
+Date: Mon, 5 Jan 2009 08:04:40 +0100
+Subject: r334 - trunk/tools/pkg_add
+Message-ID: <200901050704.n0574eXS029869@sheep.berlios.de>
+
+Author: zxombie
+Date: 2009-01-05 08:04:40 +0100 (Mon, 05 Jan 2009)
+New Revision: 334
+
+Modified:
+   trunk/tools/pkg_add/main.c
+Log:
+Update to use pkg_manifest
+
+Modified: trunk/tools/pkg_add/main.c
+===================================================================
+--- trunk/tools/pkg_add/main.c	2009-01-05 07:02:45 UTC (rev 333)
++++ trunk/tools/pkg_add/main.c	2009-01-05 07:04:40 UTC (rev 334)
+@@ -293,7 +293,7 @@
+ 
+ 	/* Get the package's dependencies */
+ 	deps = pkg_get_dependencies(pkg);
+-	for (i = 0, extras = 0; deps[i] != NULL; i++) {
++	for (i = 0, extras = 0; deps != NULL && deps[i] != NULL; i++) {
+ 		struct pkg *new_pkg;
+ 
+ 		/* Replace the empty package with one from disk */
+@@ -304,16 +304,16 @@
+ 			pkg_list_free(deps);
+ 			return -1;
+ 		}
+-		pkg_free(deps[i]);
+-		deps[i] = new_pkg;
++		pkg_manifest_replace_dependency(pkg_get_manifest(pkg), deps[i],
++		    new_pkg);
+ 
+ 		action(PKG_DB_INFO,
+ 		    "Package '%s' depends on '%s' with '%s' origin.",
+-		    pkg_get_name(pkg), pkg_get_name(deps[i]),
+-		    pkg_get_origin(deps[i]));
++		    pkg_get_name(pkg), pkg_get_name(new_pkg),
++		    pkg_get_origin(new_pkg));
+ 
+ 		/* Skip installed packages */
+-		if (pkg_db_is_installed(db, deps[i]) == 0)
++		if (pkg_db_is_installed(db, new_pkg) == 0)
+ 			continue;
+ 
+ 		if (run) {
+@@ -321,7 +321,7 @@
+ 			 * Install the dependency. The record flag
+ 			 * is not passed down to be compatible
+ 			 */
+-			if (install_package(deps[i], repo, db, prefix, prefix,
++			if (install_package(new_pkg, repo, db, prefix, prefix,
+ 			    flags & ~(no_record_install_flag)) != 0 &&
+ 			    (flags & force_flag) != force_flag) {
+ 				pkg_list_free(deps);
+@@ -339,7 +339,6 @@
+ 			}
+ 		}
+ 	}
+-	pkg_list_free(deps);
+ 
+ 	ret = -1;
+ 
+
+
+
+From zxombie at users.berlios.de  Mon Jan  5 08:05:31 2009
+From: zxombie at users.berlios.de (zxombie at users.berlios.de)
+Date: Mon, 5 Jan 2009 08:05:31 +0100
+Subject: r335 - trunk/tools/pkg_add
+Message-ID: <200901050705.n0575VhO029984@sheep.berlios.de>
+
+Author: zxombie
+Date: 2009-01-05 08:05:31 +0100 (Mon, 05 Jan 2009)
+New Revision: 335
+
+Modified:
+   trunk/tools/pkg_add/test.sh
+Log:
+Fix a comment as FreeBSD dosn't use cvs anymore
+
+Modified: trunk/tools/pkg_add/test.sh
+===================================================================
+--- trunk/tools/pkg_add/test.sh	2009-01-05 07:04:40 UTC (rev 334)
++++ trunk/tools/pkg_add/test.sh	2009-01-05 07:05:31 UTC (rev 335)
+@@ -13,7 +13,7 @@
+ TEST_MAX=9
+ TOOL_NAME=pkg_add
+ 
+-# Runs the tests for either the libpkg or cvs version of pkg_add
++# Runs the tests for either the libpkg or FreeBSD version of pkg_add
+ do_tests() {
+ 	RUN=$1
+ 	LIBPKG=$2
+
+
+
+From zxombie at users.berlios.de  Mon Jan  5 08:07:32 2009
+From: zxombie at users.berlios.de (zxombie at users.berlios.de)
+Date: Mon, 5 Jan 2009 08:07:32 +0100
+Subject: r336 - trunk/tools/pkg_info
+Message-ID: <200901050707.n0577WKf030117@sheep.berlios.de>
+
+Author: zxombie
+Date: 2009-01-05 08:07:31 +0100 (Mon, 05 Jan 2009)
+New Revision: 336
+
+Modified:
+   trunk/tools/pkg_info/show.c
+Log:
+Correct the CWD text printed when getting the prefix
+
+Modified: trunk/tools/pkg_info/show.c
+===================================================================
+--- trunk/tools/pkg_info/show.c	2009-01-05 07:05:31 UTC (rev 335)
++++ trunk/tools/pkg_info/show.c	2009-01-05 07:07:31 UTC (rev 336)
+@@ -290,7 +290,7 @@
+ 	if (!quiet)
+ 		printf("%s%s", seperator, title);
+ 
+-	printf("\tCWD %s\n", pkg_get_prefix(pkg));
++	printf("\tCWD to %s\n", pkg_get_prefix(pkg));
+ }
+ 
+ static void
+@@ -324,7 +324,7 @@
+ 		printf("\tComment: PKG_FORMAT_REVISION:1.1\n");
+ 		printf("\tPackage name: %s\n",pkg_get_name(pkg));
+ 		printf("\tPackage origin: %s\n", pkg_get_origin(pkg));
+-		printf("\tCWD %s\n", pkg_get_prefix(pkg));
++		printf("\tCWD to %s\n", pkg_get_prefix(pkg));
+ 
+ 		/* Print the dependencies of the contents file */
+ 		deps = pkg_get_dependencies(pkg);
+
+
+
+From zxombie at users.berlios.de  Mon Jan  5 08:14:29 2009
+From: zxombie at users.berlios.de (zxombie at users.berlios.de)
+Date: Mon, 5 Jan 2009 08:14:29 +0100
+Subject: r337 - in trunk/tools: pkg_add pkg_delete pkg_info
+Message-ID: <200901050714.n057ETPK030505@sheep.berlios.de>
+
+Author: zxombie
+Date: 2009-01-05 08:14:28 +0100 (Mon, 05 Jan 2009)
+New Revision: 337
+
+Modified:
+   trunk/tools/pkg_add/Makefile
+   trunk/tools/pkg_delete/Makefile
+   trunk/tools/pkg_info/Makefile
+Log:
+Add dependencies for the required libraries
+
+
+Modified: trunk/tools/pkg_add/Makefile
+===================================================================
+--- trunk/tools/pkg_add/Makefile	2009-01-05 07:07:31 UTC (rev 336)
++++ trunk/tools/pkg_add/Makefile	2009-01-05 07:14:28 UTC (rev 337)
+@@ -13,6 +13,10 @@
+ LDADD	 = ${.CURDIR}/../../src/libpkg.a 
+ LDADD	+= -lmd -larchive -lbz2 -lz -lfetch
+ .endif
++
++DPADD	+= ${.CURDIR}/../../src/libpkg.a
++DPADD	+= ${LIBMD} ${LIBARCHIVE} ${LIBBZ2} ${LIBZ}
++
+ NOMAN	 = 1
+ NO_MAN	 = 1
+ 
+
+Modified: trunk/tools/pkg_delete/Makefile
+===================================================================
+--- trunk/tools/pkg_delete/Makefile	2009-01-05 07:07:31 UTC (rev 336)
++++ trunk/tools/pkg_delete/Makefile	2009-01-05 07:14:28 UTC (rev 337)
+@@ -12,6 +12,10 @@
+ LDADD	 = ${.CURDIR}/../../src/libpkg.a 
+ LDADD	+= -lmd -larchive -lbz2 -lz
+ .endif
++
++DPADD	+= ${.CURDIR}/../../src/libpkg.a
++DPADD	+= ${LIBMD} ${LIBARCHIVE} ${LIBBZ2} ${LIBZ}
++
+ NOMAN	 = 1
+ NO_MAN	 = 1
+ 
+
+Modified: trunk/tools/pkg_info/Makefile
+===================================================================
+--- trunk/tools/pkg_info/Makefile	2009-01-05 07:07:31 UTC (rev 336)
++++ trunk/tools/pkg_info/Makefile	2009-01-05 07:14:28 UTC (rev 337)
+@@ -12,6 +12,10 @@
+ LDADD	 = ${.CURDIR}/../../src/libpkg.a
+ .endif
+ LDADD	+= -lmd -larchive -lbz2 -lz
++
++DPADD	+= ${.CURDIR}/../../src/libpkg.a
++DPADD	+= ${LIBMD} ${LIBARCHIVE} ${LIBBZ2} ${LIBZ}
++
+ NOMAN	 = 1
+ NO_MAN	 = 1
+ 
+
+
+
+From zxombie at users.berlios.de  Mon Jan  5 08:15:11 2009
+From: zxombie at users.berlios.de (zxombie at users.berlios.de)
+Date: Mon, 5 Jan 2009 08:15:11 +0100
+Subject: r338 - trunk/tools/pkg_delete
+Message-ID: <200901050715.n057FB8s030614@sheep.berlios.de>
+
+Author: zxombie
+Date: 2009-01-05 08:15:11 +0100 (Mon, 05 Jan 2009)
+New Revision: 338
+
+Modified:
+   trunk/tools/pkg_delete/test.sh
+Log:
+Allow the pkg_delete tests to be run
+
+Modified: trunk/tools/pkg_delete/test.sh
+===================================================================
+--- trunk/tools/pkg_delete/test.sh	2009-01-05 07:14:28 UTC (rev 337)
++++ trunk/tools/pkg_delete/test.sh	2009-01-05 07:15:11 UTC (rev 338)
+@@ -1,14 +1,19 @@
+ #!/bin/sh
+ 
+-. `dirname $0`/../test.sh
++cd `dirname $0`
++DIR=`pwd`
+ 
++cd ..
++. ${DIR}/../test.sh
++cd ${DIR}
++
+ TEST_NO=$1
+ shift
+ 
+ TEST_MAX=7
+ TOOL_NAME=pkg_delete
+ 
+-# Runs the tests for either the libpkg or cvs version of pkg_delete
++# Runs the tests for either the libpkg or FreeBSD version of pkg_delete
+ do_tests() {
+ 	RUN=$1
+ 	LIBPKG=$2
+
+
+
+From zxombie at users.berlios.de  Mon Jan  5 08:26:19 2009
+From: zxombie at users.berlios.de (zxombie at users.berlios.de)
+Date: Mon, 5 Jan 2009 08:26:19 +0100
+Subject: r339 - trunk/tools/pkg_info
+Message-ID: <200901050726.n057QJc9031611@sheep.berlios.de>
+
+Author: zxombie
+Date: 2009-01-05 08:26:18 +0100 (Mon, 05 Jan 2009)
+New Revision: 339
+
+Modified:
+   trunk/tools/pkg_info/test.sh
+Log:
+FreeBSD is now in SVN not CVS
+
+Modified: trunk/tools/pkg_info/test.sh
+===================================================================
+--- trunk/tools/pkg_info/test.sh	2009-01-05 07:15:11 UTC (rev 338)
++++ trunk/tools/pkg_info/test.sh	2009-01-05 07:26:18 UTC (rev 339)
+@@ -13,7 +13,7 @@
+ TEST_MAX=12
+ TOOL_NAME=pkg_info
+ 
+-# Runs the tests for either the libpkg or cvs version of pkg_add
++# Runs the tests for either the libpkg or FreeBSD version of pkg_add
+ do_tests() {
+ 	RUN=$1
+ 	LIBPKG=$2
+
+
+
+From zxombie at users.berlios.de  Mon Jan  5 08:29:56 2009
+From: zxombie at users.berlios.de (zxombie at users.berlios.de)
+Date: Mon, 5 Jan 2009 08:29:56 +0100
+Subject: r340 - trunk/tools
+Message-ID: <200901050729.n057Tuhn031925@sheep.berlios.de>
+
+Author: zxombie
+Date: 2009-01-05 08:29:56 +0100 (Mon, 05 Jan 2009)
+New Revision: 340
+
+Modified:
+   trunk/tools/test.sh
+Log:
+Silence unneeded warnings
+Correct some comments
+Add a checksum to the files in mtree
+
+
+Modified: trunk/tools/test.sh
+===================================================================
+--- trunk/tools/test.sh	2009-01-05 07:26:18 UTC (rev 339)
++++ trunk/tools/test.sh	2009-01-05 07:29:56 UTC (rev 340)
+@@ -16,9 +16,9 @@
+ # Builds the chroot dir for the test
+ build_chroot() {
+ 	# Remove the base dir
++	rm -fr ${BASE_DIR}/base > /dev/null 2>&1
++	chflags -R noschg ${BASE_DIR}/base > /dev/null 2>&1
+ 	rm -fr ${BASE_DIR}/base
+-	chflags -R noschg ${BASE_DIR}/base
+-	rm -fr ${BASE_DIR}/base
+ 
+ 	# Extract a clean base dir
+ 	tar xzf ${BASE_TARBALL} -C ${BASE_DIR}
+@@ -48,7 +48,7 @@
+ 	fi
+ 	chroot ${BASE_DIR}/base /run.sh ${PACKAGE} ${i} > ${RUN}.stdout.${i} 2> ${RUN}.stderr.${i}
+ 	# Get the mtree file to use to compare the filesystems
+-	mtree -c -p ${BASE_DIR}/base | grep -v "^\#[[:space:]]*date:" | sed "s/time=[^ ]*//" | grep -v "^[ ]*${TOOL_NAME}[^\.]" > ${RUN}.mtree.${i}
++	mtree -c -K cksum -p ${BASE_DIR}/base | grep -v "^\#[[:space:]]*date:" | sed "s/time=[^ ]*//" | grep -v "^[ ]*${TOOL_NAME}[^\.]" > ${RUN}.mtree.${i}
+ 	# Create a tarball of the important dir's to compare later
+ 	rm ${BASE_DIR}/${RUN}-${i}.tar
+ 	tar -cf ${BASE_DIR}/${RUN}-${i}.tar ${BASE_DIR}/base/var/db/pkg ${BASE_DIR}/base/usr/local ${BASE_DIR}/base/usr/pkg
+@@ -72,10 +72,12 @@
+ 			fi
+ 		done
+ 	else
+-		# Get the reference data from the FreeBSD cvs pkg_info
++		# Get the reference data from the FreeBSD SVN pkg_*
+ 		do_tests cvs
+-		# Get the test data from out pkg_info
++		# Get the test data from our pkg_* tool
+ 		do_tests libpkg true
++
++		# Remove the files that are identical as they passed
+ 		i=1
+ 		while [ $i -le $TEST_MAX ] ; do
+ 			for file in stdout stderr mtree; do
+
+
+
+From zxombie at users.berlios.de  Mon Jan  5 08:32:32 2009
+From: zxombie at users.berlios.de (zxombie at users.berlios.de)
+Date: Mon, 5 Jan 2009 08:32:32 +0100
+Subject: r341 - in trunk/tools: . pkg_add pkg_delete pkg_info
+Message-ID: <200901050732.n057WW1g032323@sheep.berlios.de>
+
+Author: zxombie
+Date: 2009-01-05 08:32:32 +0100 (Mon, 05 Jan 2009)
+New Revision: 341
+
+Modified:
+   trunk/tools/
+   trunk/tools/pkg_add/
+   trunk/tools/pkg_delete/
+   trunk/tools/pkg_info/
+Log:
+Ignore files produced in the build/test process
+
+
+
+Property changes on: trunk/tools
+___________________________________________________________________
+Name: svn:ignore
+   + config.sh
+
+
+
+
+Property changes on: trunk/tools/pkg_add
+___________________________________________________________________
+Name: svn:ignore
+   + pkg_add
+.depend
+*.mtree.*
+*.stderr.*
+*.stdout.*
+
+
+
+
+Property changes on: trunk/tools/pkg_delete
+___________________________________________________________________
+Name: svn:ignore
+   + pkg_delete
+.depend
+*.mtree.*
+*.stderr.*
+*.stdout.*
+
+
+
+
+Property changes on: trunk/tools/pkg_info
+___________________________________________________________________
+Name: svn:ignore
+   + pkg_info
+.depend
+*.mtree.*
+*.stderr.*
+*.stdout.*
+
+
+
+
+
+From zxombie at users.berlios.de  Mon Jan  5 08:33:19 2009
+From: zxombie at users.berlios.de (zxombie at users.berlios.de)
+Date: Mon, 5 Jan 2009 08:33:19 +0100
+Subject: r342 - trunk/tests/fbsd_contents
+Message-ID: <200901050733.n057XJY5032394@sheep.berlios.de>
+
+Author: zxombie
+Date: 2009-01-05 08:33:19 +0100 (Mon, 05 Jan 2009)
+New Revision: 342
+
+Modified:
+   trunk/tests/fbsd_contents/fbsd_test.c
+Log:
+Update to the pkg_manifest interface
+
+Modified: trunk/tests/fbsd_contents/fbsd_test.c
+===================================================================
+--- trunk/tests/fbsd_contents/fbsd_test.c	2009-01-05 07:32:32 UTC (rev 341)
++++ trunk/tests/fbsd_contents/fbsd_test.c	2009-01-05 07:33:19 UTC (rev 342)
+@@ -30,7 +30,6 @@
+ #include <err.h>
+ #include <pkg.h>
+ #include <pkg_db.h>
+-#include <pkg_freebsd.h>
+ #include <stdlib.h>
+ 
+ int
+@@ -45,11 +44,9 @@
+ 	}
+ 
+ 	while((de = readdir(d)) != NULL) {
+-		char *buf;
+-		struct pkg_freebsd_contents *contents;
+ 		char file[FILENAME_MAX];
+-		struct stat sb;
+-		FILE *fd;
++		struct pkg_manifest *manifest;
++		struct pkgfile *pfile;
+ 
+ 		if (de->d_name[0] == '.')
+ 			continue;
+@@ -57,25 +54,23 @@
+ 		if (de->d_type != DT_DIR)
+ 			continue;
+ 
+-		printf("%s ", de->d_name);
+ 		snprintf(file, FILENAME_MAX, "/var/db/pkg/%s/+CONTENTS",
+ 		    de->d_name);
+ 
+-		stat(file, &sb);
+-		buf = malloc(sb.st_size);
++		pfile = pkgfile_new_from_disk(file, 0);
++		if (!pfile)
++			continue;
+ 
+-		fd = fopen(file, "r");
+-		fread(buf, sb.st_size, 1, fd);
+-		fclose(fd);
+-
+-		contents = pkg_freebsd_contents_new(buf, sb.st_size);
+-		if (contents == NULL) {
++		printf("%s ", de->d_name);
++		manifest = pkg_manifest_new_freebsd_pkgfile(pfile);
++		if (manifest == NULL) {
+ 			printf("FAILED\n");
+ 		} else {
+ 			printf("Ok\n");
+ 		}
+-		pkg_freebsd_contents_free(contents);
+-		free(buf);
++
++		pkg_manifest_free(manifest);
++		pkgfile_free(pfile);
+ 	}
+ 
+ 	closedir(d);
+
+
+
+From zxombie at users.berlios.de  Mon Jan  5 08:34:42 2009
+From: zxombie at users.berlios.de (zxombie at users.berlios.de)
+Date: Mon, 5 Jan 2009 08:34:42 +0100
+Subject: r343 - trunk/tests
+Message-ID: <200901050734.n057YgJU032466@sheep.berlios.de>
+
+Author: zxombie
+Date: 2009-01-05 08:34:42 +0100 (Mon, 05 Jan 2009)
+New Revision: 343
+
+Modified:
+   trunk/tests/Makefile
+Log:
+Add dependencies on the required libraries
+
+Modified: trunk/tests/Makefile
+===================================================================
+--- trunk/tests/Makefile	2009-01-05 07:33:19 UTC (rev 342)
++++ trunk/tests/Makefile	2009-01-05 07:34:42 UTC (rev 343)
+@@ -8,6 +8,9 @@
+ LDADD+=		${.OBJDIR}/../src/libpkg.a
+ LDADD+=		-larchive -lmd
+ 
++DPADD+=		${.CURDIR}/../src/libpkg.a
++DPADD+=		${LIBMD} ${LIBARCHIVE}
++
+ MAN=
+ WARNS=	6
+ 
+
+
+
+From zxombie at users.berlios.de  Mon Jan  5 08:35:51 2009
+From: zxombie at users.berlios.de (zxombie at users.berlios.de)
+Date: Mon, 5 Jan 2009 08:35:51 +0100
+Subject: r344 - trunk/tests
+Message-ID: <200901050735.n057Zpwr032537@sheep.berlios.de>
+
+Author: zxombie
+Date: 2009-01-05 08:35:51 +0100 (Mon, 05 Jan 2009)
+New Revision: 344
+
+Modified:
+   trunk/tests/pkg_manifest_freebsd.c
+Log:
+Remove old headers
+Fix the type of of the conflicts list
+
+
+Modified: trunk/tests/pkg_manifest_freebsd.c
+===================================================================
+--- trunk/tests/pkg_manifest_freebsd.c	2009-01-05 07:34:42 UTC (rev 343)
++++ trunk/tests/pkg_manifest_freebsd.c	2009-01-05 07:35:51 UTC (rev 344)
+@@ -27,8 +27,6 @@
+ #include "test.h"
+ 
+ #include <pkg.h>
+-#include <pkg_freebsd.h>
+-#include <pkg_freebsd_private.h>
+ 
+ #include <string.h>
+ 
+@@ -268,7 +266,7 @@
+ 	const char *pkg_data = pkg_manifest_default "@conflicts data\n";
+ 	struct pkgfile *file;
+ 	struct pkg_manifest *manifest;
+-	struct pkg **conflicts;
++	const char **conflicts;
+ 
+ 	file = pkgfile_new_regular("+CONTENTS", pkg_data, strlen(pkg_data));
+ 	manifest = pkg_manifest_new_freebsd_pkgfile(file);
+
+
+
+From zxombie at users.berlios.de  Mon Jan  5 08:36:28 2009
+From: zxombie at users.berlios.de (zxombie at users.berlios.de)
+Date: Mon, 5 Jan 2009 08:36:28 +0100
+Subject: r345 - trunk/tests
+Message-ID: <200901050736.n057aSN3032598@sheep.berlios.de>
+
+Author: zxombie
+Date: 2009-01-05 08:36:27 +0100 (Mon, 05 Jan 2009)
+New Revision: 345
+
+Modified:
+   trunk/tests/test.h
+Log:
+Remove an old function signature
+
+Modified: trunk/tests/test.h
+===================================================================
+--- trunk/tests/test.h	2009-01-05 07:35:51 UTC (rev 344)
++++ trunk/tests/test.h	2009-01-05 07:36:27 UTC (rev 345)
+@@ -32,7 +32,6 @@
+ #define CLEANUP_TESTDIR() fail_unless(cleanup_testdir() == 0, "Couldn't cleanup the test dir")
+ 
+ Suite *pkgfile_suite(void);
+-Suite *pkg_freebsd_contents_suite(void);
+ Suite *pkg_manifest_suite(void);
+ Suite *pkg_manifest_item_suite(void);
+ Suite *pkg_manifest_freebsd_suite(void);
+
+
+
+From zxombie at users.berlios.de  Mon Jan  5 08:38:08 2009
+From: zxombie at users.berlios.de (zxombie at users.berlios.de)
+Date: Mon, 5 Jan 2009 08:38:08 +0100
+Subject: r346 - in trunk/tests: . fbsd_contents
+Message-ID: <200901050738.n057c8s5032696@sheep.berlios.de>
+
+Author: zxombie
+Date: 2009-01-05 08:38:08 +0100 (Mon, 05 Jan 2009)
+New Revision: 346
+
+Modified:
+   trunk/tests/
+   trunk/tests/fbsd_contents/
+Log:
+Ignore files not required in SVN
+
+
+Property changes on: trunk/tests
+___________________________________________________________________
+Name: svn:ignore
+   + tests
+.depend
+
+
+
+
+Property changes on: trunk/tests/fbsd_contents
+___________________________________________________________________
+Name: svn:ignore
+   + fbsd_test
+.depend
+
+
+
+
+

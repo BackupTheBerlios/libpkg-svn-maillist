@@ -1,0 +1,89 @@
+<!DOCTYPE HTML PUBLIC "-//W3C//DTD HTML 4.01 Transitional//EN">
+<HTML>
+ <HEAD>
+   <TITLE> [Libpkg-svn] r114 - www
+   </TITLE>
+   <LINK REL="Index" HREF="http://lists.berlios.de/pipermail/libpkg-svn/2006-April/index.html" >
+   <LINK REL="made" HREF="mailto:libpkg-svn%40lists.berlios.de?Subject=Re%3A%20%5BLibpkg-svn%5D%20r114%20-%20www&In-Reply-To=%3C200604260931.k3Q9VX5M008031%40sheep.berlios.de%3E">
+   <META NAME="robots" CONTENT="index,nofollow">
+   <style type="text/css">
+       pre {
+           white-space: pre-wrap;       /* css-2.1, curent FF, Opera, Safari */
+           }
+   </style>
+   <META http-equiv="Content-Type" content="text/html; charset=us-ascii">
+   <LINK REL="Previous"  HREF="000097.html">
+   <LINK REL="Next"  HREF="000099.html">
+ </HEAD>
+ <BODY BGCOLOR="#ffffff">
+   <H1>[Libpkg-svn] r114 - www</H1>
+    <B>zxombie at BerliOS</B> 
+    <A HREF="mailto:libpkg-svn%40lists.berlios.de?Subject=Re%3A%20%5BLibpkg-svn%5D%20r114%20-%20www&In-Reply-To=%3C200604260931.k3Q9VX5M008031%40sheep.berlios.de%3E"
+       TITLE="[Libpkg-svn] r114 - www">zxombie at berlios.de
+       </A><BR>
+    <I>Wed Apr 26 11:31:33 CEST 2006</I>
+    <P><UL>
+        <LI>Previous message: <A HREF="000097.html">[Libpkg-svn] r113 - www
+</A></li>
+        <LI>Next message: <A HREF="000099.html">[Libpkg-svn] r115 - www
+</A></li>
+         <LI> <B>Messages sorted by:</B> 
+              <a href="date.html#98">[ date ]</a>
+              <a href="thread.html#98">[ thread ]</a>
+              <a href="subject.html#98">[ subject ]</a>
+              <a href="author.html#98">[ author ]</a>
+         </LI>
+       </UL>
+    <HR>  
+<!--beginarticle-->
+<PRE>Author: zxombie
+Date: 2006-04-26 11:31:32 +0200 (Wed, 26 Apr 2006)
+New Revision: 114
+
+Modified:
+   www/Makefile
+Log:
+Fix a bug where it would update *.html with BSD make but not GNU make when nav.xml has changed
+
+
+Modified: www/Makefile
+===================================================================
+--- www/Makefile	2006-04-26 09:27:26 UTC (rev 113)
++++ www/Makefile	2006-04-26 09:31:32 UTC (rev 114)
+@@ -10,10 +10,10 @@
+ clean:
+ 	rm -fr *.html
+ 
+-index.html: index.xml page.xsl
++index.html: index.xml page.xsl nav.xml
+ 	xsltproc index.xml &gt; index.html
+ 
+-downloads.html: downloads.xml page.xsl
++downloads.html: downloads.xml page.xsl nav.xml
+ 	xsltproc downloads.xml &gt; downloads.html
+ 
+ page.xsl: nav.xml
+
+
+</PRE>
+
+<!--endarticle-->
+    <HR>
+    <P><UL>
+        <!--threads-->
+	<LI>Previous message: <A HREF="000097.html">[Libpkg-svn] r113 - www
+</A></li>
+	<LI>Next message: <A HREF="000099.html">[Libpkg-svn] r115 - www
+</A></li>
+         <LI> <B>Messages sorted by:</B> 
+              <a href="date.html#98">[ date ]</a>
+              <a href="thread.html#98">[ thread ]</a>
+              <a href="subject.html#98">[ subject ]</a>
+              <a href="author.html#98">[ author ]</a>
+         </LI>
+       </UL>
+
+<hr>
+<a href="https://lists.berlios.de/mailman/listinfo/libpkg-svn">More information about the Libpkg-svn
+mailing list</a><br>
+</body></html>

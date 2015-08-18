@@ -1,0 +1,868 @@
+<!DOCTYPE HTML PUBLIC "-//W3C//DTD HTML 4.01 Transitional//EN">
+<HTML>
+ <HEAD>
+   <TITLE> [Libpkg-svn] r52 - in trunk: . tools tools/pkg_info
+   </TITLE>
+   <LINK REL="Index" HREF="http://lists.berlios.de/pipermail/libpkg-svn/2006-January/index.html" >
+   <LINK REL="made" HREF="mailto:libpkg-svn%40lists.berlios.de?Subject=Re%3A%20%5BLibpkg-svn%5D%20r52%20-%20in%20trunk%3A%20.%20tools%20tools/pkg_info&In-Reply-To=%3C200601190801.k0J81AHF026302%40sheep.berlios.de%3E">
+   <META NAME="robots" CONTENT="index,nofollow">
+   <style type="text/css">
+       pre {
+           white-space: pre-wrap;       /* css-2.1, curent FF, Opera, Safari */
+           }
+   </style>
+   <META http-equiv="Content-Type" content="text/html; charset=us-ascii">
+   <LINK REL="Previous"  HREF="000036.html">
+   <LINK REL="Next"  HREF="000038.html">
+ </HEAD>
+ <BODY BGCOLOR="#ffffff">
+   <H1>[Libpkg-svn] r52 - in trunk: . tools tools/pkg_info</H1>
+    <B>zxombie at BerliOS</B> 
+    <A HREF="mailto:libpkg-svn%40lists.berlios.de?Subject=Re%3A%20%5BLibpkg-svn%5D%20r52%20-%20in%20trunk%3A%20.%20tools%20tools/pkg_info&In-Reply-To=%3C200601190801.k0J81AHF026302%40sheep.berlios.de%3E"
+       TITLE="[Libpkg-svn] r52 - in trunk: . tools tools/pkg_info">zxombie at berlios.de
+       </A><BR>
+    <I>Thu Jan 19 09:01:10 CET 2006</I>
+    <P><UL>
+        <LI>Previous message: <A HREF="000036.html">[Libpkg-svn] r51 - trunk/src
+</A></li>
+        <LI>Next message: <A HREF="000038.html">[Libpkg-svn] r53 - trunk/src
+</A></li>
+         <LI> <B>Messages sorted by:</B> 
+              <a href="date.html#37">[ date ]</a>
+              <a href="thread.html#37">[ thread ]</a>
+              <a href="subject.html#37">[ subject ]</a>
+              <a href="author.html#37">[ author ]</a>
+         </LI>
+       </UL>
+    <HR>  
+<!--beginarticle-->
+<PRE>Author: zxombie
+Date: 2006-01-19 09:01:09 +0100 (Thu, 19 Jan 2006)
+New Revision: 52
+
+Added:
+   trunk/tools/
+   trunk/tools/pkg_info/
+   trunk/tools/pkg_info/Makefile
+   trunk/tools/pkg_info/main.c
+   trunk/tools/pkg_info/match.c
+   trunk/tools/pkg_info/pkg_info.h
+   trunk/tools/pkg_info/show.c
+Log:
+Add a pkg_info replacement
+
+
+Added: trunk/tools/pkg_info/Makefile
+===================================================================
+--- trunk/tools/pkg_info/Makefile	2006-01-17 03:43:56 UTC (rev 51)
++++ trunk/tools/pkg_info/Makefile	2006-01-19 08:01:09 UTC (rev 52)
+@@ -0,0 +1,11 @@
++PROG=	pkg_info
++
++SRCS=	main.c match.c show.c
++
++CFLAGS+=-I${.CURDIR}/../../src
++LDADD=	${.CURDIR}/../../src/libpkg.a -lmd -larchive -lbz2 -lz
++NOMAN=	1
++
++WARNS?=	6
++
++.include &lt;bsd.prog.mk&gt;
+
+Added: trunk/tools/pkg_info/main.c
+===================================================================
+--- trunk/tools/pkg_info/main.c	2006-01-17 03:43:56 UTC (rev 51)
++++ trunk/tools/pkg_info/main.c	2006-01-19 08:01:09 UTC (rev 52)
+@@ -0,0 +1,271 @@
++/*
++ * FreeBSD install - a package for the installation and maintainance
++ * of non-core utilities.
++ *
++ * Redistribution and use in source and binary forms, with or without
++ * modification, are permitted provided that the following conditions
++ * are met:
++ * 1. Redistributions of source code must retain the above copyright
++ *    notice, this list of conditions and the following disclaimer.
++ * 2. Redistributions in binary form must reproduce the above copyright
++ *    notice, this list of conditions and the following disclaimer in the
++ *    documentation and/or other materials provided with the distribution.
++ *
++ * Jordan K. Hubbard
++ * 18 July 1993
++ *
++ * Modified by Andrew Turner 2005, 2006 to use libpkg(3)
++ * 
++ * This is the info module.
++ */
++
++#include &quot;pkg_info.h&quot;
++
++#include &lt;pkg_db.h&gt;
++#include &lt;pkg_freebsd.h&gt;
++#include &lt;err.h&gt;
++#include &lt;stdlib.h&gt;
++#include &lt;string.h&gt;
++#include &lt;unistd.h&gt;
++
++static char options[] = &quot;abcdDe:EfgGhiIjkl:LmoO:pPqQrRst:vVW:xX&quot;;
++
++static void usage (void);
++
++int
++main(int argc, char **argv)
++{
++	struct pkg_info info;
++	int ret;
++
++	info.match_type = MATCH_GLOB;
++	info.flags = 0;
++	info.pkgs = NULL;
++	info.quiet = 0;
++
++	if (argc == 1) {
++		info.match_type = MATCH_ALL;
++		info.flags = SHOW_INDEX;
++	} else {
++		int ch;
++		int i;
++		while ((ch = getopt(argc, argv, options)) != -1) {
++			switch (ch) {
++			case 'a':
++				info.match_type = MATCH_ALL;
++				break;
++			case 'b':
++				errx(1, &quot;Unsupported argument&quot;);
++				break;
++			case 'c':
++				info.flags |= SHOW_COMMENT; 
++				break;
++			case 'd':
++				info.flags |= SHOW_DESC; 
++				break;
++			case 'D':
++				info.flags |= SHOW_DISPLAY;
++				break;
++			case 'e':
++				errx(1, &quot;Unsupported argument&quot;);
++				break;
++			case 'E':
++				info.flags |= SHOW_PKGNAME;
++				break;
++			case 'f':
++				info.flags |= SHOW_PLIST;
++				break;
++			case 'g':
++				info.flags |= SHOW_CKSUM;
++				break;
++			case 'G':
++				errx(1, &quot;Unsupported argument&quot;);
++				break;
++			case 'i':
++				info.flags |= SHOW_INSTALL;
++				break;
++			case 'I':
++				info.flags |= SHOW_INDEX;
++				break;
++			case 'j':
++				info.flags |= SHOW_REQUIRE;
++				break;
++			case 'k':
++				info.flags |= SHOW_DEINSTALL;
++				break;
++			case 'l':
++				errx(1, &quot;Unsupported argument&quot;);
++				break;
++			case 'L':
++				info.flags |= SHOW_FILES;
++				break;
++			case 'm':
++				info.flags |= SHOW_MTREE;
++				break;
++			case 'o':
++				info.flags |= SHOW_ORIGIN;
++				break;
++			case 'O':
++				errx(1, &quot;Unsupported argument&quot;);
++				break;
++			case 'p':
++				info.flags |= SHOW_PREFIX;
++				break;
++			case 'P':
++				info.flags |= SHOW_PTREV;
++				break;
++			case 'q':
++				info.quiet = 1;
++				break;
++			case 'Q':
++				info.quiet = 2;
++				break;
++			case 'r':
++				info.flags |= SHOW_DEPEND;
++				break;
++			case 'R':
++				info.flags |= SHOW_REQBY;
++				break;
++			case 's':
++				info.flags |= SHOW_SIZE;
++				break;
++			case 't':
++				errx(1, &quot;Unsupported argument&quot;);
++				break;
++			case 'v':
++				info.flags = SHOW_COMMENT | SHOW_DESC |
++					SHOW_PLIST | SHOW_INSTALL |
++					SHOW_DEINSTALL | SHOW_REQUIRE |
++					SHOW_DISPLAY | SHOW_MTREE;
++				break;
++			case 'V':
++				info.flags |= SHOW_FMTREV;
++				break;
++			case 'W':
++				errx(1, &quot;Unsupported argument&quot;);
++				break;
++			case 'x':
++				info.match_type = MATCH_REGEX;
++				break;
++			case 'X':
++				info.match_type = MATCH_EREGEX;
++				break;
++			case 'h':
++			default:
++				usage();
++				break;
++			}
++		}
++		argc -= optind;
++		argv += optind;
++
++		info.pkgs = malloc(sizeof(char *) * (argc + 1));
++		for (i=0; i &lt; argc; i++) {
++			info.pkgs[i] = argv[i];
++		}
++		info.pkgs[i] = NULL;
++	}
++
++	/* Set the default flags */
++	if(!info.flags)
++		info.flags = SHOW_COMMENT | SHOW_DESC | SHOW_REQBY;
++	
++	info.db = pkg_db_open_freebsd(&quot;/&quot;);
++	if (!info.db)
++		return 1;
++	ret = pkg_info(info);
++	if (info.pkgs)
++		free(info.pkgs);
++	pkg_db_free(info.db);
++	return ret;
++}
++
++static void
++usage()
++{
++    fprintf(stderr, &quot;%s\n%s\n%s\n%s\n%s\n&quot;,
++	&quot;usage: pkg_info [-bcdDEfgGiIjkLmopPqQrRsvVxX] [-e package] [-l prefix]&quot;,
++	&quot;                [-t template] -a | pkg-name ...&quot;,
++	&quot;       pkg_info [-qQ] -W filename&quot;,
++	&quot;       pkg_info [-qQ] -O origin&quot;,
++	&quot;       pkg_info&quot;);
++    exit(1);
++}
++
++int
++pkg_info(struct pkg_info info)
++{
++	unsigned int cur;
++	int retval;
++	struct pkg **pkgs;
++
++	retval = 1;
++	pkgs = NULL;
++
++	switch(info.match_type) {
++	case MATCH_ALL:
++		/* Display all packages installed */
++		pkgs = pkg_db_get_installed(info.db);
++		if (pkgs == NULL) {
++			/* XXX Error message */
++			return 1;
++		}
++		for (cur = 0; pkgs[cur] != NULL; cur++)
++			continue;
++		qsort(pkgs, cur, sizeof(struct pkg *), pkg_compare);
++		for (cur = 0; pkgs[cur] != NULL; cur++) {
++			show(info.db, pkgs[cur], info.flags, info.quiet);
++		}
++		retval = 0;
++		break;
++	case MATCH_REGEX:
++	case MATCH_EREGEX:
++		/* Match all packages that match one of the [e]regex given */
++		{
++		char *prev;
++
++		//pkgs = pkg_db_get_installed(info.db);
++		//if (pkgs == NULL) {
++			/* XXX Error message */
++		//	break;
++		//}
++
++		pkgs = match_regex(info.db, info.pkgs,
++		    (info.match_type == MATCH_EREGEX));
++
++		/* Display all packages that matches atleast one regex */
++		prev = NULL;
++		for (cur = 0; pkgs[cur] != NULL; cur++) {
++			/* Only show one instance of each package */
++			if (prev == NULL ||
++			    strcmp(prev, pkg_get_name(pkgs[cur])) != 0) {
++				show(info.db, pkgs[cur], info.flags, info.quiet);
++			}
++			prev = pkg_get_name(pkgs[cur]);
++		}
++		}
++		retval = 0;
++		break;
++	case MATCH_GLOB:
++	case MATCH_NGLOB:
++		errx(1, &quot;Unsupported match type (use -x or -X)&quot;);
++		break;
++	case MATCH_EXACT:
++		/* Only match the exact names given */
++		retval = 0;
++		
++		for (cur = 0; info.pkgs[cur] != NULL; cur++) {
++			struct pkg *pkg;
++
++			pkg = pkg_db_get_package(info.db, info.pkgs[cur]);
++			if (pkg != NULL)
++				show(info.db, pkg, info.flags, info.quiet);
++			else
++				retval = 1;
++		}
++		break;
++	}
++	if (pkgs != NULL)
++		pkg_list_free(pkgs);
++	return retval;
++}
+
+Added: trunk/tools/pkg_info/match.c
+===================================================================
+--- trunk/tools/pkg_info/match.c	2006-01-17 03:43:56 UTC (rev 51)
++++ trunk/tools/pkg_info/match.c	2006-01-19 08:01:09 UTC (rev 52)
+@@ -0,0 +1,84 @@
++/*
++ * FreeBSD install - a package for the installation and maintainance
++ * of non-core utilities.
++ *
++ * Redistribution and use in source and binary forms, with or without
++ * modification, are permitted provided that the following conditions
++ * are met:
++ * 1. Redistributions of source code must retain the above copyright
++ *    notice, this list of conditions and the following disclaimer.
++ * 2. Redistributions in binary form must reproduce the above copyright
++ *    notice, this list of conditions and the following disclaimer in the
++ *    documentation and/or other materials provided with the distribution.
++ *
++ * Jordan K. Hubbard
++ * 18 July 1993
++ *
++ * Modified by Andrew Turner 2005, 2006 to use libpkg(3)
++ * 
++ * This is the info module.
++ */
++
++#include &quot;pkg_info.h&quot;
++#include &lt;assert.h&gt;
++#include &lt;pkg.h&gt;
++#include &lt;regex.h&gt;
++#include &lt;stdlib.h&gt;
++
++/* A struct to hold many regex's to be or'ed in _pkg_match_regex */
++struct regex_or {
++	unsigned int count;
++	regex_t *rex;
++};
++
++static int _pkg_match_regex(struct pkg *, void *);
++
++static int
++_pkg_match_regex(struct pkg *pkg, void *data)
++{
++	unsigned int i;
++	struct regex_or *rex;
++	
++	assert(pkg != NULL);
++	assert(data != NULL);
++
++	rex = data;
++	for(i=0; i &lt; rex-&gt;count; i++) {
++		if (regexec(rex-&gt;rex, pkg_get_name(pkg), 0, NULL, 0) == 0)
++			return 0;
++	}
++	return -1;
++}
++
++/*
++ * Returnes a sorted NULL terminates array of packages matching one of regex
++ */
++struct pkg **
++match_regex(struct pkg_db *db, char **regex, int type __unused)
++{
++	struct regex_or rex;
++	unsigned int i;
++	struct pkg **pkgs;
++
++	/* Count the number of regex's */
++	for (rex.count = 0; regex[rex.count] != NULL; rex.count++)
++		continue;
++
++	rex.rex = malloc(rex.count * sizeof(regex_t));
++	if (rex.rex == NULL)
++		return NULL;
++
++	for(i=0; i &lt; rex.count; i++) {
++		regcomp(&amp;rex.rex[i], regex[i], (type ? REG_EXTENDED : REG_BASIC)
++		    | REG_NOSUB);
++	}
++
++	pkgs = pkg_db_get_installed_match(db, _pkg_match_regex, &amp;rex);
++
++	for(i=0; i &lt; rex.count; i++) {
++		regfree(&amp;rex.rex[i]);
++	}
++	free(rex.rex);
++
++	return pkgs;
++}
+
+Added: trunk/tools/pkg_info/pkg_info.h
+===================================================================
+--- trunk/tools/pkg_info/pkg_info.h	2006-01-17 03:43:56 UTC (rev 51)
++++ trunk/tools/pkg_info/pkg_info.h	2006-01-19 08:01:09 UTC (rev 52)
+@@ -0,0 +1,82 @@
++/*
++ * FreeBSD install - a package for the installation and maintainance
++ * of non-core utilities.
++ *
++ * Redistribution and use in source and binary forms, with or without
++ * modification, are permitted provided that the following conditions
++ * are met:
++ * 1. Redistributions of source code must retain the above copyright
++ *    notice, this list of conditions and the following disclaimer.
++ * 2. Redistributions in binary form must reproduce the above copyright
++ *    notice, this list of conditions and the following disclaimer in the
++ *    documentation and/or other materials provided with the distribution.
++ *
++ * Jordan K. Hubbard
++ * 18 July 1993
++ *
++ * Modified by Andrew Turner 2005, 2006 to use libpkg(3)
++ * 
++ * This is the info module.
++ */
++
++#ifndef __PKG_INFO_H__
++#define __PKG_INFO_H__
++
++#include &lt;pkg.h&gt;
++#include &lt;pkg_db.h&gt;
++
++#define SHOW_COMMENT	0x00001
++#define SHOW_DESC	0x00002
++#define SHOW_PLIST	0x00004
++#define SHOW_INSTALL	0x00008
++#define SHOW_DEINSTALL	0x00010
++#define SHOW_REQUIRE	0x00020
++#define SHOW_PREFIX	0x00040
++#define SHOW_INDEX	0x00080
++#define SHOW_FILES	0x00100
++#define SHOW_DISPLAY	0x00200
++#define SHOW_REQBY	0x00400
++#define SHOW_MTREE	0x00800
++#define SHOW_SIZE	0x01000
++#define SHOW_ORIGIN	0x02000
++#define SHOW_CKSUM	0x04000
++#define SHOW_FMTREV	0x08000
++#define SHOW_PTREV	0x10000
++#define SHOW_DEPEND	0x20000
++#define SHOW_PKGNAME	0x40000
++
++/* The names of our &quot;special&quot; files */
++#define CONTENTS_FNAME		&quot;+CONTENTS&quot;
++#define COMMENT_FNAME		&quot;+COMMENT&quot;
++#define DESC_FNAME		&quot;+DESC&quot;
++#define INSTALL_FNAME		&quot;+INSTALL&quot;
++#define POST_INSTALL_FNAME	&quot;+POST-INSTALL&quot;
++#define DEINSTALL_FNAME		&quot;+DEINSTALL&quot;
++#define POST_DEINSTALL_FNAME	&quot;+POST-DEINSTALL&quot;
++#define REQUIRE_FNAME		&quot;+REQUIRE&quot;
++#define REQUIRED_BY_FNAME	&quot;+REQUIRED_BY&quot;
++#define DISPLAY_FNAME		&quot;+DISPLAY&quot;
++#define MTREE_FNAME		&quot;+MTREE_DIRS&quot;
++
++typedef enum {
++	MATCH_ALL,
++	MATCH_EXACT,
++	MATCH_GLOB,
++	MATCH_NGLOB,
++	MATCH_EREGEX,
++	MATCH_REGEX
++} match_t;
++
++struct pkg_info {
++	struct pkg_db *db;
++	char	**pkgs;
++	int	  quiet;
++	match_t	  match_type;
++	int	  flags;
++};
++
++struct pkg	**match_regex(struct pkg_db *, char **, int);
++int		  pkg_info(struct pkg_info);
++void		  show(struct pkg_db *, struct pkg *, int, int);
++
++#endif /* __PKG_INFO_H__ */
+
+Added: trunk/tools/pkg_info/show.c
+===================================================================
+--- trunk/tools/pkg_info/show.c	2006-01-17 03:43:56 UTC (rev 51)
++++ trunk/tools/pkg_info/show.c	2006-01-19 08:01:09 UTC (rev 52)
+@@ -0,0 +1,313 @@
++/*
++ * FreeBSD install - a package for the installation and maintainance
++ * of non-core utilities.
++ *
++ * Redistribution and use in source and binary forms, with or without
++ * modification, are permitted provided that the following conditions
++ * are met:
++ * 1. Redistributions of source code must retain the above copyright
++ *    notice, this list of conditions and the following disclaimer.
++ * 2. Redistributions in binary form must reproduce the above copyright
++ *    notice, this list of conditions and the following disclaimer in the
++ *    documentation and/or other materials provided with the distribution.
++ *
++ * Jordan K. Hubbard
++ * 18 July 1993
++ *
++ * Modified by Andrew Turner 2005, 2006 to use libpkg(3)
++ * 
++ * This is the info module.
++ */
++
++#include &quot;pkg_info.h&quot;
++
++#include &lt;pkg_db.h&gt;
++#include &lt;pkg_freebsd.h&gt;
++#include &lt;err.h&gt;
++#include &lt;stdlib.h&gt;
++#include &lt;string.h&gt;
++#include &lt;unistd.h&gt;
++
++static void	show_cksum(struct pkg *, const char *, int);
++static void	show_file(struct pkg_file *, const char *, int);
++static void	show_fmtrev(struct pkg *, const char *, int);
++static void	show_index(struct pkg *);
++static void	show_origin(struct pkg *, const char *, int);
++static void	show_plist(struct pkg *, const char *, int, int);
++static void	show_size(struct pkg *, const char *, int quiet);
++
++void
++show(struct pkg_db *db __unused, struct pkg *pkg, int flags, int quiet)
++{
++	if (flags &amp; SHOW_PKGNAME) {
++		printf(&quot;%s\n&quot;, pkg_get_name(pkg));
++		return;
++	} else if (flags &amp; SHOW_INDEX) {
++		/* SHOW_INDEX stops all other flags working */
++		show_index(pkg);
++		return;
++	}
++
++	if (quiet == 0) {
++		printf(&quot;Information for %s:\n\n&quot;, pkg_get_name(pkg));
++	}
++	if (flags &amp; SHOW_COMMENT) {
++		struct pkg_file *file;
++		file = pkg_get_control_file(pkg, COMMENT_FNAME);
++		show_file(file, &quot;Comment:\n&quot;, quiet);
++	}
++#define ifexist_show(filename, title) \
++	{ \
++		struct pkg_file *file; \
++		file = pkg_get_control_file(pkg, filename); \
++		if (file != NULL) \
++			show_file(file, title &quot;:\n&quot;, quiet); \
++	}
++
++	/* XXX Abstract all this out to the appropriate object */
++	if (flags &amp; SHOW_DEPEND) {
++		show_plist(pkg, &quot;Depends on:\n&quot;, quiet, PKG_LINE_PKGDEP);
++	}
++	if ((flags &amp; SHOW_REQBY)) {
++		struct pkg_file *file;
++		char *contents;
++
++		file = pkg_get_control_file(pkg, REQUIRED_BY_FNAME);
++		contents = pkg_file_get(file);
++		if (contents != NULL &amp;&amp; contents[0] != '\0')
++			show_file(file, &quot;Required by:\n&quot;, quiet);
++	}
++	if (flags &amp; SHOW_DESC) {
++		struct pkg_file *file;
++
++		file = pkg_get_control_file(pkg, DESC_FNAME);
++		show_file(file, &quot;Description:\n&quot;, quiet);
++	}
++	if ((flags &amp; SHOW_DISPLAY)) {
++		ifexist_show(DISPLAY_FNAME, &quot;Install notice&quot;);
++	}
++	if (flags &amp; SHOW_PLIST) {
++		show_plist(pkg, &quot;Packing list:\n&quot;, quiet, 0);
++	}
++	if (flags &amp; SHOW_REQUIRE) {
++		ifexist_show(REQUIRE_FNAME, &quot;Requirements script&quot;);
++	}
++	if ((flags &amp; SHOW_INSTALL)) {
++		ifexist_show(INSTALL_FNAME, &quot;Install script&quot;);
++	}
++	if ((flags &amp; SHOW_INSTALL)) {
++		ifexist_show(POST_INSTALL_FNAME, &quot;Post-Install script&quot;);
++	}
++	if ((flags &amp; SHOW_DEINSTALL)) {
++		ifexist_show(DEINSTALL_FNAME, &quot;De-Install script&quot;);
++	}
++	if ((flags &amp; SHOW_DEINSTALL)) {
++		ifexist_show(POST_DEINSTALL_FNAME, &quot;Post-DeInstall script&quot;);
++	}
++	if ((flags &amp; SHOW_MTREE)) {
++		ifexist_show(MTREE_FNAME, &quot;mtree file&quot;);
++	}
++	if (flags &amp; SHOW_PREFIX) {
++		show_plist(pkg, &quot;Prefix(s):\n&quot;, quiet, PKG_LINE_CWD);
++	}
++	if (flags &amp; SHOW_FILES) {
++	//    show_files(&quot;Files:\n&quot;, &amp;plist);
++	}
++	if ((flags &amp; SHOW_SIZE) &amp;&amp;
++	    pkg_db_is_installed(db, pkg_get_name(pkg)) == 0) {
++		show_size(pkg, &quot;Package Size:\n&quot;, quiet);
++	//    show_size(&quot;Package Size:\n&quot;, &amp;plist);
++	}
++	if ((flags &amp; SHOW_CKSUM) &amp;&amp;
++	    pkg_db_is_installed(db, pkg_get_name(pkg)) == 0) {
++		show_cksum(pkg, &quot;Mismatched Checksums:\n&quot;, quiet);
++	//    show_cksum(&quot;Mismatched Checksums:\n&quot;, &amp;plist);
++	}
++	if (flags &amp; SHOW_ORIGIN) {
++		show_origin(pkg, &quot;Origin:\n&quot;, quiet);
++	}
++	if (flags &amp; SHOW_FMTREV) {
++		show_fmtrev(pkg, &quot;Packing list format revision:\n&quot;, quiet);
++	}
++	if (!quiet) {
++		puts(&quot;&quot;);
++	}
++}
++
++/* Show files that don't match the recorded checksum */
++static void
++show_cksum(struct pkg *pkg __unused, const char *title, int quiet)
++{
++	if (!quiet)
++		printf(&quot;%s&quot;, title);
++
++	/* XXX */
++	errx(1, &quot;%s: Unimplemented&quot;, __func__);
++}
++
++static void
++show_file(struct pkg_file *file, const char *title, int quiet)
++{
++	if (!quiet)
++		printf(&quot;%s&quot;, title);
++	if (file == NULL) {
++		printf(&quot;ERROR: show_file: Can't open '%s' for reading!\n&quot;,
++		    pkg_file_get_name(file));
++	} else {
++		printf(&quot;%s&quot;, pkg_file_get(file));
++	}
++	putchar('\n');
++	
++}
++
++static void
++show_fmtrev(struct pkg* pkg, const char *title, int quiet)
++{
++	char *version;
++	if (!quiet)
++		printf(&quot;%s&quot;, title);
++
++	version = pkg_get_version(pkg);
++	if (version == NULL)
++		errx(1, &quot;pkg_get_version returned NULL&quot;);
++	else
++		printf(&quot;%s\n&quot;, version);
++}
++
++/*
++ * Displays the package name and comment for a given package
++ */
++/* XXX Check output is correct */
++static void
++show_index(struct pkg *pkg)
++{
++	/* This assumes a terminal width of 80 characters */
++	int len, pos;
++	struct pkg_file *comment;
++	len = printf(&quot;%s &quot;, pkg_get_name(pkg));
++	for (pos = len; pos &lt; 19; pos++, len++) {
++		putchar(' ');
++	}
++	comment = pkg_get_control_file(pkg, &quot;+COMMENT&quot;);
++	if (comment != NULL &amp;&amp; len &lt; 80) {
++		char desc[60], *ptr;
++		/*
++		 * Copy the comment to a buffer
++		 * so it is 80 characters wide
++		 */
++		strlcpy(desc, pkg_file_get(comment), (unsigned int)80-len);
++		ptr = strchr(desc, '\n');
++		if (ptr)
++			ptr[0] = '\0';
++		printf(&quot;%s\n&quot;, desc);
++	} else
++		putchar('\n');
++}
++
++static void
++show_origin(struct pkg *pkg, const char *title, int quiet)
++{
++	if (!quiet)
++		printf(&quot;%s&quot;, title);
++	printf(&quot;%s\n&quot;, pkg_get_origin(pkg));
++}
++
++static void
++show_plist(struct pkg *pkg, const char *title, int quiet, int type)
++{
++	struct pkg_freebsd_contents *contents;
++	struct pkg_freebsd_contents_line *line;
++	unsigned int i, ignore = 0;
++	char *prefix = NULL;
++
++	if (!quiet)
++		printf(&quot;%s&quot;, title);
++	contents = pkg_freebsd_get_contents(pkg);
++
++	i = 0;
++	while ((line = pkg_freebsd_contents_get_line(contents, i++)) != NULL) {
++		if (line-&gt;line_type == PKG_LINE_UNKNOWN)
++			continue;
++		if (type != 0 &amp;&amp; line-&gt;line_type != type)
++			continue;
++		switch(line-&gt;line_type) {
++		case PKG_LINE_COMMENT:
++			if (quiet) {
++				printf(&quot;@comment %s\n&quot;, line-&gt;data);
++				break;
++			}
++			if (strncmp(&quot;DEPORIGIN:&quot;, line-&gt;data, 10) == 0) {
++				char *s = strchr(line-&gt;data, ':');
++				*s++;
++				printf(&quot;\tdependency origin: %s\n&quot;, s);
++			} else if (strncmp(&quot;ORIGIN:&quot;, line-&gt;data, 7) == 0) {
++				char *s = strchr(line-&gt;data, ':');
++				*s++;
++				printf(&quot;\tPackage origin: %s\n&quot;, s);
++			} else {
++				printf(&quot;\tComment: %s\n&quot;, line-&gt;data);
++			}
++			break;
++		case PKG_LINE_NAME:
++			printf(quiet ? &quot;@name %s\n&quot; : &quot;\tPackage name: %s\n&quot;,
++			    line-&gt;data);
++			break;
++		case PKG_LINE_CWD:
++			if (prefix == NULL)
++				prefix = line-&gt;data;
++			printf(quiet ? &quot;@cwd %s\n&quot; : &quot;\tCWD to %s\n&quot;,
++			    (line-&gt;data == NULL) ? prefix : line-&gt;data);
++			break;
++		case PKG_LINE_PKGDEP:
++			printf(quiet ? &quot;@pkgdep %s\n&quot; : &quot;Dependency: %s\n&quot;,
++			    line-&gt;data);
++			break;
++		case PKG_LINE_CONFLICTS:
++			printf(quiet ? &quot;@conflicts %s\n&quot; : &quot;Conflicts: %s\n&quot;,
++			    line-&gt;data);
++			break;
++		case PKG_LINE_EXEC:
++			printf(quiet ? &quot;@exec %s\n&quot; : &quot;\tEXEC '%s'\n&quot;,
++			    line-&gt;data);
++			break;
++		case PKG_LINE_UNEXEC:
++			printf(quiet ? &quot;@unexec %s\n&quot; : &quot;\tUNEXEC '%s'\n&quot;,
++			    line-&gt;data);
++			break;
++		case PKG_LINE_IGNORE:
++			ignore = 1;
++			break;
++		case PKG_LINE_DIRRM:
++			printf(quiet ? &quot;@dirrm %s\n&quot; :
++			    &quot;\tDeinstall directory remove: %s\n&quot;, line-&gt;data);
++			break;
++		case PKG_LINE_MTREE:
++			printf(quiet ? &quot;@mtree %s\n&quot; :
++			    &quot;\tPackage mtree file: %s\n&quot;, line-&gt;data);
++			break;
++		case PKG_LINE_FILE:
++			if (ignore == 1)
++				printf(quiet ? &quot;%s\n&quot; : &quot;File: %s (ignored)\n&quot;,
++				    line-&gt;line);
++			else
++				printf(quiet ? &quot;%s\n&quot; : &quot;File: %s\n&quot;,
++				    line-&gt;line);
++			ignore = 0;
++			break;
++		default:
++			errx(2, &quot;%s: unknown command type %d (%s)&quot;,
++			    __func__, line-&gt;line_type, line-&gt;line);
++			break;
++		}
++	}
++}
++
++static void
++show_size(struct pkg *pkg __unused, const char *title, int quiet)
++{
++	if (!quiet)
++		printf(&quot;%s&quot;, title);
++
++	/* XXX */
++	errx(1, &quot;%s: Unimplemented&quot;, __func__);
++}
+
+
+</PRE>
+
+<!--endarticle-->
+    <HR>
+    <P><UL>
+        <!--threads-->
+	<LI>Previous message: <A HREF="000036.html">[Libpkg-svn] r51 - trunk/src
+</A></li>
+	<LI>Next message: <A HREF="000038.html">[Libpkg-svn] r53 - trunk/src
+</A></li>
+         <LI> <B>Messages sorted by:</B> 
+              <a href="date.html#37">[ date ]</a>
+              <a href="thread.html#37">[ thread ]</a>
+              <a href="subject.html#37">[ subject ]</a>
+              <a href="author.html#37">[ author ]</a>
+         </LI>
+       </UL>
+
+<hr>
+<a href="https://lists.berlios.de/mailman/listinfo/libpkg-svn">More information about the Libpkg-svn
+mailing list</a><br>
+</body></html>

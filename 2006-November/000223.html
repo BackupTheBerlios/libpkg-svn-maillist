@@ -1,0 +1,188 @@
+<!DOCTYPE HTML PUBLIC "-//W3C//DTD HTML 4.01 Transitional//EN">
+<HTML>
+ <HEAD>
+   <TITLE> [Libpkg-svn] r239 - trunk/tools/pkg_delete
+   </TITLE>
+   <LINK REL="Index" HREF="http://lists.berlios.de/pipermail/libpkg-svn/2006-November/index.html" >
+   <LINK REL="made" HREF="mailto:libpkg-svn%40lists.berlios.de?Subject=Re%3A%20%5BLibpkg-svn%5D%20r239%20-%20trunk/tools/pkg_delete&In-Reply-To=%3C200611200853.kAK8rtAe003620%40sheep.berlios.de%3E">
+   <META NAME="robots" CONTENT="index,nofollow">
+   <style type="text/css">
+       pre {
+           white-space: pre-wrap;       /* css-2.1, curent FF, Opera, Safari */
+           }
+   </style>
+   <META http-equiv="Content-Type" content="text/html; charset=us-ascii">
+   <LINK REL="Previous"  HREF="000222.html">
+   <LINK REL="Next"  HREF="000224.html">
+ </HEAD>
+ <BODY BGCOLOR="#ffffff">
+   <H1>[Libpkg-svn] r239 - trunk/tools/pkg_delete</H1>
+    <B>zxombie at BerliOS</B> 
+    <A HREF="mailto:libpkg-svn%40lists.berlios.de?Subject=Re%3A%20%5BLibpkg-svn%5D%20r239%20-%20trunk/tools/pkg_delete&In-Reply-To=%3C200611200853.kAK8rtAe003620%40sheep.berlios.de%3E"
+       TITLE="[Libpkg-svn] r239 - trunk/tools/pkg_delete">zxombie at mail.berlios.de
+       </A><BR>
+    <I>Mon Nov 20 09:53:55 CET 2006</I>
+    <P><UL>
+        <LI>Previous message: <A HREF="000222.html">[Libpkg-svn] r238 - trunk/src
+</A></li>
+        <LI>Next message: <A HREF="000224.html">[Libpkg-svn] r240 - in trunk: src tools/pkg_delete
+</A></li>
+         <LI> <B>Messages sorted by:</B> 
+              <a href="date.html#223">[ date ]</a>
+              <a href="thread.html#223">[ thread ]</a>
+              <a href="subject.html#223">[ subject ]</a>
+              <a href="author.html#223">[ author ]</a>
+         </LI>
+       </UL>
+    <HR>  
+<!--beginarticle-->
+<PRE>Author: zxombie
+Date: 2006-11-20 09:53:54 +0100 (Mon, 20 Nov 2006)
+New Revision: 239
+
+Modified:
+   trunk/tools/pkg_delete/Makefile
+   trunk/tools/pkg_delete/main.c
+   trunk/tools/pkg_delete/run.sh
+   trunk/tools/pkg_delete/test.sh
+Log:
+Add support for pkg_delete -r
+
+
+Modified: trunk/tools/pkg_delete/Makefile
+===================================================================
+--- trunk/tools/pkg_delete/Makefile	2006-11-20 08:48:19 UTC (rev 238)
++++ trunk/tools/pkg_delete/Makefile	2006-11-20 08:53:54 UTC (rev 239)
+@@ -19,7 +19,7 @@
+ 
+ .for run in libpkg cvs
+ . for type in mtree stdout stderr
+-.  for i in 1 2 3 4
++.  for i in 1 2 3 4 5
+ CLEANFILES	+= ${run}.${type}.${i}
+ .  endfor
+ . endfor
+
+Modified: trunk/tools/pkg_delete/main.c
+===================================================================
+--- trunk/tools/pkg_delete/main.c	2006-11-20 08:48:19 UTC (rev 238)
++++ trunk/tools/pkg_delete/main.c	2006-11-20 08:53:54 UTC (rev 239)
+@@ -95,7 +95,6 @@
+ 			break;
+ 		case 'r':
+ 			delete.flags |= recursive_flag;
+-			errx(1, &quot;Unsupported argument&quot;);
+ 			break;
+ 		case 'v':
+ 			delete.flags |= verbosity_flag;
+@@ -183,17 +182,51 @@
+ 	 */
+ 	scripts = !((delete.flags &amp; no_run_script_flag) == no_run_script_flag);
+ 	force = ((delete.flags &amp; force_flag) == force_flag);
+-	action = NULL;
++	action = pkg_action_null;
+ 	if ((delete.flags &amp; verbosity_flag) == verbosity_flag || fake)
+ 		action = pkg_action;
+ 
+ 	for (i = 0; delete.pkgs[i] != NULL; i++) {
++		if (pkg_db_is_installed(delete.db, delete.pkgs[i]) != 0)
++			continue;
++
++		/* Delete the packages that depend on this package */
++		if ((delete.flags &amp; recursive_flag) == recursive_flag) {
++			struct pkg *real_pkg;
++			struct pkg **deps;
++			int ret = 0;
++
++			/* Find the packages to delete */
++			real_pkg = pkg_db_get_package(delete.db,
++			    pkg_get_name(delete.pkgs[i]));
++			deps = pkg_get_reverse_dependencies(real_pkg);
++
++			/* Copy the packages and deinstall them */
++			if (deps != NULL &amp;&amp; deps[0] != NULL) {
++				struct pkg_delete new_delete;
++
++				memcpy(&amp;new_delete, &amp;delete,
++				    sizeof(struct pkg_delete));
++
++				new_delete.pkgs = deps;
++				if (pkg_delete(new_delete) != 0) {
++					ret = 1;
++					break;
++				}
++			}
++			pkg_free(real_pkg);
++
++			/* The delete failed so return a failure */
++			if (ret != 0)
++				return ret;
++		}
+ 		if (((delete.flags &amp; interactive_flag) == interactive_flag)) {
+ 			fprintf(stderr, &quot;delete %s? &quot;,
+ 			    pkg_get_name(delete.pkgs[i]));
+ 		}
+-		pkg_db_delete_package_action(delete.db, delete.pkgs[i],
+-		    scripts, fake, force, action);
++		if (pkg_db_delete_package_action(delete.db, delete.pkgs[i],
++		    scripts, fake, force, action) != 0)
++			return 1;
+ 	}
+-	return 1;
++	return 0;
+ }
+
+Modified: trunk/tools/pkg_delete/run.sh
+===================================================================
+--- trunk/tools/pkg_delete/run.sh	2006-11-20 08:48:19 UTC (rev 238)
++++ trunk/tools/pkg_delete/run.sh	2006-11-20 08:53:54 UTC (rev 239)
+@@ -32,4 +32,11 @@
+ 	fi
+ 	pkg_delete -D ${PACKAGE}
+ 	exit $?
++elif [ ${TESTNO} -eq 5 ] ; then
++	pkg_add ./${PACKAGE}.tbz
++	if [ $? -ne 0 ] ; then
++		exit 1
++	fi
++	pkg_delete -r libiconv-1.9.2_1
++	exit $?
+ fi
+
+Modified: trunk/tools/pkg_delete/test.sh
+===================================================================
+--- trunk/tools/pkg_delete/test.sh	2006-11-20 08:48:19 UTC (rev 238)
++++ trunk/tools/pkg_delete/test.sh	2006-11-20 08:53:54 UTC (rev 239)
+@@ -7,7 +7,7 @@
+ 	RUN=$1
+ 
+ 	i=1
+-	while [ $i -le 4 ] ; do
++	while [ $i -le 5 ] ; do
+ 		chroot ${BASE_DIR}/base /run.sh ${PACKAGE} ${i} &gt; ${RUN}.stdout.${i} 2&gt; ${RUN}.stderr.${i}
+ 		# Get the mtree file to use to compare the filesystems
+ 		mtree -c -p ${BASE_DIR}/base | grep -v &quot;^\#[[:space:]]*date:&quot; | sed &quot;s/time=[^ ]*//&quot; | grep -v &quot;^[ ]*pkg_delete&quot; &gt; ${RUN}.mtree.${i}
+
+
+</PRE>
+
+<!--endarticle-->
+    <HR>
+    <P><UL>
+        <!--threads-->
+	<LI>Previous message: <A HREF="000222.html">[Libpkg-svn] r238 - trunk/src
+</A></li>
+	<LI>Next message: <A HREF="000224.html">[Libpkg-svn] r240 - in trunk: src tools/pkg_delete
+</A></li>
+         <LI> <B>Messages sorted by:</B> 
+              <a href="date.html#223">[ date ]</a>
+              <a href="thread.html#223">[ thread ]</a>
+              <a href="subject.html#223">[ subject ]</a>
+              <a href="author.html#223">[ author ]</a>
+         </LI>
+       </UL>
+
+<hr>
+<a href="https://lists.berlios.de/mailman/listinfo/libpkg-svn">More information about the Libpkg-svn
+mailing list</a><br>
+</body></html>

@@ -1,0 +1,155 @@
+<!DOCTYPE HTML PUBLIC "-//W3C//DTD HTML 4.01 Transitional//EN">
+<HTML>
+ <HEAD>
+   <TITLE> [Libpkg-svn] r198 - trunk/src
+   </TITLE>
+   <LINK REL="Index" HREF="http://lists.berlios.de/pipermail/libpkg-svn/2006-September/index.html" >
+   <LINK REL="made" HREF="mailto:libpkg-svn%40lists.berlios.de?Subject=Re%3A%20%5BLibpkg-svn%5D%20r198%20-%20trunk/src&In-Reply-To=%3C200609071334.k87DY6Is004049%40sheep.berlios.de%3E">
+   <META NAME="robots" CONTENT="index,nofollow">
+   <style type="text/css">
+       pre {
+           white-space: pre-wrap;       /* css-2.1, curent FF, Opera, Safari */
+           }
+   </style>
+   <META http-equiv="Content-Type" content="text/html; charset=us-ascii">
+   <LINK REL="Previous"  HREF="000181.html">
+   <LINK REL="Next"  HREF="000183.html">
+ </HEAD>
+ <BODY BGCOLOR="#ffffff">
+   <H1>[Libpkg-svn] r198 - trunk/src</H1>
+    <B>zxombie at BerliOS</B> 
+    <A HREF="mailto:libpkg-svn%40lists.berlios.de?Subject=Re%3A%20%5BLibpkg-svn%5D%20r198%20-%20trunk/src&In-Reply-To=%3C200609071334.k87DY6Is004049%40sheep.berlios.de%3E"
+       TITLE="[Libpkg-svn] r198 - trunk/src">zxombie at mail.berlios.de
+       </A><BR>
+    <I>Thu Sep  7 15:34:06 CEST 2006</I>
+    <P><UL>
+        <LI>Previous message: <A HREF="000181.html">[Libpkg-svn] r197 - trunk/tests
+</A></li>
+        <LI>Next message: <A HREF="000183.html">[Libpkg-svn] r199 - trunk/tests
+</A></li>
+         <LI> <B>Messages sorted by:</B> 
+              <a href="date.html#182">[ date ]</a>
+              <a href="thread.html#182">[ thread ]</a>
+              <a href="subject.html#182">[ subject ]</a>
+              <a href="author.html#182">[ author ]</a>
+         </LI>
+       </UL>
+    <HR>  
+<!--beginarticle-->
+<PRE>Author: zxombie
+Date: 2006-09-07 15:34:05 +0200 (Thu, 07 Sep 2006)
+New Revision: 198
+
+Modified:
+   trunk/src/pkg.h
+   trunk/src/pkgfile.c
+Log:
+Update pkgfile_remove_line to work with a file in memory
+Add pkgfile_append to append data to an existing file
+
+
+Modified: trunk/src/pkg.h
+===================================================================
+--- trunk/src/pkg.h	2006-09-07 12:32:59 UTC (rev 197)
++++ trunk/src/pkg.h	2006-09-07 13:34:05 UTC (rev 198)
+@@ -59,6 +59,7 @@
+ int		 pkgfile_compare_checksum_md5(struct pkgfile *);
+ int		 pkgfile_seek(struct pkgfile *, uint64_t, int);
+ int		 pkgfile_set_mode(struct pkgfile *, mode_t);
++int		 pkgfile_append(struct pkgfile *, const char *, uint64_t);
+ int		 pkgfile_remove_line(struct pkgfile *, const char *);
+ int		 pkgfile_write(struct pkgfile *);
+ int		 pkgfile_unlink(struct pkgfile *);
+
+Modified: trunk/src/pkgfile.c
+===================================================================
+--- trunk/src/pkgfile.c	2006-09-07 12:32:59 UTC (rev 197)
++++ trunk/src/pkgfile.c	2006-09-07 13:34:05 UTC (rev 198)
+@@ -552,11 +552,10 @@
+ 	if (file == NULL || line == NULL)
+ 		return -1;
+ 
+-	assert(file-&gt;loc == pkgfile_loc_disk);
++	assert(file-&gt;type == pkgfile_regular);
+ 
+ 	/* Read in the file */
+ 	pkgfile_get_data(file);
+-	assert(file-&gt;type == pkgfile_regular);
+ 
+ 	buf = file-&gt;data;
+ 	while ((buf = memmem(buf, file-&gt;length, line, strlen(line))) != NULL) {
+@@ -574,12 +573,46 @@
+ 	ptr = buf + strlen(line) + 1;
+ 	memcpy(buf, ptr, file-&gt;length - (ptr - file-&gt;data));
+ 	file-&gt;length -= strlen(line) + 1;
+-	fseek(file-&gt;fd, 0, SEEK_SET);
+-	if (fwrite(file-&gt;data, 1, file-&gt;length, file-&gt;fd) != file-&gt;length) {
+-		assert(0);
++
++	if (file-&gt;loc == pkgfile_loc_disk) {
++		fseek(file-&gt;fd, 0, SEEK_SET);
++		if (fwrite(file-&gt;data, 1, file-&gt;length, file-&gt;fd) !=
++		    file-&gt;length) {
++			assert(0);
++			return -1;
++		}
++		ftruncate(fileno(file-&gt;fd), file-&gt;length);
++	}
++
++	return 0;
++}
++
++int
++pkgfile_append(struct pkgfile *file, const char *data, uint64_t length)
++{
++	if (file == NULL)
+ 		return -1;
++
++	if (data == NULL &amp;&amp; length != 0)
++		return -1;
++
++	assert(file-&gt;loc == pkgfile_loc_mem);
++	assert(file-&gt;type == pkgfile_regular);
++
++	assert(file-&gt;data != NULL);
++	if (file-&gt;data != NULL) {
++		char *new_data;
++
++		new_data = realloc(file-&gt;data, file-&gt;length + length);
++		if (new_data == NULL)
++			return -1;
++
++		/* Update the internal pointer and copy the new data */
++		file-&gt;data = new_data;
++		memcpy(file-&gt;data + file-&gt;length, data, length);
++		file-&gt;length += length;
++		
+ 	}
+-	ftruncate(fileno(file-&gt;fd), file-&gt;length);
+ 
+ 	return 0;
+ }
+
+
+</PRE>
+
+<!--endarticle-->
+    <HR>
+    <P><UL>
+        <!--threads-->
+	<LI>Previous message: <A HREF="000181.html">[Libpkg-svn] r197 - trunk/tests
+</A></li>
+	<LI>Next message: <A HREF="000183.html">[Libpkg-svn] r199 - trunk/tests
+</A></li>
+         <LI> <B>Messages sorted by:</B> 
+              <a href="date.html#182">[ date ]</a>
+              <a href="thread.html#182">[ thread ]</a>
+              <a href="subject.html#182">[ subject ]</a>
+              <a href="author.html#182">[ author ]</a>
+         </LI>
+       </UL>
+
+<hr>
+<a href="https://lists.berlios.de/mailman/listinfo/libpkg-svn">More information about the Libpkg-svn
+mailing list</a><br>
+</body></html>

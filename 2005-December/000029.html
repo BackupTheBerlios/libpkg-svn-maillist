@@ -1,0 +1,274 @@
+<!DOCTYPE HTML PUBLIC "-//W3C//DTD HTML 4.01 Transitional//EN">
+<HTML>
+ <HEAD>
+   <TITLE> [Libpkg-svn] r42 - trunk/src
+   </TITLE>
+   <LINK REL="Index" HREF="http://lists.berlios.de/pipermail/libpkg-svn/2005-December/index.html" >
+   <LINK REL="made" HREF="mailto:libpkg-svn%40lists.berlios.de?Subject=Re%3A%20%5BLibpkg-svn%5D%20r42%20-%20trunk/src&In-Reply-To=%3C200512202237.jBKMbRYh014424%40sheep.berlios.de%3E">
+   <META NAME="robots" CONTENT="index,nofollow">
+   <style type="text/css">
+       pre {
+           white-space: pre-wrap;       /* css-2.1, curent FF, Opera, Safari */
+           }
+   </style>
+   <META http-equiv="Content-Type" content="text/html; charset=us-ascii">
+   <LINK REL="Previous"  HREF="000028.html">
+   
+ </HEAD>
+ <BODY BGCOLOR="#ffffff">
+   <H1>[Libpkg-svn] r42 - trunk/src</H1>
+    <B>zxombie at BerliOS</B> 
+    <A HREF="mailto:libpkg-svn%40lists.berlios.de?Subject=Re%3A%20%5BLibpkg-svn%5D%20r42%20-%20trunk/src&In-Reply-To=%3C200512202237.jBKMbRYh014424%40sheep.berlios.de%3E"
+       TITLE="[Libpkg-svn] r42 - trunk/src">zxombie at berlios.de
+       </A><BR>
+    <I>Tue Dec 20 23:37:27 CET 2005</I>
+    <P><UL>
+        <LI>Previous message: <A HREF="000028.html">[Libpkg-svn] r41 - trunk/src
+</A></li>
+        
+         <LI> <B>Messages sorted by:</B> 
+              <a href="date.html#29">[ date ]</a>
+              <a href="thread.html#29">[ thread ]</a>
+              <a href="subject.html#29">[ subject ]</a>
+              <a href="author.html#29">[ author ]</a>
+         </LI>
+       </UL>
+    <HR>  
+<!--beginarticle-->
+<PRE>Author: zxombie
+Date: 2005-12-20 23:37:26 +0100 (Tue, 20 Dec 2005)
+New Revision: 42
+
+Modified:
+   trunk/src/pkg_db.c
+   trunk/src/pkg_db.h
+   trunk/src/pkg_db_freebsd.c
+   trunk/src/pkg_db_private.h
+   trunk/src/pkg_freebsd.c
+Log:
+Add pkg_db_get_package to get a named package from a Database
+Check the return value of opendir to stop a seg fault
+Improve the style
+
+
+Modified: trunk/src/pkg_db.c
+===================================================================
+--- trunk/src/pkg_db.c	2005-12-16 02:14:06 UTC (rev 41)
++++ trunk/src/pkg_db.c	2005-12-20 22:37:26 UTC (rev 42)
+@@ -41,7 +41,8 @@
+ struct pkg_db*
+ pkg_db_open(const char *base, pkg_db_install_pkg_callback *install_pkg,
+ 		pkg_db_is_installed_callback *is_installed,
+-		pkg_db_get_installed_callback *get_installed)
++		pkg_db_get_installed_callback *get_installed,
++		pkg_db_get_package_callback *get_package)
+ {
+ 	struct pkg_db *db;
+ 	struct stat sb;
+@@ -80,6 +81,7 @@
+ 	db-&gt;pkg_install = install_pkg;
+ 	db-&gt;pkg_is_installed = is_installed;
+ 	db-&gt;pkg_get_installed = get_installed;
++	db-&gt;pkg_get_package = get_package;
+ 
+ 	db-&gt;data = NULL;
+ 
+@@ -130,6 +132,18 @@
+ 	return db-&gt;pkg_get_installed(db);
+ }
+ 
++struct pkg *
++pkg_db_get_package(struct pkg_db *db, const char *name)
++{
++	if (!db || !name)
++		return NULL;
++
++	if (db-&gt;pkg_get_package)
++		return db-&gt;pkg_get_package(db, name);
++
++	return NULL;
++}
++
+ int
+ pkg_db_free(struct pkg_db *db)
+ {
+
+Modified: trunk/src/pkg_db.h
+===================================================================
+--- trunk/src/pkg_db.h	2005-12-16 02:14:06 UTC (rev 41)
++++ trunk/src/pkg_db.h	2005-12-20 22:37:26 UTC (rev 42)
+@@ -35,10 +35,11 @@
+  */
+ struct pkg_db;
+ 
+-struct pkg_db	*pkg_db_open_freebsd(const char *);
+-int		 pkg_db_install_pkg(struct pkg_db *, struct pkg *);
+-int		 pkg_db_is_installed(struct pkg_db *, const char *);
++struct pkg_db	 *pkg_db_open_freebsd(const char *);
++int		  pkg_db_install_pkg(struct pkg_db *, struct pkg *);
++int		  pkg_db_is_installed(struct pkg_db *, const char *);
+ struct pkg	**pkg_db_get_installed(struct pkg_db *);
+-int		 pkg_db_free(struct pkg_db *);
++struct pkg	 *pkg_db_get_package(struct pkg_db *, const char *);
++int		  pkg_db_free(struct pkg_db *);
+ 
+ #endif /* __LIBPKG_PKG_DB_H__ */
+
+Modified: trunk/src/pkg_db_freebsd.c
+===================================================================
+--- trunk/src/pkg_db_freebsd.c	2005-12-16 02:14:06 UTC (rev 41)
++++ trunk/src/pkg_db_freebsd.c	2005-12-20 22:37:26 UTC (rev 42)
+@@ -27,6 +27,7 @@
+  *
+  */
+ 
++#include &lt;sys/param.h&gt;
+ #include &lt;sys/stat.h&gt;
+ #include &lt;sys/types.h&gt;
+ 
+@@ -61,15 +62,17 @@
+ 	{ -1, -1, -1, -1, -1,  6, -1, -1, -1, -1, -1, -1 }  /* p6 */
+ };
+ 
+-static int freebsd_install_pkg(struct pkg_db *, struct pkg *);
+-static int freebsd_is_installed(struct pkg_db *, const char *);
+-static struct pkg **freebsd_get_installed(struct pkg_db *);
+-	
++static int		  freebsd_install_pkg(struct pkg_db *, struct pkg *);
++static int		  freebsd_is_installed(struct pkg_db *, const char *);
++static struct pkg	**freebsd_get_installed(struct pkg_db *);
++static struct pkg	 *freebsd_get_package(struct pkg_db *, const char *);	
+ 
+-/* Calbacks */
+-static struct pkg_file *freebsd_build_contents(struct pkg_freebsd_contents *);
+-static int freebsd_do_cwd(struct pkg_db *, struct pkg *, char *ndir);
+-static int freebsd_check_contents(struct pkg_db *, struct pkg_freebsd_contents *);
++/* Internal */
++static struct pkg_file	*freebsd_build_contents(struct pkg_freebsd_contents *);
++static int		 freebsd_do_cwd(struct pkg_db *, struct pkg *,
++				char *ndir);
++static int		 freebsd_check_contents(struct pkg_db *,
++				struct pkg_freebsd_contents *);
+ 
+ /*
+  * Opens the FreeBSD Package Database
+@@ -78,7 +81,7 @@
+ pkg_db_open_freebsd(const char *base)
+ {
+ 	return pkg_db_open(base, freebsd_install_pkg, freebsd_is_installed,
+-	    freebsd_get_installed);
++	    freebsd_get_installed, freebsd_get_package);
+ }
+ 
+ /*
+@@ -189,15 +192,17 @@
+ 
+ 			/* Read the file to install */
+ 			if (contents-&gt;lines[line].line[0] == '+') {
+-				/* + Files are not fetched with pkg_get_next_file */
+-				        for (pos = 0; control[pos] != NULL;
+-					    pos++) {
+-						if (!strcmp(
+-						    control[pos]-&gt;filename,
+-						    contents-&gt;lines[line].line))
+-							break;
+-					}
+-					file = control[pos];
++				/*
++				 * + Files are not fetched with
++				 * pkg_get_next_file
++				 */
++				for (pos = 0; control[pos] != NULL;
++				    pos++) {
++					if (!strcmp(control[pos]-&gt;filename,
++					    contents-&gt;lines[line].line))
++						break;
++				}
++				file = control[pos];
+ 			} else {
+ 				file = pkg_get_next_file(pkg);
+ 
+@@ -355,6 +360,15 @@
+ 	return packages;
+ }
+ 
++static struct pkg *
++freebsd_get_package(struct pkg_db *db, const char *pkg_name)
++{
++	char dir[MAXPATHLEN + 1];
++
++	snprintf(dir, MAXPATHLEN, &quot;%s/var/db/pkg/%s&quot;, db-&gt;db_base, pkg_name);
++	return pkg_new_freebsd_installed(pkg_name, dir);
++}
++
+ static int
+ freebsd_do_cwd(struct pkg_db *db, struct pkg *pkg, char *ndir) {
+ 	char *dir;
+
+Modified: trunk/src/pkg_db_private.h
+===================================================================
+--- trunk/src/pkg_db_private.h	2005-12-16 02:14:06 UTC (rev 41)
++++ trunk/src/pkg_db_private.h	2005-12-20 22:37:26 UTC (rev 42)
+@@ -32,12 +32,15 @@
+ 
+ typedef int	 pkg_db_install_pkg_callback(struct pkg_db *, struct pkg *);
+ typedef int 	 pkg_db_is_installed_callback(struct pkg_db *, const char *);
+-typedef struct pkg **pkg_db_get_installed_callback(struct pkg_db *);
++typedef struct pkg	 *pkg_db_get_package_callback(struct pkg_db *,
++				const char *);
++typedef struct pkg	**pkg_db_get_installed_callback(struct pkg_db *);
+ 
+ 
+ struct pkg_db	*pkg_db_open(const char *, pkg_db_install_pkg_callback *,
+ 			pkg_db_is_installed_callback *,
+-			pkg_db_get_installed_callback *);
++			pkg_db_get_installed_callback *,
++			pkg_db_get_package_callback *);
+ struct pkg_db {
+ 	void	*data;
+ 
+@@ -46,6 +49,7 @@
+ 	pkg_db_install_pkg_callback	*pkg_install;
+ 	pkg_db_is_installed_callback	*pkg_is_installed;
+ 	pkg_db_get_installed_callback	*pkg_get_installed;
++	pkg_db_get_package_callback	*pkg_get_package;
+ };
+ 
+ #endif /* __LIBPKG_PKG_DB_PRIVATE_H__ */
+
+Modified: trunk/src/pkg_freebsd.c
+===================================================================
+--- trunk/src/pkg_freebsd.c	2005-12-16 02:14:06 UTC (rev 41)
++++ trunk/src/pkg_freebsd.c	2005-12-20 22:37:26 UTC (rev 42)
+@@ -136,6 +136,8 @@
+ 	 * It needs to be optimised to just read the required data
+ 	 */
+ 	d = opendir(pkg_db_dir);
++	if (d == NULL)
++		return NULL;
+ 
+ 	/* Load all the + files into control */
+ 	control_size = sizeof(struct pkg_file **);
+
+
+</PRE>
+
+<!--endarticle-->
+    <HR>
+    <P><UL>
+        <!--threads-->
+	<LI>Previous message: <A HREF="000028.html">[Libpkg-svn] r41 - trunk/src
+</A></li>
+	
+         <LI> <B>Messages sorted by:</B> 
+              <a href="date.html#29">[ date ]</a>
+              <a href="thread.html#29">[ thread ]</a>
+              <a href="subject.html#29">[ subject ]</a>
+              <a href="author.html#29">[ author ]</a>
+         </LI>
+       </UL>
+
+<hr>
+<a href="https://lists.berlios.de/mailman/listinfo/libpkg-svn">More information about the Libpkg-svn
+mailing list</a><br>
+</body></html>

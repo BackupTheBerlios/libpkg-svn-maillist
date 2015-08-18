@@ -1,0 +1,155 @@
+<!DOCTYPE HTML PUBLIC "-//W3C//DTD HTML 4.01 Transitional//EN">
+<HTML>
+ <HEAD>
+   <TITLE> [Libpkg-svn] r235 - in trunk/tools: pkg_add pkg_delete
+   </TITLE>
+   <LINK REL="Index" HREF="http://lists.berlios.de/pipermail/libpkg-svn/2006-November/index.html" >
+   <LINK REL="made" HREF="mailto:libpkg-svn%40lists.berlios.de?Subject=Re%3A%20%5BLibpkg-svn%5D%20r235%20-%20in%20trunk/tools%3A%20pkg_add%20pkg_delete&In-Reply-To=%3C200611151116.kAFBGP9U014381%40sheep.berlios.de%3E">
+   <META NAME="robots" CONTENT="index,nofollow">
+   <style type="text/css">
+       pre {
+           white-space: pre-wrap;       /* css-2.1, curent FF, Opera, Safari */
+           }
+   </style>
+   <META http-equiv="Content-Type" content="text/html; charset=us-ascii">
+   <LINK REL="Previous"  HREF="000218.html">
+   <LINK REL="Next"  HREF="000220.html">
+ </HEAD>
+ <BODY BGCOLOR="#ffffff">
+   <H1>[Libpkg-svn] r235 - in trunk/tools: pkg_add pkg_delete</H1>
+    <B>zxombie at BerliOS</B> 
+    <A HREF="mailto:libpkg-svn%40lists.berlios.de?Subject=Re%3A%20%5BLibpkg-svn%5D%20r235%20-%20in%20trunk/tools%3A%20pkg_add%20pkg_delete&In-Reply-To=%3C200611151116.kAFBGP9U014381%40sheep.berlios.de%3E"
+       TITLE="[Libpkg-svn] r235 - in trunk/tools: pkg_add pkg_delete">zxombie at mail.berlios.de
+       </A><BR>
+    <I>Wed Nov 15 12:16:25 CET 2006</I>
+    <P><UL>
+        <LI>Previous message: <A HREF="000218.html">[Libpkg-svn] r234 - trunk/src
+</A></li>
+        <LI>Next message: <A HREF="000220.html">[Libpkg-svn] r236 - in trunk: src tools/pkg_add
+</A></li>
+         <LI> <B>Messages sorted by:</B> 
+              <a href="date.html#219">[ date ]</a>
+              <a href="thread.html#219">[ thread ]</a>
+              <a href="subject.html#219">[ subject ]</a>
+              <a href="author.html#219">[ author ]</a>
+         </LI>
+       </UL>
+    <HR>  
+<!--beginarticle-->
+<PRE>Author: zxombie
+Date: 2006-11-15 12:16:24 +0100 (Wed, 15 Nov 2006)
+New Revision: 235
+
+Modified:
+   trunk/tools/pkg_add/main.c
+   trunk/tools/pkg_delete/main.c
+Log:
+Remove the interactive flag from the pkg_db_action callbacks
+Implement the -i flag in pkg_delete
+
+
+Modified: trunk/tools/pkg_add/main.c
+===================================================================
+--- trunk/tools/pkg_add/main.c	2006-11-15 11:12:36 UTC (rev 234)
++++ trunk/tools/pkg_add/main.c	2006-11-15 11:16:24 UTC (rev 235)
+@@ -232,13 +232,10 @@
+  * Only used when -v is set
+  */
+ static int
+-pkg_action(enum pkg_action_level level, int interactive, const char *fmt, ...)
++pkg_action(enum pkg_action_level level, const char *fmt, ...)
+ {
+ 	va_list ap;
+ 
+-	/* The interactive flag is ignored for now */
+-	assert(interactive == 0);
+-
+ 	va_start(ap, fmt);
+ 	if (level == PKG_DB_PACKAGE)
+ 		printf(&quot;extract: &quot;);
+
+Modified: trunk/tools/pkg_delete/main.c
+===================================================================
+--- trunk/tools/pkg_delete/main.c	2006-11-15 11:12:36 UTC (rev 234)
++++ trunk/tools/pkg_delete/main.c	2006-11-15 11:16:24 UTC (rev 235)
+@@ -85,7 +85,6 @@
+ 			break;
+ 		case 'i':
+ 			delete.flags |= interactive_flag;
+-			errx(1, &quot;Unsupported argument&quot;);
+ 			break;
+ 		case 'n':
+ 			delete.flags |= no_run_flag;
+@@ -154,9 +153,8 @@
+  * Print the message from fmt
+  * Only used when -v is set
+  */
+-static int
+-pkg_action(enum pkg_action_level level __unused, int interactive,
+-	const char *fmt, ...)
++static void
++pkg_action(enum pkg_action_level level __unused, const char *fmt, ...)
+ {
+ 	va_list ap;
+ 
+@@ -164,25 +162,6 @@
+ 	vprintf(fmt, ap);
+ 	putchar('\n');
+ 	va_end(ap);
+-
+-	if (interactive) {
+-		int first, ch;
+-
+-		/* Read the first character in the string */
+-		first = getchar();
+-		ch = first;
+-
+-		/* Read the rest of the line and ignore it */
+-		while (ch != '\n' &amp;&amp; ch != EOF) {
+-			ch = getchar();
+-		}
+-
+-		if (tolower(first) == 'y') {
+-			return 1;
+-		}
+-	}
+-
+-	return 0;
+ }
+ 
+ /*
+@@ -209,6 +188,10 @@
+ 		action = pkg_action;
+ 
+ 	for (i = 0; delete.pkgs[i] != NULL; i++) {
++		if (((delete.flags &amp; interactive_flag) == interactive_flag)) {
++			fprintf(stderr, &quot;delete %s? &quot;,
++			    pkg_get_name(delete.pkgs[i]));
++		}
+ 		pkg_db_delete_package_action(delete.db, delete.pkgs[i],
+ 		    scripts, fake, force, action);
+ 	}
+
+
+</PRE>
+
+<!--endarticle-->
+    <HR>
+    <P><UL>
+        <!--threads-->
+	<LI>Previous message: <A HREF="000218.html">[Libpkg-svn] r234 - trunk/src
+</A></li>
+	<LI>Next message: <A HREF="000220.html">[Libpkg-svn] r236 - in trunk: src tools/pkg_add
+</A></li>
+         <LI> <B>Messages sorted by:</B> 
+              <a href="date.html#219">[ date ]</a>
+              <a href="thread.html#219">[ thread ]</a>
+              <a href="subject.html#219">[ subject ]</a>
+              <a href="author.html#219">[ author ]</a>
+         </LI>
+       </UL>
+
+<hr>
+<a href="https://lists.berlios.de/mailman/listinfo/libpkg-svn">More information about the Libpkg-svn
+mailing list</a><br>
+</body></html>

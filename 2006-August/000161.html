@@ -1,0 +1,409 @@
+<!DOCTYPE HTML PUBLIC "-//W3C//DTD HTML 4.01 Transitional//EN">
+<HTML>
+ <HEAD>
+   <TITLE> [Libpkg-svn] r177 - trunk/src
+   </TITLE>
+   <LINK REL="Index" HREF="http://lists.berlios.de/pipermail/libpkg-svn/2006-August/index.html" >
+   <LINK REL="made" HREF="mailto:libpkg-svn%40lists.berlios.de?Subject=Re%3A%20%5BLibpkg-svn%5D%20r177%20-%20trunk/src&In-Reply-To=%3C200608231018.k7NAI4XC012533%40sheep.berlios.de%3E">
+   <META NAME="robots" CONTENT="index,nofollow">
+   <style type="text/css">
+       pre {
+           white-space: pre-wrap;       /* css-2.1, curent FF, Opera, Safari */
+           }
+   </style>
+   <META http-equiv="Content-Type" content="text/html; charset=us-ascii">
+   <LINK REL="Previous"  HREF="000160.html">
+   <LINK REL="Next"  HREF="000162.html">
+ </HEAD>
+ <BODY BGCOLOR="#ffffff">
+   <H1>[Libpkg-svn] r177 - trunk/src</H1>
+    <B>zxombie at BerliOS</B> 
+    <A HREF="mailto:libpkg-svn%40lists.berlios.de?Subject=Re%3A%20%5BLibpkg-svn%5D%20r177%20-%20trunk/src&In-Reply-To=%3C200608231018.k7NAI4XC012533%40sheep.berlios.de%3E"
+       TITLE="[Libpkg-svn] r177 - trunk/src">zxombie at mail.berlios.de
+       </A><BR>
+    <I>Wed Aug 23 12:18:04 CEST 2006</I>
+    <P><UL>
+        <LI>Previous message: <A HREF="000160.html">[Libpkg-svn] r176 - trunk/src
+</A></li>
+        <LI>Next message: <A HREF="000162.html">[Libpkg-svn] r178 - trunk/src
+</A></li>
+         <LI> <B>Messages sorted by:</B> 
+              <a href="date.html#161">[ date ]</a>
+              <a href="thread.html#161">[ thread ]</a>
+              <a href="subject.html#161">[ subject ]</a>
+              <a href="author.html#161">[ author ]</a>
+         </LI>
+       </UL>
+    <HR>  
+<!--beginarticle-->
+<PRE>Author: zxombie
+Date: 2006-08-23 12:18:03 +0200 (Wed, 23 Aug 2006)
+New Revision: 177
+
+Modified:
+   trunk/src/pkg.c
+   trunk/src/pkg.h
+   trunk/src/pkg_db.c
+   trunk/src/pkg_private.h
+   trunk/src/pkg_repo_files.c
+   trunk/src/pkg_repo_ftp.c
+   trunk/src/pkg_repo_local_freebsd.c
+   trunk/src/pkgfile.c
+Log:
+Update the documentation. This removes all the warnings about undocumented functions and partially documented params
+Remove the definition of pkgfile_new_from_buffer as it is nonexistant
+Move pkgfile_type from pkg.h to pkg_private.h as it is unneeded now
+Remove pkg_static
+
+
+Modified: trunk/src/pkg.c
+===================================================================
+--- trunk/src/pkg.c	2006-08-22 11:03:36 UTC (rev 176)
++++ trunk/src/pkg.c	2006-08-23 10:18:03 UTC (rev 177)
+@@ -51,6 +51,7 @@
+  * @param control_files A callback to be used by pkg_get_control_files()
+  * @param control_file A callback to be used by pkg_get_control_file()
+  * @param get_deps A callback to be used by pkg_get_dependencies()
++ * @param get_rdeps A callback to be used by pkg_get_reverse_dependencies()
+  * @param free_pkg A call back to be used by pkg_free()
+  * @return A new pkg object, or NULL on error
+  */
+@@ -129,7 +130,8 @@
+  * @param pkg The package returned by pkg_new()
+  * @param add_depend A callback to be used by pkg_get_dependencies()
+  * @param add_file A callback to be used by pkg_add_file()
+- * @return 0 on success, -1 on error.
++ * @return  0 on success
++ * @return -1 on error
+  */
+ int
+ pkg_add_callbacks_empty(struct pkg *pkg, 
+@@ -149,10 +151,11 @@
+  * @brief Internal function to add callbacks that are used when a package is installed
+  * @param pkg The package returned by pkg_new()
+  * @param install A callback to be used by pkg_install()
++ * @param deinstall A callback to be used by pkg_deinstall()
+  * @param next_file A callback to be used by pkg_get_next_file()
+  * @param run_script A callback to be used by pkg_run_script()
+- * @return 0 on success, -1 on error.
+- * @return
++ * @return  0 on success
++ * @return -1 on error
+  */
+ int
+ pkg_add_callbacks_install (struct pkg *pkg,
+@@ -425,6 +428,7 @@
+ /**
+  * @brief Runs the named script from the package
+  * @param pkg The package
++ * @param prefix Thh prefix to pass to the script or NULL fro the default
+  * @param script The script to run
+  * @return The return value of the script, or -1
+  */
+@@ -479,6 +483,7 @@
+ /**
+  * @brief Installs a package using the given callbacks
+  * @param pkg The package to install
++ * @param prefix The prefix to install the package to or NULL for the default
+  * @param reg If true the package will be registered
+  * @param pkg_action A callback to display a message to the user
+  * @param data A pointer to pass to pkg_db_* callbacks
+
+Modified: trunk/src/pkg.h
+===================================================================
+--- trunk/src/pkg.h	2006-08-22 11:03:36 UTC (rev 176)
++++ trunk/src/pkg.h	2006-08-23 10:18:03 UTC (rev 177)
+@@ -35,32 +35,23 @@
+ 
+ #include &lt;stdio.h&gt;	/* FILE */
+ 
+-#ifndef DOXYGEN_SHOULD_SKIP_THIS
+-#define pkg_static static
+-#else
+-#define pkg_static
+-#endif
++/**
++ * @addtogroup PackageFile
++ *
++ * @{
++ */
+ 
+-/*
+- * Object to hold files in
++/**
++ * @brief The struct to use to interact with files in a safe way
++ * @struct pkgfile pkg.h &lt;pkg.h&gt;
+  */
+ struct pkgfile;
+ 
+-typedef enum {
+-	pkgfile_none,
+-	pkgfile_regular,
+-	pkgfile_hardlink,
+-	pkgfile_symlink,
+-	pkgfile_dir
+-} pkgfile_type;
+-
+ struct pkgfile	*pkgfile_new_from_disk(const char *, int);
+ struct pkgfile	*pkgfile_new_regular(const char *, const char *, uint64_t);
+ struct pkgfile	*pkgfile_new_symlink(const char *, const char *);
+ struct pkgfile	*pkgfile_new_hardlink(const char *, const char *);
+ struct pkgfile	*pkgfile_new_directory(const char *);
+-struct pkgfile	*pkgfile_new_from_buffer(const char *, const char *,
+-			pkgfile_type);
+ const char	*pkgfile_get_name(struct pkgfile *);
+ uint64_t	 pkgfile_get_size(struct pkgfile *);
+ const char	*pkgfile_get_data(struct pkgfile *);
+@@ -73,6 +64,10 @@
+ int		 pkgfile_free(struct pkgfile *);
+ 
+ /**
++ * @}
++ */
++
++/**
+  * @addtogroup Package
+  *
+  * @{
+@@ -83,26 +78,32 @@
+  */
+ 
+ /**
++ * @brief The basic struct to use when interacting with a Package
+  * @struct pkg pkg.h &lt;pkg.h&gt;
+  */
+ struct pkg;
+ 
++/**
++ * @brief An enum of all possible scripts that can be run by pkg_run_script()
++ */
+ typedef enum {
+-	pkg_script_noop,
+-	pkg_script_pre,
+-	pkg_script_post,
+-	pkg_script_mtree,
+-	pkg_script_require,
+-	pkg_script_require_deinstall,
+-	pkg_script_deinstall,
+-	pkg_script_pre_deinstall,
+-	pkg_script_post_deinstall
++	pkg_script_noop, /**&lt; Noop */
++	pkg_script_pre, /**&lt; Pre-install */
++	pkg_script_post, /**&lt; Post-install */
++	pkg_script_mtree, /**&lt; Mtree */
++	pkg_script_require, /**&lt; Requirement check */
++	pkg_script_require_deinstall, /**&lt; Removal Requirement check */
++	pkg_script_deinstall, /**&lt; Deinstall check */
++	pkg_script_pre_deinstall, /**&lt; Pre-removal */
++	pkg_script_post_deinstall /**&lt; Post-removal */
+ } pkg_script;
+ 
+ struct pkg		 *pkg_new_empty(const char *);
+ struct pkg		 *pkg_new_freebsd_from_file(FILE *);
+ struct pkg		 *pkg_new_freebsd_installed(const char *, const char *);
++#ifndef DOXYGEN_SHOULD_SKIP_THIS
+ struct pkg		 *pkg_new_freebsd_empty(const char *);
++#endif
+ int			  pkg_compare(const void *, const void *);
+ int			  pkg_set_prefix(struct pkg *, const char *);
+ const char		 *pkg_get_prefix(struct pkg *);
+
+Modified: trunk/src/pkg_db.c
+===================================================================
+--- trunk/src/pkg_db.c	2006-08-22 11:03:36 UTC (rev 176)
++++ trunk/src/pkg_db.c	2006-08-23 10:18:03 UTC (rev 177)
+@@ -51,7 +51,7 @@
+  * @param get_installed_match The callback to be used by
+  *     pkg_db_get_installed_match()
+  * @param get_package The callback to be used by pkg_db_get_package()
+- * @param pkg_deinstall The callback to be used by pkg_db_deinstall_package()
++ * @param deinstall The callback to be used by pkg_db_deinstall_package()
+  * @returns A pkg_db object or NULL
+  */
+ struct pkg_db*
+@@ -108,6 +108,12 @@
+ 	return db;
+ }
+ 
++/**
++ * @brief The package action used when NULL is passed in
++ * 
++ * This is a function that does nothing.
++ * It is used for a pkg_action when no output is required
++ */
+ static void
+ pkg_action_null(int level __unused, const char *fmt __unused, ...)
+ {
+@@ -134,6 +140,7 @@
+  * @param pkg The package to install
+  * @param prefix The prefix to use to install the package or NULL
+  * @param reg If true register the package's installation
++ * @param scripts If true run the packages scripts
+  * @return 0 on success, -1 on error
+  */
+ int
+@@ -147,7 +154,9 @@
+  * @brief Installs a package to the database
+  * @param db The database to install to
+  * @param pkg The package to install
++ * @param prefix If not NULL override the package's prefix
+  * @param reg If true register the package
++ * @param scripts If true run the package's scripts
+  * @param fake If true we will only fetch the package and report what would
+  *     have happened during the install
+  * @param action A callback that is used to inform the user the status
+@@ -262,6 +271,13 @@
+ 	return NULL;
+ }
+ 
++/**
++ * @brief Removes a package from the package database and filesystem
++ * @param db The database to deinstall from
++ * @param pkg The package to deinstall
++ * @param scripts If true run the package's scripts
++ * @param fake If true don't deinstall but run through the procedure
++ */
+ int
+ pkg_db_delete_package(struct pkg_db *db, struct pkg *pkg, int scripts, int fake)
+ {
+@@ -272,6 +288,8 @@
+  * @brief Removes a package and it's files from a database
+  * @param db The database to deinstall from
+  * @param pkg The package to deinstall
++ * @param scripts If true run the package's scripts
++ * @param fake If true don't deinstall but run through the removal procedure
+  * @param action A callback that is used to inform the user the status
+  *     of the installation
+  * @return  0 on success
+
+Modified: trunk/src/pkg_private.h
+===================================================================
+--- trunk/src/pkg_private.h	2006-08-22 11:03:36 UTC (rev 176)
++++ trunk/src/pkg_private.h	2006-08-23 10:18:03 UTC (rev 177)
+@@ -41,6 +41,17 @@
+ 	pkgfile_loc_mem
+ } pkgfile_loc;
+ 
++/**
++ * @brief The type of file the pkgfile object is interacting with
++ */
++typedef enum {
++	pkgfile_none, /**&lt; No file */
++	pkgfile_regular, /**&lt; A regular file */
++	pkgfile_hardlink, /**&lt; A hard link */
++	pkgfile_symlink, /**&lt; A symlink */
++	pkgfile_dir /**&lt; A directory */
++} pkgfile_type;
++
+ /** @todo Reorder the struct to remove alignment gaps */
+ struct pkgfile {
+ 	char		*name;
+
+Modified: trunk/src/pkg_repo_files.c
+===================================================================
+--- trunk/src/pkg_repo_files.c	2006-08-22 11:03:36 UTC (rev 176)
++++ trunk/src/pkg_repo_files.c	2006-08-23 10:18:03 UTC (rev 177)
+@@ -38,7 +38,7 @@
+ #include &quot;pkg_private.h&quot;
+ #include &quot;pkg_repo_private.h&quot;
+ 
+-pkg_static struct pkg *file_repo_get_pkg(struct pkg_repo *, const char *);
++static struct pkg *file_repo_get_pkg(struct pkg_repo *, const char *);
+ 
+ /**
+  * @defgroup PackageRepoFiles Local file repository
+
+Modified: trunk/src/pkg_repo_ftp.c
+===================================================================
+--- trunk/src/pkg_repo_ftp.c	2006-08-22 11:03:36 UTC (rev 176)
++++ trunk/src/pkg_repo_ftp.c	2006-08-23 10:18:03 UTC (rev 177)
+@@ -90,14 +90,14 @@
+ int getosreldate(void);
+ 
+ /* Callbacks */
+-pkg_static struct pkg	*ftp_get_pkg(struct pkg_repo *, const char *);
+-pkg_static int		 ftp_free(struct pkg_repo *);
++static struct pkg	*ftp_get_pkg(struct pkg_repo *, const char *);
++static int		 ftp_free(struct pkg_repo *);
+ /* Internal */
+-pkg_static FILE		*ftp_get_fd(const char *, struct ftp_repo *);
+-pkg_static struct ftp_repo	*ftp_create_repo(const char *, const char *,
++static FILE		*ftp_get_fd(const char *, struct ftp_repo *);
++static struct ftp_repo	*ftp_create_repo(const char *, const char *,
+ 					const char *);
+ /*pkg_static int		 pkg_in_All(const char *); */
+-pkg_static int		 pkg_name_has_extension(const char *);
++static int		 pkg_name_has_extension(const char *);
+ 
+ /**
+  * @defgroup PackageRepoFtp FTP package repository
+@@ -110,9 +110,10 @@
+  * @brief Creates a pkg_repo with the given sie and path
+  * @param site The ftp site to use. If NULL will use ftp.freebsd.org
+  * @param path The path to the top level of the packages
+- * @param cached_dir The directory to save a copy of each package file in or
++ * @param cache_dir The directory to save a copy of each package file in or
+  *     NULL. If NULL will use the default path
+- * @return A pkg_repo object or NULL
++ * @return A pkg_repo object
++ * @return NULL on error
+  */
+ struct pkg_repo *
+ pkg_repo_new_ftp(const char *site, const char *path, const char *cache_dir)
+
+Modified: trunk/src/pkg_repo_local_freebsd.c
+===================================================================
+--- trunk/src/pkg_repo_local_freebsd.c	2006-08-22 11:03:36 UTC (rev 176)
++++ trunk/src/pkg_repo_local_freebsd.c	2006-08-23 10:18:03 UTC (rev 177)
+@@ -38,7 +38,7 @@
+ #include &quot;pkg_private.h&quot;
+ #include &quot;pkg_repo_private.h&quot;
+ 
+-pkg_static struct pkg *file_get_pkg(struct pkg_repo *, const char *);
++static struct pkg *file_get_pkg(struct pkg_repo *, const char *);
+ 
+ /**
+  * @defgroup PackageRepoLocalFreebsd FreeBSD local files repository
+
+Modified: trunk/src/pkgfile.c
+===================================================================
+--- trunk/src/pkgfile.c	2006-08-22 11:03:36 UTC (rev 176)
++++ trunk/src/pkgfile.c	2006-08-23 10:18:03 UTC (rev 177)
+@@ -492,9 +492,10 @@
+ 
+ /**
+  * @brief Sets the given file's mode
+- * @param Tile The file to set the mode on
+- * @param The mode to set. 0 will unset it
+- * @return 0 o success or -1 on error
++ * @param file The file to set the mode on
++ * @param mode The mode to set. 0 will unset it
++ * @return  0 on success
++ * @return -1 on error
+  */
+ int
+ pkgfile_set_mode(struct pkgfile *file, mode_t mode)
+
+
+</PRE>
+
+<!--endarticle-->
+    <HR>
+    <P><UL>
+        <!--threads-->
+	<LI>Previous message: <A HREF="000160.html">[Libpkg-svn] r176 - trunk/src
+</A></li>
+	<LI>Next message: <A HREF="000162.html">[Libpkg-svn] r178 - trunk/src
+</A></li>
+         <LI> <B>Messages sorted by:</B> 
+              <a href="date.html#161">[ date ]</a>
+              <a href="thread.html#161">[ thread ]</a>
+              <a href="subject.html#161">[ subject ]</a>
+              <a href="author.html#161">[ author ]</a>
+         </LI>
+       </UL>
+
+<hr>
+<a href="https://lists.berlios.de/mailman/listinfo/libpkg-svn">More information about the Libpkg-svn
+mailing list</a><br>
+</body></html>

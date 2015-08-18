@@ -1,0 +1,1617 @@
+<!DOCTYPE HTML PUBLIC "-//W3C//DTD HTML 4.01 Transitional//EN">
+<HTML>
+ <HEAD>
+   <TITLE> [Libpkg-svn] r126 - in trunk: src tools/pkg_info
+   </TITLE>
+   <LINK REL="Index" HREF="http://lists.berlios.de/pipermail/libpkg-svn/2006-June/index.html" >
+   <LINK REL="made" HREF="mailto:libpkg-svn%40lists.berlios.de?Subject=Re%3A%20%5BLibpkg-svn%5D%20r126%20-%20in%20trunk%3A%20src%20tools/pkg_info&In-Reply-To=%3C200606230059.k5N0xT9N005569%40sheep.berlios.de%3E">
+   <META NAME="robots" CONTENT="index,nofollow">
+   <style type="text/css">
+       pre {
+           white-space: pre-wrap;       /* css-2.1, curent FF, Opera, Safari */
+           }
+   </style>
+   <META http-equiv="Content-Type" content="text/html; charset=us-ascii">
+   <LINK REL="Previous"  HREF="000109.html">
+   <LINK REL="Next"  HREF="000111.html">
+ </HEAD>
+ <BODY BGCOLOR="#ffffff">
+   <H1>[Libpkg-svn] r126 - in trunk: src tools/pkg_info</H1>
+    <B>zxombie at BerliOS</B> 
+    <A HREF="mailto:libpkg-svn%40lists.berlios.de?Subject=Re%3A%20%5BLibpkg-svn%5D%20r126%20-%20in%20trunk%3A%20src%20tools/pkg_info&In-Reply-To=%3C200606230059.k5N0xT9N005569%40sheep.berlios.de%3E"
+       TITLE="[Libpkg-svn] r126 - in trunk: src tools/pkg_info">zxombie at berlios.de
+       </A><BR>
+    <I>Fri Jun 23 02:59:29 CEST 2006</I>
+    <P><UL>
+        <LI>Previous message: <A HREF="000109.html">[Libpkg-svn] r125 - trunk/tools/pkg_info
+</A></li>
+        <LI>Next message: <A HREF="000111.html">[Libpkg-svn] r127 - trunk/src
+</A></li>
+         <LI> <B>Messages sorted by:</B> 
+              <a href="date.html#110">[ date ]</a>
+              <a href="thread.html#110">[ thread ]</a>
+              <a href="subject.html#110">[ subject ]</a>
+              <a href="author.html#110">[ author ]</a>
+         </LI>
+       </UL>
+    <HR>  
+<!--beginarticle-->
+<PRE>Author: zxombie
+Date: 2006-06-23 02:59:09 +0200 (Fri, 23 Jun 2006)
+New Revision: 126
+
+Modified:
+   trunk/src/pkg.c
+   trunk/src/pkg.h
+   trunk/src/pkg_db_freebsd.c
+   trunk/src/pkg_file.c
+   trunk/src/pkg_freebsd.c
+   trunk/src/pkg_freebsd.h
+   trunk/src/pkg_freebsd_contents.c
+   trunk/src/pkg_private.h
+   trunk/src/pkg_util.c
+   trunk/tools/pkg_info/show.c
+Log:
+Rename pkg_file to pkgfile
+Rewrite the pkgfile_* functions to be easter to work with
+
+The new pkgfile module is not quite working correctly but I managed to loose it once so I want to put it in svn before finishing it
+
+
+Modified: trunk/src/pkg.c
+===================================================================
+--- trunk/src/pkg.c	2006-06-22 12:26:08 UTC (rev 125)
++++ trunk/src/pkg.c	2006-06-23 00:59:09 UTC (rev 126)
+@@ -261,9 +261,9 @@
+  * @brief Gets the control files from a given package
+  * @param pkg The package
+  * 
+- * @return A null-terminated array of pkg_file's contining the packages control files
++ * @return A null-terminated array of pkgfile's contining the packages control files
+  */
+-struct pkg_file **
++struct pkgfile **
+ pkg_get_control_files(struct pkg *pkg)
+ {
+ 	if (!pkg) {
+@@ -283,7 +283,7 @@
+  * @param pkg_name The name of the file to return
+  * @return The control file with the name pkg_name
+  */
+-struct pkg_file *
++struct pkgfile *
+ pkg_get_control_file(struct pkg *pkg, const char *pkg_name)
+ {
+ 	if (!pkg || !pkg_name)
+@@ -335,7 +335,7 @@
+  * all files to be installed in a package
+  * @return the next non-control file in the package or NULL when done.
+  */
+-struct pkg_file *
++struct pkgfile *
+ pkg_get_next_file(struct pkg *pkg)
+ {
+ 	if (!pkg) {
+@@ -432,7 +432,7 @@
+  * @return 0 on success, -1 on error.
+  */
+ int
+-pkg_add_file(struct pkg *pkg, struct pkg_file *file)
++pkg_add_file(struct pkg *pkg, struct pkgfile *file)
+ {
+ 	if (!pkg || !file)
+ 		return -1;
+
+Modified: trunk/src/pkg.h
+===================================================================
+--- trunk/src/pkg.h	2006-06-22 12:26:08 UTC (rev 125)
++++ trunk/src/pkg.h	2006-06-23 00:59:09 UTC (rev 126)
+@@ -44,17 +44,32 @@
+ /*
+  * Object to hold files in
+  */
+-struct pkg_file;
++struct pkgfile;
+ 
+-struct pkg_file	*pkg_file_new(const char *);
+-struct pkg_file	*pkg_file_new_symlink(const char *, char *,const struct stat *);
+-struct pkg_file	*pkg_file_new_from_buffer(const char *, uint64_t, char *,
+-			const struct stat *);
+-int		 pkg_file_write(struct pkg_file *);
+-char		*pkg_file_get(struct pkg_file *);
+-char 		*pkg_file_get_name(struct pkg_file *);
+-int		 pkg_file_free(struct pkg_file *);
++typedef enum {
++	pkgfile_none,
++	pkgfile_regular,
++	pkgfile_hardlink,
++	pkgfile_symlink,
++	pkgfile_dir
++} pkgfile_type;
+ 
++struct pkgfile	*pkgfile_new_from_disk(const char *, int);
++struct pkgfile	*pkgfile_new_regular(const char *, const char *, uint64_t);
++struct pkgfile	*pkgfile_new_symlink(const char *, const char *);
++struct pkgfile	*pkgfile_new_hardlink(const char *, const char *);
++struct pkgfile	*pkgfile_new_directory(const char *);
++struct pkgfile	*pkgfile_new_from_buffer(const char *, const char *,
++			pkgfile_type);
++const char	*pkgfile_get_name(struct pkgfile *);
++uint64_t	 pkgfile_get_size(struct pkgfile *);
++char		*pkgfile_get_data(struct pkgfile *, uint64_t);
++char		*pkgfile_get_data_all(struct pkgfile *);
++int		 pkgfile_seek(struct pkgfile *, uint64_t, int);
++int		 pkgfile_set_stat(struct pkgfile *, const struct stat *);
++int		 pkgfile_write(struct pkgfile *);
++int		 pkgfile_free(struct pkgfile *);
++
+ /**
+  * @addtogroup Package
+  *
+@@ -85,16 +100,16 @@
+ int			  pkg_compare(const void *, const void *);
+ int			  pkg_set_prefix(struct pkg *, const char *);
+ const char		 *pkg_get_prefix(struct pkg *);
+-struct pkg_file		**pkg_get_control_files(struct pkg *);
+-struct pkg_file		 *pkg_get_control_file(struct pkg *, const char *);
++struct pkgfile		**pkg_get_control_files(struct pkg *);
++struct pkgfile		 *pkg_get_control_file(struct pkg *, const char *);
+ struct pkg		**pkg_get_dependencies(struct pkg *);
+ const const char	 *pkg_get_name(struct pkg *);
+-struct pkg_file		 *pkg_get_next_file(struct pkg *);
++struct pkgfile		 *pkg_get_next_file(struct pkg *);
+ const const char	 *pkg_get_origin(struct pkg *);
+ const const char	 *pkg_get_version(struct pkg *);
+ int			  pkg_run_script(struct pkg *, pkg_script);
+ int			  pkg_add_dependency(struct pkg *, struct pkg *);
+-int			  pkg_add_file(struct pkg *, struct pkg_file *);
++int			  pkg_add_file(struct pkg *, struct pkgfile *);
+ int			  pkg_list_free(struct pkg **);
+ int			  pkg_free(struct pkg *);
+ 
+
+Modified: trunk/src/pkg_db_freebsd.c
+===================================================================
+--- trunk/src/pkg_db_freebsd.c	2006-06-22 12:26:08 UTC (rev 125)
++++ trunk/src/pkg_db_freebsd.c	2006-06-23 00:59:09 UTC (rev 126)
+@@ -80,11 +80,11 @@
+ pkg_static int	freebsd_do_chdir(struct pkg *, pkg_db_action *, void *,
+ 				const char *);
+ pkg_static int	freebsd_install_file(struct pkg *, pkg_db_action *, void *,
+-				struct pkg_file *);
++				struct pkgfile *);
+ pkg_static int	freebsd_do_exec(struct pkg *, pkg_db_action *, void *,
+ 				const char *);
+ pkg_static int	freebsd_register(struct pkg *, pkg_db_action *, void *,
+-				struct pkg_file **);
++				struct pkgfile **);
+ /* Internal */
+ pkg_static void			 freebsd_format_cmd(char *, int, const char *,
+ 				const char *, const char *);
+@@ -363,7 +363,7 @@
+  */
+ static int
+ freebsd_install_file(struct pkg *pkg, pkg_db_action *pkg_action __unused,
+-		void *data, struct pkg_file *file)
++		void *data, struct pkgfile *file)
+ {
+ 	struct pkg_install_data *install_data;
+ 
+@@ -374,12 +374,12 @@
+ 	install_data = data;
+ 
+ 	snprintf(install_data-&gt;last_file, FILENAME_MAX, &quot;%s&quot;,
+-	    pkg_file_get_name(file));
++	    pkgfile_get_name(file));
+ 
+ 	pkg_action(PKG_DB_PACKAGE, &quot;%s/%s&quot;, install_data-&gt;directory,
+-	    pkg_file_get_name(file));
++	    pkgfile_get_name(file));
+ 	if (!install_data-&gt;fake)
+-		return pkg_file_write(file);
++		return pkgfile_write(file);
+ 	return 0;
+ }
+ 
+@@ -419,7 +419,7 @@
+  */
+ static int
+ freebsd_register(struct pkg *pkg, pkg_db_action *pkg_action, void *data,
+-		struct pkg_file **control)
++		struct pkgfile **control)
+ {
+ 	unsigned int pos;
+ 	struct pkg_install_data *install_data;
+@@ -452,7 +452,7 @@
+ 		snprintf(required_by, FILENAME_MAX, &quot;%s&quot; DB_LOCATION
+ 		    &quot;/%s/+REQUIRED_BY&quot;, db-&gt;db_base, pkg_get_name(deps[pos]));
+ 
+-		/** @todo Make pkg_file work to properly to create the file */
++		/** @todo Make pkgfile work to properly to create the file */
+ 		fd = fopen(required_by, &quot;a&quot;);
+ 		name = pkg_get_name(pkg);
+ 		fwrite(name, strlen(name), 1, fd);
+
+Modified: trunk/src/pkg_file.c
+===================================================================
+--- trunk/src/pkg_file.c	2006-06-22 12:26:08 UTC (rev 125)
++++ trunk/src/pkg_file.c	2006-06-23 00:59:09 UTC (rev 126)
+@@ -28,6 +28,7 @@
+  */
+ 
+ #include &lt;assert.h&gt;
++#include &lt;errno.h&gt;
+ #include &lt;libgen.h&gt;
+ #include &lt;limits.h&gt;
+ #include &lt;stdio.h&gt;
+@@ -37,224 +38,445 @@
+ #include &quot;pkg.h&quot;
+ #include &quot;pkg_private.h&quot;
+ 
++static struct pkgfile*  pkgfile_new(const char *, pkgfile_type);
++
+ /**
++ * @defgroup PackageFileInternal Internal file functions
++ * Internal functions in the package module
++ * @ingroup PackageFile
++ * @{
++ */
++
++/**
++ * @brief Creates an empry pkgfile object
++ * @return A new pkgfile object or NULL
++ */
++static struct pkgfile*
++pkgfile_new(const char *filename, pkgfile_type type)
++{
++	struct pkgfile *file;
++
++	file = malloc(sizeof(struct pkgfile));
++	if (file == NULL)
++		return NULL;
++
++	file-&gt;name = strdup(filename);
++	if (file-&gt;name == NULL) {
++		pkgfile_free(file);
++		return NULL;
++	}
++
++	file-&gt;type = type;
++	file-&gt;fd = NULL;
++	file-&gt;data = NULL;
++	file-&gt;length = 0;
++
++	return file;
++}
++
++/**
++ * @}
++ */
++
++/**
+  * @defgroup PackageFile Safe file handeling functions
+- * @todo Create a hardlink pkg_file constructor
+- *
+  * @{
+  */
+ 
+ /**
+- * @brief Creates a new pkg_file from a file on the file system
+- * @return A pkg_file object containing the file or NULL
++ * @brief Creates a new pkgfile object from the given file in the filesystem
++ * @return A new pkgfile object or NULL
+  */
+-struct pkg_file *
+-pkg_file_new(const char *filename)
++struct pkgfile *
++pkgfile_new_from_disk(const char *filename, int follow_link)
+ {
+-	struct pkg_file *file;
+-	FILE *fd;
+ 	struct stat sb;
+-	uint64_t length;
++	struct pkgfile *file;
++	int i;
+ 
+-	if (!filename)
++	errno = 0;
++	i = lstat(filename, &amp;sb);
++	if (i != 0)
+ 		return NULL;
+ 
+-	fd = fopen(filename, &quot;r&quot;);
+-	if (fd == NULL) {
++	file = pkgfile_new(filename, pkgfile_none);
++	if (file == NULL)
+ 		return NULL;
++	
++	if (S_ISREG(sb.st_mode) || (follow_link &amp;&amp; S_ISLNK(sb.st_mode))) {
++		file-&gt;type = pkgfile_regular;
++		/* Attempt to open file read/write */
++		file-&gt;fd = fopen(file-&gt;name, &quot;r+&quot;);
++		if (file-&gt;fd == NULL) {
++			/* Attempt to open file read only */
++			file-&gt;fd = fopen(file-&gt;name, &quot;r&quot;);
++			if (file-&gt;fd == NULL) {
++				pkgfile_free(file);
++				return NULL;
++			}
++		}
++	} else if(S_ISLNK(sb.st_mode)) {
++		file-&gt;type = pkgfile_symlink;
++	} else if (S_ISDIR(sb.st_mode)) {
++		file-&gt;type = pkgfile_dir;
++	} else {
++		pkgfile_free(file);
++		return NULL;
+ 	}
+-	fstat(fileno(fd), &amp;sb);
+-	length = sb.st_size;
+ 
+-	file = pkg_file_new_from_buffer(filename, length, NULL, &amp;sb);
+-	if (!file) {
+-		fclose(fd);
++	return file;
++}
++
++/**
++ * @brief Creates a new regular file from a buffer
++ * @return A new pkgfile object or NULL
++ */
++struct pkgfile*
++pkgfile_new_regular(const char *name, const char *contents, uint64_t length)
++{
++	struct pkgfile *file;
++
++	if (name == NULL || (contents == NULL &amp;&amp; length &gt; 0))
+ 		return NULL;
++
++	file = pkgfile_new(name, pkgfile_regular);
++	if (file == NULL)
++		return NULL;
++
++	file-&gt;length = length;
++	file-&gt;data = malloc(file-&gt;length);
++	if (file-&gt;data == NULL) {
++		pkgfile_free(file);
++		return NULL;
+ 	}
+-	file-&gt;fd = fd;
++	memcpy(file-&gt;data, contents, file-&gt;length);
++
+ 	return file;
++	
+ }
+ 
+ /**
+- * @brief Creates a pkg_file to be a symlink
+- * @return A pkg_file object that when written to disk will be a symlink or NULL
++ * @brief Creates a new symlink pkgfile object containing the given data
++ * @return A new pkgfile object or NULL
+  */
+-struct pkg_file *
+-pkg_file_new_symlink(const char *filename, char *lnk,
+-		const struct stat *sb)
++struct pkgfile*
++pkgfile_new_symlink(const char *file, const char *data)
+ {
+-	if (!filename || !lnk || !sb)
++	struct pkgfile *pkgfile;
++
++	if (file == NULL || data == NULL)
+ 		return NULL;
+ 
+-	return pkg_file_new_from_buffer(filename, strlen(lnk), lnk, sb);
++	pkgfile = pkgfile_new(file, pkgfile_symlink);
++	if (pkgfile == NULL)
++		return NULL;
++
++	pkgfile-&gt;data = strdup(data);
++	if (pkgfile-&gt;data == NULL) {
++		pkgfile_free(pkgfile);
++		return NULL;
++	}
++
++	return pkgfile;
+ }
+ 
+ /**
+- * @brief Creates a new pkg_file from a buffer
+- * @return A pkg_file object containing the buffer or NULL
++ * @brief Creates a new hardlink pkgfile object pointing to another file
++ * @return A new pkgfile object or NULL
+  */
+-struct pkg_file *
+-pkg_file_new_from_buffer(const char *filename, uint64_t length, char *buffer,
+-		const struct stat *sb)
++struct pkgfile*
++pkgfile_new_hardlink(const char *file, const char *other_file)
+ {
+-	struct pkg_file *file;
++	struct pkgfile *pkgfile;
+ 
+-	if (!filename)
++	if (file == NULL || other_file == NULL)
+ 		return NULL;
+-	
+-	file = malloc(sizeof(struct pkg_file));
+-	if (!file) {
++
++	pkgfile = pkgfile_new(file, pkgfile_hardlink);
++	if (pkgfile == NULL)
+ 		return NULL;
+-	}
+ 
+-	file-&gt;filename = strdup(filename);
+-	if (!file-&gt;filename) {
+-		free(file);
++	pkgfile-&gt;data = strdup(other_file);
++	if (pkgfile-&gt;data == NULL) {
++		pkgfile_free(pkgfile);
+ 		return NULL;
+ 	}
+-	if (sb == NULL) {
+-		file-&gt;stat = NULL;
+-	} else {
+-		file-&gt;stat = malloc(sizeof(struct stat));
+-		if (!file-&gt;stat) {
+-			free(file-&gt;filename);
+-			free(file);
+-			return NULL;
+-		}
+-		memcpy(file-&gt;stat, sb, sizeof(struct stat));
+-	}
+-	file-&gt;len = length;
+-	file-&gt;contents = buffer;
+-	file-&gt;fd = NULL;
+ 
+-	return file;
++	return pkgfile;
+ }
+ 
+ /**
+- * @brief Frees a pkg_file
+- * @return 0 on success or -1 on error
++ * @brief Creates a new directory pkgfile object
++ * @return A new pkgfile object or NULL
+  */
+-int
+-pkg_file_free(struct pkg_file *file)
++struct pkgfile*
++pkgfile_new_directory(const char *dir)
+ {
+-	if (!file) {
+-		return -1;
++	struct pkgfile *file;
++
++	if (dir == NULL)
++		return NULL;
++
++	file = pkgfile_new(dir, pkgfile_dir);
++	if (file == NULL)
++		return NULL;
++
++	file-&gt;data = strdup(dir);
++	if (file-&gt;data == NULL) {
++		pkgfile_free(file);
++		return NULL;
+ 	}
+ 
+-	if (file-&gt;filename)
+-		free(file-&gt;filename);
++	return file;
++}
+ 
+-	if (file-&gt;contents)
+-		free(file-&gt;contents);
++/**
++ * @brief Retrieves the name of a file
++ * @return A null-terminated string with the filename or NULL
++ */
++const char *
++pkgfile_get_name(struct pkgfile *file)
++{
++	if (file == NULL)
++		return NULL;
++	return file-&gt;name;
++}
+ 
+-	if (file-&gt;stat)
+-		free(file-&gt;stat);
++/**
++ * @brief Get the size of a file
++ * @return The file size. 0 is used for an empty file or error
++ */
++uint64_t
++pkgfile_get_size(struct pkgfile *file)
++{
++	if (file == NULL)
++		return 0;
+ 
+-	if (file-&gt;fd)
+-		fclose(file-&gt;fd);
++	assert(file-&gt;type != pkgfile_none);
++	assert(file-&gt;type != pkgfile_hardlink);
++	assert(file-&gt;type != pkgfile_dir);
+ 
+-	free(file);
++	switch (file-&gt;type) {
++		case pkgfile_none:
++		case pkgfile_dir:
++		case pkgfile_hardlink:
++			break;
++		case pkgfile_regular:
++			if (file-&gt;fd != NULL) {
++				struct stat sb;
++				fstat(fileno(file-&gt;fd), &amp;sb);
++				return sb.st_size;
++			} else if (file-&gt;data != NULL) {
++				return file-&gt;length;
++			}
++			break;
++		case pkgfile_symlink:
++			if (file-&gt;data != NULL) {
++				return strlen(file-&gt;data);
++			}
++			break;
++	}
+ 
+ 	return 0;
+ }
+ 
+ /**
+- * @brief Writes a file to the filesystem
+- * @return 0 on siccess or -1 on errro
++ * @brief Reads up to length bytes from a file
++ * @return A string containing the data or NULL
+  */
+-int
+-pkg_file_write(struct pkg_file *file)
++char *
++pkgfile_get_data(struct pkgfile *file, uint64_t length)
+ {
+-	/* Install a file to the correct directory */
+-	FILE *fd;
+-	struct stat sb;
++	char *data;
++	data = NULL;
++	if (file == NULL)
++		return NULL;
+ 
+-	if (!file) {
+-		return -1;
+-	}
++	assert(file-&gt;type != pkgfile_none);
++	assert(file-&gt;type != pkgfile_hardlink);
++	assert(file-&gt;type != pkgfile_dir);
+ 
+-	if (!file-&gt;stat || S_ISREG(file-&gt;stat-&gt;st_mode)) {
+-		/* Open the file to append to it */
+-		fd = fopen(file-&gt;filename, &quot;a&quot;);
+-		if (fd == NULL) {
+-			char *dir_name;
++	switch (file-&gt;type) {
++		case pkgfile_none:
++		case pkgfile_hardlink:
++		case pkgfile_dir:
++			break;
++		case pkgfile_regular:
++			/** @todo check length &lt; size left in file */
++			data = malloc(length);
++			if (data == NULL)
++				return NULL;
++			if (file-&gt;fd != NULL) {
++				/*
++				 * Read up to length bytes
++				 * from the file to data
++				 */
++				size_t len;
+ 
+-			/*
+-			 * The open failed, try running mkdir -p
+-			 * on the dir and opening again
+-			 */
+-			dir_name = dirname(file-&gt;filename);
+-			pkg_dir_build(dir_name);
+-			fd = fopen(file-&gt;filename, &quot;a&quot;);
+-			if (fd == NULL) {
+-				return -1;
++				len = fread(data, 1, length, file-&gt;fd);
++			} else if (file-&gt;data != NULL) {
++				memcpy(data, file-&gt;data, length);
+ 			}
+-		}
+-		/* Check the file we just created is a regular file */
+-		fstat(fileno(fd), &amp;sb);
+-		if (!S_ISREG(sb.st_mode)) {
+-			fclose(fd);
+-			return -1;
+-		} else if (sb.st_size &gt; 0) {
+-			/* And the file is empty */
+-			fclose(fd);
+-			return -1;
+-		}
++			break;
++		case pkgfile_symlink:
++			if (file-&gt;data == NULL)
++				return NULL;
++			data = strdup(file-&gt;data);
++	}
++	
++	return data;
++}
+ 
+-		/* Write the file to disk */
+-		fwrite(file-&gt;contents, file-&gt;len, 1, fd);
++/**
++ * @brief Reads the entire contents of a file
++ * @return A string containing the entire file or NULL
++ */
++char*
++pkgfile_get_data_all(struct pkgfile *file)
++{
++	uint64_t size;
+ 
+-		if (file-&gt;stat) {
+-			/* Set the correct permission for the file */
+-			fchmod(fileno(fd), file-&gt;stat-&gt;st_mode);
+-		}
++	if (file == NULL)
++		return NULL;
+ 
+-		fclose(fd);
++	size = pkgfile_get_size(file);
++	return pkgfile_get_data(file, size);
++}
+ 
+-		return 0;
+-	} else if (S_ISLNK(file-&gt;stat-&gt;st_mode)) {
+-		return symlink(file-&gt;contents, file-&gt;filename);
++/**
++ * @brief Seeks to a given position in a file
++ * @return 0 on success or -1 on error
++ */
++int
++pkgfile_seek(struct pkgfile *file, uint64_t position, int whence)
++{
++	if (file == NULL)
++		return -1;
++
++	assert(file-&gt;type != pkgfile_none);
++	assert(file-&gt;type != pkgfile_hardlink);
++	assert(file-&gt;type != pkgfile_symlink);
++	assert(file-&gt;type != pkgfile_dir);
++
++	if (file-&gt;type == pkgfile_regular) {
++		assert(file-&gt;fd != NULL);
++		if (file-&gt;fd != NULL) {
++			if (fseek(file-&gt;fd, position, whence) != 0)
++				return -1;
++		}
+ 	}
+-	return -1;
++	return 0;
+ }
+ 
+ /**
+- * @brief Retrieves the contents of a file
+- * @return A null-terminated string with the contents of file or NULL
++ * @brief Writes a pkgfile to disk
++ * @return 0 on success or -1 on error
+  */
+-char *
+-pkg_file_get(struct pkg_file *file)
++int
++pkgfile_write(struct pkgfile *file)
+ {
+-	if (file == NULL || (file-&gt;contents == NULL &amp;&amp; file-&gt;fd == NULL))
+-		return NULL;
++	if (file == NULL)
++		return -1;
+ 
+-	/* Only get the contents when asked for */
+-	if (file-&gt;contents == NULL) {
+-		file-&gt;contents = malloc(file-&gt;len + 1);
+-		if (file-&gt;contents == NULL) {
+-			return NULL;
++	assert(file-&gt;type != pkgfile_none);
++	assert(file-&gt;type != pkgfile_hardlink);
++	assert(file-&gt;type != pkgfile_dir);
++
++	switch (file-&gt;type) {
++	case pkgfile_none:
++		break;
++	case pkgfile_regular:
++		if (file-&gt;data != NULL) {
++			uint64_t length;
++			struct stat sb;
++			size_t write_size;
++			char *buf;
++			FILE *fd;
++
++			assert(file-&gt;fd == NULL);
++			fd = fopen(file-&gt;name, &quot;a&quot;);
++			if (fd == NULL) {
++				char *dir_name;
++
++				/*
++				 * The open failed, try running mkdir -p
++				 * on the dir and opening again
++				 */
++				dir_name = dirname(file-&gt;name);
++				pkg_dir_build(dir_name);
++				fd = fopen(file-&gt;name, &quot;a&quot;);
++				if (fd == NULL) {
++					return -1;
++				}
++				/* We created the file */
++			} else if (fstat(fileno(fd), &amp;sb) != 0) {
++				/* And fstat can find it */
++				fclose(fd);
++				return -1;
++			} else if (!S_ISREG(sb.st_mode)) {
++				/* And it is regular */
++				fclose(fd);
++				return -1;
++			} else if (sb.st_size &gt; 0) {
++				/* And the file is empty */
++				fclose(fd);
++				return -1;
++			} else if (sb.st_nlink != 1) {
++				/* And there are no hardlinks to it */
++				fclose(fd);
++				return -1;
++			}
++			/* We can now write to the file */
++			buf = file-&gt;data;
++
++			length = file-&gt;length;
++			while (length &gt; 0) {
++				write_size = fwrite(buf, 1, length, fd);
++				length -= write_size;
++				buf += write_size;
++				if (write_size == 0) {
++					assert(0);
++					break;
++				}
++			}
++			fclose(fd);
+ 		}
+-
+-		/* 
+-		 * XXX fread can only handle up to SIZE_T_MAX so fail
+-		 * if the file is bigger until a better file reader is written
+-		 */
+-		assert(file-&gt;len &lt;= SIZE_T_MAX);
+-		fread(file-&gt;contents, 1, file-&gt;len, file-&gt;fd);
+-		file-&gt;contents[file-&gt;len] = '\0';
++		break;
++	case pkgfile_hardlink:
++		break;
++	case pkgfile_symlink:
++		if (symlink(file-&gt;name, file-&gt;data) != 0)
++			return -1;
++		break;
++	case pkgfile_dir:
++		break;
+ 	}
+ 
+-	return file-&gt;contents;
++	return 0;
+ }
+ 
+ /**
+- * @brief Retrieves the name of a file
+- * @return A null-terminated string with the filename or NULL
++ * @brief Frees a pkgfile object
++ * @return 0 on success or -1 on error
+  */
+-char *
+-pkg_file_get_name(struct pkg_file *file)
++int
++pkgfile_free(struct pkgfile *file)
+ {
+-	return file-&gt;filename;
++	if (file == NULL)
++		return -1;
++
++	if (file-&gt;name != NULL)
++		free(file-&gt;name);
++
++	if (file-&gt;fd != NULL)
++		fclose(file-&gt;fd);
++
++	if (file-&gt;data != NULL)
++		free(file-&gt;data);
++	
++	free(file);
++
++	return 0;
+ }
+ 
+ /**
+
+Modified: trunk/src/pkg_freebsd.c
+===================================================================
+--- trunk/src/pkg_freebsd.c	2006-06-22 12:26:08 UTC (rev 125)
++++ trunk/src/pkg_freebsd.c	2006-06-23 00:59:09 UTC (rev 126)
+@@ -39,6 +39,7 @@
+ #include &lt;archive_entry.h&gt;
+ #include &lt;dirent.h&gt;
+ #include &lt;err.h&gt;
++#include &lt;errno.h&gt;
+ #include &lt;libgen.h&gt;
+ #include &lt;stdlib.h&gt;
+ #include &lt;string.h&gt;
+@@ -49,12 +50,12 @@
+ #ifdef NOT_YET
+ pkg_static int			  freebsd_add_depend(struct pkg *,struct pkg *);
+ pkg_static int			  freebsd_add_file(struct pkg *,
+-					struct pkg_file *);
++					struct pkgfile *);
+ #endif
+-pkg_static struct pkg_file	**freebsd_get_control_files(struct pkg *);
+-pkg_static struct pkg_file	 *freebsd_get_control_file(struct pkg *,
++pkg_static struct pkgfile	**freebsd_get_control_files(struct pkg *);
++pkg_static struct pkgfile	 *freebsd_get_control_file(struct pkg *,
+ 					const char *);
+-pkg_static struct pkg_file	 *freebsd_get_next_file(struct pkg *);
++pkg_static struct pkgfile	 *freebsd_get_next_file(struct pkg *);
+ pkg_static int			  freebsd_install(struct pkg *, int,
+ 					pkg_db_action *, void *, pkg_db_chdir *,
+ 				       	pkg_db_install_file *, pkg_db_exec *,
+@@ -67,7 +68,7 @@
+ pkg_static struct freebsd_package *freebsd_package_new(void);
+ pkg_static int			  freebsd_open_control_files(
+ 					struct freebsd_package *);
+-pkg_static struct pkg_file	 *freebsd_get_next_entry(struct archive *);
++pkg_static struct pkgfile	 *freebsd_get_next_entry(struct archive *);
+ pkg_static int			  freebsd_parse_contents(
+ 					struct freebsd_package *);
+ 
+@@ -84,9 +85,9 @@
+ 	char *db_dir;
+ 	const char *version;
+ 	const char *origin;
+-	struct pkg_file **control;
++	struct pkgfile **control;
+ 	struct pkg_freebsd_contents *contents;
+-	struct pkg_file *next_file;
++	struct pkgfile *next_file;
+ 	freebsd_type pkg_type;
+ };
+ 
+@@ -356,7 +357,7 @@
+  * @return -1
+  */
+ static int
+-freebsd_add_file(struct pkg *pkg __unused, struct pkg_file *file __unused)
++freebsd_add_file(struct pkg *pkg __unused, struct pkgfile *file __unused)
+ {
+ 	assert(0);
+ 	return -1;
+@@ -365,9 +366,9 @@
+ 
+ /**
+  * @brief Callback for pkg_get_control_files()
+- * @return An array of pkg_file or NULL
++ * @return An array of pkgfile or NULL
+  */
+-static struct pkg_file **
++static struct pkgfile **
+ freebsd_get_control_files(struct pkg *pkg)
+ {
+ 	struct freebsd_package *fpkg;
+@@ -386,9 +387,9 @@
+ 
+ /**
+  * @brief for pkg_get_control_file()
+- * @return The named pkg_file or NULL
++ * @return The named pkgfile or NULL
+  */
+-static struct pkg_file *
++static struct pkgfile *
+ freebsd_get_control_file(struct pkg *pkg, const char *filename)
+ {
+ 	struct freebsd_package *fpkg;
+@@ -404,9 +405,11 @@
+ 	if (fpkg-&gt;control == NULL)
+ 		return NULL;
+ 
+-	for (pos = 0; fpkg-&gt;control[pos] != NULL; pos++)
+-		if (strcmp(basename(fpkg-&gt;control[pos]-&gt;filename), filename)==0)
++	for (pos = 0; fpkg-&gt;control[pos] != NULL; pos++) {
++		const char *pkg_filename = pkgfile_get_name(fpkg-&gt;control[pos]);
++		if (strcmp(basename(pkg_filename), filename)==0)
+ 			return fpkg-&gt;control[pos];
++	}
+ 	return NULL;
+ }
+ 
+@@ -421,9 +424,10 @@
+ {
+ 	int ret;
+ 	unsigned int pos;
+-	struct pkg_file **control;
+-	struct pkg_file *contents_file;
++	struct pkgfile **control;
++	struct pkgfile *contents_file;
+ 	struct pkg_freebsd_contents *contents;
++	char *file_data;
+ 
+ 	assert(pkg != NULL);
+ 	assert(pkg_action != NULL);
+@@ -442,15 +446,20 @@
+ 	}
+ 
+ 	/* Find the +CONTENTS file in the control files */
+-	for (pos = 0; control[pos] != NULL; pos++)
+-		if (!strcmp(control[pos]-&gt;filename, &quot;+CONTENTS&quot;))
++	for (pos = 0; control[pos] != NULL; pos++) {
++		const char *pkg_filename = pkgfile_get_name(control[pos]);
++		if (!strcmp(pkg_filename, &quot;+CONTENTS&quot;))
+ 			break;
++	}
+ 	contents_file = control[pos];
+ 	if (contents_file == NULL) {
+ 		return -1;
+ 	}
+ 
+-	contents = pkg_freebsd_contents_new(pkg_file_get(contents_file));
++	file_data = pkgfile_get_data_all(contents_file);
++	contents = pkg_freebsd_contents_new(file_data,
++	    pkgfile_get_size(contents_file));
++	free(file_data);
+ 	if (contents == NULL) {
+ 		return -1;
+ 	}
+@@ -498,7 +507,7 @@
+ 		}
+ 		case PKG_LINE_FILE:
+ 		{
+-			struct pkg_file *file;
++			struct pkgfile *file;
+ 
+ 			file = pkg_get_next_file(pkg);
+ 			if (file == NULL)
+@@ -512,7 +521,7 @@
+ 
+ 			/* Check the file name is correct */
+ 			if (strcmp(contents-&gt;lines[pos].line,
+-			    pkg_file_get_name(file)) != 0) {
++			    pkgfile_get_name(file)) != 0) {
+ 				ret = -1;
+ 				goto exit;
+ 			}
+@@ -561,13 +570,13 @@
+ 
+ /**
+  * @brief Callback for pkg_get_next_file()
+- * @return The next non-control pkg_file or NULL
++ * @return The next non-control pkgfile or NULL
+  */
+-static struct pkg_file *
++static struct pkgfile *
+ freebsd_get_next_file(struct pkg *pkg)
+ {
+ 	struct freebsd_package *fpkg;
+-	struct pkg_file *file;
++	struct pkgfile *file;
+ 
+ 	assert(pkg != NULL);
+ 	fpkg = pkg-&gt;data;
+@@ -575,9 +584,9 @@
+ 	assert(fpkg-&gt;pkg_type == fpkg_from_file);
+ 
+ 	if (fpkg-&gt;next_file) {
+-		struct pkg_file *pkg_file = fpkg-&gt;next_file;
++		struct pkgfile *pkgfile = fpkg-&gt;next_file;
+ 		fpkg-&gt;next_file = NULL;
+-		return pkg_file;
++		return pkgfile;
+ 	}
+ 	if (fpkg-&gt;archive == NULL)
+ 		return NULL;
+@@ -615,7 +624,7 @@
+ 	freebsd_open_control_files(fpkg);
+ 	assert(fpkg-&gt;control != NULL);
+ 
+-	assert(strcmp(&quot;+CONTENTS&quot;, pkg_file_get_name(fpkg-&gt;control[0])) == 0);
++	assert(strcmp(&quot;+CONTENTS&quot;, pkgfile_get_name(fpkg-&gt;control[0])) == 0);
+ 
+ 	pkg_count = 0;
+ 	pkg_size = sizeof(struct pkg *);
+@@ -646,10 +655,10 @@
+ freebsd_run_script(struct pkg *pkg, pkg_script script)
+ {
+ 	struct freebsd_package *fpkg;
+-	struct pkg_file *script_file;
++	struct pkgfile *script_file;
+ 	char arg[FILENAME_MAX];
+ 	char dir[FILENAME_MAX];
+-	char *dir1, *cwd;
++	char *cwd;
+ 	int ret;
+ 
+ 	assert(pkg != NULL);
+@@ -678,6 +687,7 @@
+ 		}
+ 		break;
+ 	case pkg_script_mtree:
++		assert(script_file == NULL);
+ 		script_file = pkg_get_control_file(pkg, &quot;+MTREE_DIRS&quot;);
+ 		break;
+ 	case pkg_script_require:
+@@ -689,16 +699,16 @@
+ 	if (script_file == NULL)
+ 		return 0;
+ 
+-	/** @todo Add a lock around mkdtemp ad arc4random is not thread safe */
++	/** @todo Add a lock around mkdtemp as arc4random is not thread safe */
+ 	snprintf(dir, FILENAME_MAX, &quot;/tmp/libpkg_XXXXXXX&quot;);
+-	dir1 = mkdtemp(dir);
++	mkdtemp(dir);
+ 
+ 	/* Change to the temp dir and back up the current dir to return here */
+ 	cwd = getcwd(NULL, 0);
+-	chdir(dir1);
++	chdir(dir);
+ 
+ 	/* Extract the script */
+-	pkg_file_write(script_file);
++	pkgfile_write(script_file);
+ 	switch(script) {
+ 	case pkg_script_mtree:
+ 	{
+@@ -709,26 +719,26 @@
+ 	}
+ 	case pkg_script_pre:
+ 	case pkg_script_post:
+-		pkg_exec(&quot;chmod u+x %s&quot;, pkg_file_get_name(script_file));
++		pkg_exec(&quot;chmod u+x %s&quot;, pkgfile_get_name(script_file));
+ 
+ 		/* Execute the script */
+-		ret = pkg_exec(&quot;%s/%s %s %s&quot;, dir1,
+-		    pkg_file_get_name(script_file), pkg_get_name(pkg), arg);
++		ret = pkg_exec(&quot;%s/%s %s %s&quot;, dir,
++		    pkgfile_get_name(script_file), pkg_get_name(pkg), arg);
+ 		break;
+ 	case pkg_script_require:
+-		pkg_exec(&quot;chmod u+x %s&quot;, pkg_file_get_name(script_file));
++		pkg_exec(&quot;chmod u+x %s&quot;, pkgfile_get_name(script_file));
+ 
+-		ret = pkg_exec(&quot;%s/%s %s INSTALL&quot;, dir1,
+-		    pkg_file_get_name(script_file), pkg_get_name(pkg));
++		ret = pkg_exec(&quot;%s/%s %s INSTALL&quot;, dir,
++		    pkgfile_get_name(script_file), pkg_get_name(pkg));
+ 		break;
+ 	case pkg_script_noop:
+ 		break;
+ 	}
+-	unlink(pkg_file_get_name(script_file));
++	unlink(pkgfile_get_name(script_file));
+ 	chdir(cwd);
+ 	free(cwd);
+ 
+-	rmdir(dir1);
++	rmdir(dir);
+ 	return ret;
+ }
+ 
+@@ -748,13 +758,13 @@
+ 			free(fpkg-&gt;db_dir);
+ 
+ 		if (fpkg-&gt;next_file != NULL)
+-			pkg_file_free(fpkg-&gt;next_file);
++			pkgfile_free(fpkg-&gt;next_file);
+ 
+ 		if (fpkg-&gt;control != NULL) {
+ 			int cur;
+ 
+ 			for (cur = 0; fpkg-&gt;control[cur] != NULL; cur++) {
+-				pkg_file_free(fpkg-&gt;control[cur]);
++				pkgfile_free(fpkg-&gt;control[cur]);
+ 			}
+ 			free(fpkg-&gt;control);
+ 		}
+@@ -826,7 +836,7 @@
+ 	{ \
+ 		int i; \
+ 		for (i=0; c[i] != NULL; i++) { \
+-			pkg_file_free(c[i]); \
++			pkgfile_free(c[i]); \
+ 		} \
+ 		free(c); \
+ 	}
+@@ -840,13 +850,13 @@
+ freebsd_open_control_files(struct freebsd_package *fpkg)
+ {
+ 	unsigned int control_size, control_count;
+-	struct pkg_file *pkg_file;
++	struct pkgfile *pkgfile;
+ 
+ /** @todo Check the return of realloc */
+-#define addFile(pkg_file) \
+-	control_size += sizeof(struct pkg_file **); \
++#define addFile(pkgfile) \
++	control_size += sizeof(struct pkgfile **); \
+ 	fpkg-&gt;control = realloc(fpkg-&gt;control, control_size); \
+-	fpkg-&gt;control[control_count] = pkg_file; \
++	fpkg-&gt;control[control_count] = pkgfile; \
+ 	control_count++; \
+ 	fpkg-&gt;control[control_count] = NULL;
+ 	
+@@ -863,7 +873,7 @@
+ 	}
+ 
+ 	/* Setup the store to hold all the files */
+-	control_size = sizeof(struct pkg_file **);
++	control_size = sizeof(struct pkgfile **);
+ 	fpkg-&gt;control = malloc(control_size);
+ 	fpkg-&gt;control[0] = NULL;
+ 	control_count = 0;
+@@ -899,8 +909,8 @@
+ 				FREE_CONTENTS(fpkg-&gt;control);
+ 				return -1;
+ 			}
+-			pkg_file = pkg_file_new(file);
+-			addFile(pkg_file);
++			pkgfile = pkgfile_new_from_disk(file, 1);
++			addFile(pkgfile);
+ 			free(file);
+ 		}
+ 		closedir(d);
+@@ -908,12 +918,12 @@
+ 		return 0;
+ 	} else if (fpkg-&gt;pkg_type == fpkg_from_file) {
+ 		assert(fpkg-&gt;archive != NULL);
+-		pkg_file = freebsd_get_next_entry(fpkg-&gt;archive);
+-		while (pkg_file_get_name(pkg_file)[0] == '+') {
+-			addFile(pkg_file);
+-			pkg_file = freebsd_get_next_entry(fpkg-&gt;archive);
++		pkgfile = freebsd_get_next_entry(fpkg-&gt;archive);
++		while (pkgfile_get_name(pkgfile)[0] == '+') {
++			addFile(pkgfile);
++			pkgfile = freebsd_get_next_entry(fpkg-&gt;archive);
+ 		}
+-		fpkg-&gt;next_file = pkg_file;
++		fpkg-&gt;next_file = pkgfile;
+ 		return 0;
+ 	}
+ 	assert(0);
+@@ -925,13 +935,14 @@
+  * @param a A libarchive(3) archive object
+  * @return A the next file in the archive or NULL
+  */
+-static struct pkg_file *
++static struct pkgfile *
+ freebsd_get_next_entry(struct archive *a)
+ {
+ 	uint64_t length;
+ 	char *str;
+ 	struct archive_entry *entry;
+ 	const struct stat *sb;
++	struct pkgfile *file;
+ 
+ 	assert(a != NULL);
+ 
+@@ -943,6 +954,7 @@
+ 	/* Get the needed struct stat from the archive */
+ 	sb = archive_entry_stat(entry);
+ 
++	file = NULL;
+ 	if (S_ISREG(sb-&gt;st_mode)) {
+ 		/* Allocate enough space for the file and copy it to the string */
+ 		length = archive_entry_size(entry);
+@@ -953,19 +965,25 @@
+ 		archive_read_data_into_buffer(a, str, length);
+ 		str[length] = '\0';
+ 
+-		/* Create the pkg_file and return it */
+-		return pkg_file_new_from_buffer(archive_entry_pathname(entry),
+-			length, str, sb);
++		/* Create the pkgfile and return it */
++		file = pkgfile_new_regular(archive_entry_pathname(entry), str,
++		    length);
+ 	} else if (S_ISLNK(sb-&gt;st_mode)) {
+ 		str = strdup(archive_entry_symlink(entry));
+ 		if (!str)
+ 			return NULL;
+ 
+-		return pkg_file_new_symlink(archive_entry_pathname(entry),
+-		    str, sb);
++		file = pkgfile_new_symlink(archive_entry_pathname(entry), str);
++		
+ 	}
+-	errx(1, &quot;File is not regular or symbolic link&quot;);
+-	return NULL;
++	if (file == NULL)
++		errx(1, &quot;File is not regular or symbolic link&quot;);
++
++	/**
++	 * @todo Uncomment when pkgfile_set_stat is written
++	 */
++	/* pkgfile_set_stat(file, sb); */
++	return file;
+ }
+ 
+ /**
+@@ -975,7 +993,8 @@
+ static int
+ freebsd_parse_contents(struct freebsd_package *fpkg)
+ {
+-	struct pkg_file *contents_file;
++	char *file_data;
++	struct pkgfile *contents_file;
+ 	int i;
+ 	
+ 	assert(fpkg != NULL);
+@@ -988,14 +1007,18 @@
+ 	contents_file = NULL;
+ 	for (i = 0; fpkg-&gt;control[i] != NULL; i++) {
+ 		if (strcmp(&quot;+CONTENTS&quot;,
+-		    basename(pkg_file_get_name(fpkg-&gt;control[i]))) == 0) {
++		    basename(pkgfile_get_name(fpkg-&gt;control[i]))) == 0) {
+ 			contents_file = fpkg-&gt;control[i];
+ 			break;
+ 		}
+ 	}
+ 	if (contents_file == NULL)
+ 		return -1;
+-	fpkg-&gt;contents = pkg_freebsd_contents_new(pkg_file_get(contents_file));
++
++	file_data = pkgfile_get_data_all(contents_file);
++	fpkg-&gt;contents = pkg_freebsd_contents_new(file_data,
++	    pkgfile_get_size(contents_file));
++	free(file_data);
+ 	return 0;
+ }
+ 
+
+Modified: trunk/src/pkg_freebsd.h
+===================================================================
+--- trunk/src/pkg_freebsd.h	2006-06-22 12:26:08 UTC (rev 125)
++++ trunk/src/pkg_freebsd.h	2006-06-23 00:59:09 UTC (rev 126)
+@@ -58,13 +58,13 @@
+ 
+ struct pkg_freebsd_contents *pkg_freebsd_get_contents(struct pkg *);
+ 
+-struct pkg_freebsd_contents *pkg_freebsd_contents_new(const char *);
++struct pkg_freebsd_contents *pkg_freebsd_contents_new(const char *, uint64_t);
+ int	 pkg_freebsd_contents_add_line(struct pkg_freebsd_contents *, int,
+ 	    const char *);
+ int	 pkg_freebsd_contents_add_dependency(struct pkg_freebsd_contents *,
+ 	    struct pkg *);
+ int	 pkg_freebsd_contents_add_file(struct pkg_freebsd_contents *,
+-	    struct pkg_file *);
++	    struct pkgfile *);
+ struct pkg_freebsd_contents_line *pkg_freebsd_contents_get_line
+ 					(struct pkg_freebsd_contents *,
+ 					 unsigned int);
+
+Modified: trunk/src/pkg_freebsd_contents.c
+===================================================================
+--- trunk/src/pkg_freebsd_contents.c	2006-06-22 12:26:08 UTC (rev 125)
++++ trunk/src/pkg_freebsd_contents.c	2006-06-23 00:59:09 UTC (rev 126)
+@@ -70,7 +70,7 @@
+  * Reads a FreeBSD +CONTENTS file create a struct pkg_freebsd_contents
+  */
+ struct pkg_freebsd_contents *
+-pkg_freebsd_contents_new(const char *contents)
++pkg_freebsd_contents_new(const char *contents, uint64_t length)
+ {
+ 	struct pkg_freebsd_contents *cont;
+ 	unsigned int pos;
+@@ -94,7 +94,7 @@
+ 
+ 		pos = 0;
+ 		cont-&gt;line_count = 0;
+-		while (cont-&gt;file[pos] != '\0') {
++		while (pos != length) {
+ 			if (cont-&gt;file[pos] == '\n')
+ 				cont-&gt;line_count++;
+ 			pos++;
+@@ -274,7 +274,7 @@
+  */
+ int
+ pkg_freebsd_contents_add_file(struct pkg_freebsd_contents *contents,
+-		struct pkg_file *file)
++		struct pkgfile *file)
+ {
+ 	char md5[33], tmp[37];
+ 	char *data;
+@@ -283,14 +283,14 @@
+ 		return -1;
+ 
+ 	if (pkg_freebsd_contents_add_line(contents, PKG_LINE_FILE,
+-	    file-&gt;filename) != 0) {
++	    pkgfile_get_name(file)) != 0) {
+ 		return -1;
+ 	}
+ 
+-	data = pkg_file_get(file);
++	data = pkgfile_get_data_all(file);
+ 	if (!data)
+ 		return -1;
+-	MD5Data(data, file-&gt;len, md5);
++	MD5Data(data, pkgfile_get_size(file), md5);
+ 	snprintf(tmp, 37, &quot;MD5:%s&quot;, md5);
+ 	if (pkg_freebsd_contents_add_line(contents, PKG_LINE_COMMENT, tmp)
+ 	    != 0) {
+
+Modified: trunk/src/pkg_private.h
+===================================================================
+--- trunk/src/pkg_private.h	2006-06-22 12:26:08 UTC (rev 125)
++++ trunk/src/pkg_private.h	2006-06-23 00:59:09 UTC (rev 126)
+@@ -35,12 +35,13 @@
+ 
+ int archive_read_open_stream(struct archive *, FILE *, size_t);
+ 
+-struct pkg_file {
+-	char		*filename;
+-	uint64_t	 len;
+-	char		*contents;
++struct pkgfile {
++	char		*name;
++	pkgfile_type	 type;
++	FILE		*fd;
++	char		*data;
++	uint64_t	 length;
+ 	struct stat	*stat;
+-	FILE		*fd;
+ };
+ 
+ /*
+@@ -49,8 +50,8 @@
+ 
+ /* Main callbacks used in most packages */
+ typedef struct pkg	**pkg_get_dependencies_callback(struct pkg *);
+-typedef struct pkg_file	**pkg_get_control_files_callback(struct pkg *);
+-typedef struct pkg_file  *pkg_get_control_file_callback(struct pkg *,
++typedef struct pkgfile	**pkg_get_control_files_callback(struct pkg *);
++typedef struct pkgfile  *pkg_get_control_file_callback(struct pkg *,
+ 				const char *);
+ typedef int		  pkg_free_callback(struct pkg *);
+ 
+@@ -71,7 +72,7 @@
+ typedef int		  pkg_add_dependency_callback(struct pkg *,
+ 				struct pkg *);
+ typedef int		  pkg_add_file_callback(struct pkg *,
+-				struct pkg_file *);
++				struct pkgfile *);
+ int			  pkg_add_callbacks_empty(struct pkg *,
+ 				pkg_add_dependency_callback *,
+ 				pkg_add_file_callback *);
+@@ -80,16 +81,16 @@
+ typedef int	  	  pkg_db_chdir(struct pkg *, pkg_db_action *, void *,
+ 				const char *);
+ typedef int		  pkg_db_install_file(struct pkg *, pkg_db_action *,
+-				void *, struct pkg_file *);
++				void *, struct pkgfile *);
+ typedef int		  pkg_db_exec(struct pkg *, pkg_db_action *, void *,
+ 				const char *);
+ typedef int		  pkg_db_register(struct pkg *, pkg_db_action *, void *,
+-				struct pkg_file **);
++				struct pkgfile **);
+ typedef int	  	  pkg_install_callback(struct pkg*, int,
+ 				pkg_db_action *, void *, pkg_db_chdir *,
+ 				pkg_db_install_file *, pkg_db_exec *,
+ 				pkg_db_register *);
+-typedef struct pkg_file	 *pkg_get_next_file_callback(struct pkg *);
++typedef struct pkgfile	 *pkg_get_next_file_callback(struct pkg *);
+ typedef int		  pkg_run_script_callback(struct pkg *, pkg_script);
+ int			  pkg_add_callbacks_install(struct pkg *,
+ 				pkg_install_callback *,
+@@ -125,7 +126,7 @@
+ };
+ 
+ int pkg_dir_build(const char *);
+-int pkg_checksum_md5(struct pkg_file *, char *);
++int pkg_checksum_md5(struct pkgfile *, char *);
+ int pkg_exec(const char *, ...);
+ FILE *pkg_cached_file(FILE *, const char *);
+ 
+
+Modified: trunk/src/pkg_util.c
+===================================================================
+--- trunk/src/pkg_util.c	2006-06-22 12:26:08 UTC (rev 125)
++++ trunk/src/pkg_util.c	2006-06-23 00:59:09 UTC (rev 126)
+@@ -44,6 +44,7 @@
+ #include &quot;pkg_private.h&quot;
+ 
+ static int	 pkg_cached_readfn(void *, char *, int);
++static fpos_t	 pkg_cached_seekfn(void *, fpos_t, int);
+ static int	 pkg_cached_closefn(void *);
+ 
+ /**
+@@ -110,9 +111,10 @@
+  * @return 0 if the file matches the checksum, or -1 otherwise
+  */
+ int
+-pkg_checksum_md5(struct pkg_file *file, char *chk_sum)
++pkg_checksum_md5(struct pkgfile *file, char *chk_sum)
+ {
+ 	char sum[33];
++	char *file_data;
+ 
+ 	if (!file) {
+ 		return -1;
+@@ -123,7 +125,9 @@
+ 	}
+ 
+ 	/* Perform a checksum on the file to install */
+-	MD5Data(pkg_file_get(file), file-&gt;len, sum);
++	file_data = pkgfile_get_data_all(file);
++	MD5Data(file_data, pkgfile_get_size(file), sum);
++	free(file_data);
+ 	if (strcmp(sum, chk_sum)) {
+ 		return -1;
+ 	}
+@@ -188,6 +192,15 @@
+ 	return ret;
+ }
+ 
++static fpos_t
++pkg_cached_seekfn(void *c, fpos_t pos, int whence)
++{
++	struct cached_read *cr;
++
++	cr  = c;
++	return fseek(cr-&gt;fd, pos, whence);
++}
++
+ static int
+ pkg_cached_closefn(void *c)
+ {
+@@ -212,7 +225,8 @@
+ 	cr-&gt;fd = fd;
+ 	/* Create the file and write to it when caching */
+ 	cr-&gt;cache = fopen(file, &quot;w&quot;);
+-	return funopen(cr, pkg_cached_readfn, NULL, NULL, pkg_cached_closefn);
++	return funopen(cr, pkg_cached_readfn, NULL, pkg_cached_seekfn,
++	    pkg_cached_closefn);
+ }
+ 
+ /**
+
+Modified: trunk/tools/pkg_info/show.c
+===================================================================
+--- trunk/tools/pkg_info/show.c	2006-06-22 12:26:08 UTC (rev 125)
++++ trunk/tools/pkg_info/show.c	2006-06-23 00:59:09 UTC (rev 126)
+@@ -21,15 +21,16 @@
+ 
+ #include &quot;pkg_info.h&quot;
+ 
++#include &lt;assert.h&gt;
++#include &lt;err.h&gt;
+ #include &lt;pkg_db.h&gt;
+ #include &lt;pkg_freebsd.h&gt;
+-#include &lt;err.h&gt;
+ #include &lt;stdlib.h&gt;
+ #include &lt;string.h&gt;
+ #include &lt;unistd.h&gt;
+ 
+ static void	show_cksum(struct pkg *, const char *, int);
+-static void	show_file(struct pkg_file *, const char *, int);
++static void	show_file(struct pkgfile *, const char *, int);
+ static void	show_fmtrev(struct pkg *, const char *, int);
+ static void	show_index(struct pkg *);
+ static void	show_origin(struct pkg *, const char *, int);
+@@ -52,14 +53,16 @@
+ 		printf(&quot;Information for %s:\n\n&quot;, pkg_get_name(pkg));
+ 	}
+ 	if (flags &amp; SHOW_COMMENT) {
+-		struct pkg_file *file;
++		struct pkgfile *file;
+ 		file = pkg_get_control_file(pkg, COMMENT_FNAME);
++		assert(file != NULL);
+ 		show_file(file, &quot;Comment:\n&quot;, quiet);
+ 	}
+ #define ifexist_show(filename, title) \
+ 	{ \
+-		struct pkg_file *file; \
++		struct pkgfile *file; \
+ 		file = pkg_get_control_file(pkg, filename); \
++		assert(file != NULL); \
+ 		if (file != NULL) \
+ 			show_file(file, title &quot;:\n&quot;, quiet); \
+ 	}
+@@ -69,18 +72,21 @@
+ 		show_plist(pkg, &quot;Depends on:\n&quot;, quiet, PKG_LINE_PKGDEP);
+ 	}
+ 	if ((flags &amp; SHOW_REQBY)) {
+-		struct pkg_file *file;
++		struct pkgfile *file;
+ 		char *contents;
+ 
+ 		file = pkg_get_control_file(pkg, REQUIRED_BY_FNAME);
+-		contents = pkg_file_get(file);
+-		if (contents != NULL &amp;&amp; contents[0] != '\0')
+-			show_file(file, &quot;Required by:\n&quot;, quiet);
++		if (file != NULL) {
++			contents = pkgfile_get_data_all(file);
++			if (contents != NULL &amp;&amp; contents[0] != '\0')
++				show_file(file, &quot;Required by:\n&quot;, quiet);
++		}
+ 	}
+ 	if (flags &amp; SHOW_DESC) {
+-		struct pkg_file *file;
++		struct pkgfile *file;
+ 
+ 		file = pkg_get_control_file(pkg, DESC_FNAME);
++		assert(file != NULL);
+ 		show_file(file, &quot;Description:\n&quot;, quiet);
+ 	}
+ 	if ((flags &amp; SHOW_DISPLAY)) {
+@@ -146,15 +152,16 @@
+ }
+ 
+ static void
+-show_file(struct pkg_file *file, const char *title, int quiet)
++show_file(struct pkgfile *file, const char *title, int quiet)
+ {
++	assert(file != NULL);
+ 	if (!quiet)
+ 		printf(&quot;%s&quot;, title);
+ 	if (file == NULL) {
+ 		printf(&quot;ERROR: show_file: Can't open '%s' for reading!\n&quot;,
+-		    pkg_file_get_name(file));
++		    pkgfile_get_name(file));
+ 	} else {
+-		printf(&quot;%s&quot;, pkg_file_get(file));
++		printf(&quot;%s&quot;, pkgfile_get_data_all(file));
+ 	}
+ 	putchar('\n');
+ 	
+@@ -183,19 +190,25 @@
+ {
+ 	/* This assumes a terminal width of 80 characters */
+ 	int len, pos;
+-	struct pkg_file *comment;
++	struct pkgfile *comment;
+ 	len = printf(&quot;%s &quot;, pkg_get_name(pkg));
+ 	for (pos = len; pos &lt; 19; pos++, len++) {
+ 		putchar(' ');
+ 	}
++	assert(pkg != NULL);
+ 	comment = pkg_get_control_file(pkg, &quot;+COMMENT&quot;);
++	assert(comment != NULL);
+ 	if (comment != NULL &amp;&amp; len &lt; 80) {
++		/** @todo Rewrite */
+ 		char desc[60], *ptr;
+ 		/*
+ 		 * Copy the comment to a buffer
+ 		 * so it is 80 characters wide
+ 		 */
+-		strlcpy(desc, pkg_file_get(comment), (unsigned int)80-len);
++		ptr = pkgfile_get_data(comment, 80-len);
++		assert(ptr != NULL);
++		strlcpy(desc, ptr, (unsigned int)80-len);
++		free(ptr);
+ 		ptr = strchr(desc, '\n');
+ 		if (ptr)
+ 			ptr[0] = '\0';
+
+
+</PRE>
+
+<!--endarticle-->
+    <HR>
+    <P><UL>
+        <!--threads-->
+	<LI>Previous message: <A HREF="000109.html">[Libpkg-svn] r125 - trunk/tools/pkg_info
+</A></li>
+	<LI>Next message: <A HREF="000111.html">[Libpkg-svn] r127 - trunk/src
+</A></li>
+         <LI> <B>Messages sorted by:</B> 
+              <a href="date.html#110">[ date ]</a>
+              <a href="thread.html#110">[ thread ]</a>
+              <a href="subject.html#110">[ subject ]</a>
+              <a href="author.html#110">[ author ]</a>
+         </LI>
+       </UL>
+
+<hr>
+<a href="https://lists.berlios.de/mailman/listinfo/libpkg-svn">More information about the Libpkg-svn
+mailing list</a><br>
+</body></html>

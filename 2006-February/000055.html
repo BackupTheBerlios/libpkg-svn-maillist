@@ -1,0 +1,171 @@
+<!DOCTYPE HTML PUBLIC "-//W3C//DTD HTML 4.01 Transitional//EN">
+<HTML>
+ <HEAD>
+   <TITLE> [Libpkg-svn] r70 - trunk/src
+   </TITLE>
+   <LINK REL="Index" HREF="http://lists.berlios.de/pipermail/libpkg-svn/2006-February/index.html" >
+   <LINK REL="made" HREF="mailto:libpkg-svn%40lists.berlios.de?Subject=Re%3A%20%5BLibpkg-svn%5D%20r70%20-%20trunk/src&In-Reply-To=%3C200602072223.k17MNuaA032222%40sheep.berlios.de%3E">
+   <META NAME="robots" CONTENT="index,nofollow">
+   <style type="text/css">
+       pre {
+           white-space: pre-wrap;       /* css-2.1, curent FF, Opera, Safari */
+           }
+   </style>
+   <META http-equiv="Content-Type" content="text/html; charset=us-ascii">
+   <LINK REL="Previous"  HREF="000054.html">
+   <LINK REL="Next"  HREF="000056.html">
+ </HEAD>
+ <BODY BGCOLOR="#ffffff">
+   <H1>[Libpkg-svn] r70 - trunk/src</H1>
+    <B>zxombie at BerliOS</B> 
+    <A HREF="mailto:libpkg-svn%40lists.berlios.de?Subject=Re%3A%20%5BLibpkg-svn%5D%20r70%20-%20trunk/src&In-Reply-To=%3C200602072223.k17MNuaA032222%40sheep.berlios.de%3E"
+       TITLE="[Libpkg-svn] r70 - trunk/src">zxombie at berlios.de
+       </A><BR>
+    <I>Tue Feb  7 23:23:56 CET 2006</I>
+    <P><UL>
+        <LI>Previous message: <A HREF="000054.html">[Libpkg-svn] r69 - trunk/src
+</A></li>
+        <LI>Next message: <A HREF="000056.html">[Libpkg-svn] r71 - trunk/tools/pkg_info
+</A></li>
+         <LI> <B>Messages sorted by:</B> 
+              <a href="date.html#55">[ date ]</a>
+              <a href="thread.html#55">[ thread ]</a>
+              <a href="subject.html#55">[ subject ]</a>
+              <a href="author.html#55">[ author ]</a>
+         </LI>
+       </UL>
+    <HR>  
+<!--beginarticle-->
+<PRE>Author: zxombie
+Date: 2006-02-07 23:23:56 +0100 (Tue, 07 Feb 2006)
+New Revision: 70
+
+Added:
+   trunk/src/pkg_repo_local_freebsd.c
+Log:
+Add pkg_repo_local_freebsd to search for packages in . and /usr/ports/packages/All
+
+A few changes in rev. 69 should have been in this commit
+
+
+Added: trunk/src/pkg_repo_local_freebsd.c
+===================================================================
+--- trunk/src/pkg_repo_local_freebsd.c	2006-02-07 22:04:16 UTC (rev 69)
++++ trunk/src/pkg_repo_local_freebsd.c	2006-02-07 22:23:56 UTC (rev 70)
+@@ -0,0 +1,92 @@
++/*
++ * Copyright (C) 2006, Andrew Turner, All rights reserved.
++ *
++ * Redistribution and use in source and binary forms, with or without
++ * modification, are permitted provided that the following conditions
++ * are met:
++ * 1. Redistributions of source code must retain the above copyright
++ *    notice, this list of conditions and the following disclaimer
++ *    in this position and unchanged.
++ * 2. Redistributions in binary form must reproduce the above copyright
++ *    notice, this list of conditions and the following disclaimer in the
++ *    documentation and/or other materials provided with the distribution.
++ * 3. The name(s) of the author(s) may not be used to endorse or promote
++ *    products derived from this software without specific prior written
++ *    permission.
++ *
++ * THIS SOFTWARE IS PROVIDED BY THE AUTHOR(S) ``AS IS'' AND ANY EXPRESS OR
++ * IMPLIED WARRANTIES, INCLUDING, BUT NOT LIMITED TO, THE IMPLIED WARRANTIES
++ * OF MERCHANTABILITY AND FITNESS FOR A PARTICULAR PURPOSE ARE DISCLAIMED.
++ * IN NO EVENT SHALL THE AUTHOR(S) BE LIABLE FOR ANY DIRECT, INDIRECT,
++ * INCIDENTAL, SPECIAL, EXEMPLARY, OR CONSEQUENTIAL DAMAGES (INCLUDING, BUT
++ * NOT LIMITED TO, PROCUREMENT OF SUBSTITUTE GOODS OR SERVICES; LOSS OF USE,
++ * DATA, OR PROFITS; OR BUSINESS INTERRUPTION) HOWEVER CAUSED AND ON ANY
++ * THEORY OF LIABILITY, WHETHER IN CONTRACT, STRICT LIABILITY, OR TORT
++ * (INCLUDING NEGLIGENCE OR OTHERWISE) ARISING IN ANY WAY OUT OF THE USE OF
++ * THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
++ *
++ */
++
++#include &lt;sys/param.h&gt;
++
++#include &lt;assert.h&gt;
++#include &lt;stdio.h&gt;
++#include &lt;string.h&gt;
++
++#include &quot;pkg.h&quot;
++#include &quot;pkg_repo.h&quot;
++#include &quot;pkg_private.h&quot;
++#include &quot;pkg_repo_private.h&quot;
++
++static struct pkg *file_get_pkg(struct pkg_repo *, const char *);
++
++/**
++ * The contructor.
++ * Creates a package repo where the packages are stored on a local filesystem.
++ * If the package name contains a '/' it will assume it is a path and attempt
++ * to open the package from there.
++ * Otherwise it will search in '.' then /usr/ports/distfiles.
++ * @return 
++ */
++struct pkg_repo *
++pkg_repo_new_local_freebsd()
++{
++	return pkg_repo_new(file_get_pkg, NULL);
++}
++
++static struct pkg *
++file_get_pkg(struct pkg_repo *repo, const char *pkg_name)
++{
++	char dir[MAXPATHLEN + 1];
++	struct pkg *pkg;
++	FILE *fd;
++	assert(repo != NULL);
++	assert(pkg_name != NULL);
++
++	/* XXX Check the file is a package file after every attempt to open it */
++	snprintf(dir, MAXPATHLEN + 1,&quot;%s.tbz&quot;, pkg_name);
++	fd = fopen(dir, &quot;r&quot;);
++	if (!fd) {
++		snprintf(dir, MAXPATHLEN + 1,
++		    &quot;/usr/ports/packages/All/%s.tbz&quot;, pkg_name);
++		fd = fopen(dir, &quot;r&quot;);
++	}
++	if (!fd) {
++		fd = fopen(pkg_name, &quot;r&quot;);
++	}
++	if (!fd) {
++		snprintf(dir, MAXPATHLEN + 1,
++		    &quot;/usr/ports/packages/All/%s&quot;, pkg_name);
++		fd = fopen(dir, &quot;r&quot;);
++	}
++	if (!fd)
++		return NULL;
++
++	pkg = pkg_new_freebsd_from_file(fd);
++	if (!pkg) {
++		fclose(fd);
++		return NULL;
++	}
++
++	return pkg;
++}
+
+
+</PRE>
+
+<!--endarticle-->
+    <HR>
+    <P><UL>
+        <!--threads-->
+	<LI>Previous message: <A HREF="000054.html">[Libpkg-svn] r69 - trunk/src
+</A></li>
+	<LI>Next message: <A HREF="000056.html">[Libpkg-svn] r71 - trunk/tools/pkg_info
+</A></li>
+         <LI> <B>Messages sorted by:</B> 
+              <a href="date.html#55">[ date ]</a>
+              <a href="thread.html#55">[ thread ]</a>
+              <a href="subject.html#55">[ subject ]</a>
+              <a href="author.html#55">[ author ]</a>
+         </LI>
+       </UL>
+
+<hr>
+<a href="https://lists.berlios.de/mailman/listinfo/libpkg-svn">More information about the Libpkg-svn
+mailing list</a><br>
+</body></html>

@@ -1,0 +1,204 @@
+<!DOCTYPE HTML PUBLIC "-//W3C//DTD HTML 4.01 Transitional//EN">
+<HTML>
+ <HEAD>
+   <TITLE> [Libpkg-svn] r100 - trunk/src
+   </TITLE>
+   <LINK REL="Index" HREF="http://lists.berlios.de/pipermail/libpkg-svn/2006-April/index.html" >
+   <LINK REL="made" HREF="mailto:libpkg-svn%40lists.berlios.de?Subject=Re%3A%20%5BLibpkg-svn%5D%20r100%20-%20trunk/src&In-Reply-To=%3C200604210115.k3L1FrLR027713%40sheep.berlios.de%3E">
+   <META NAME="robots" CONTENT="index,nofollow">
+   <style type="text/css">
+       pre {
+           white-space: pre-wrap;       /* css-2.1, curent FF, Opera, Safari */
+           }
+   </style>
+   <META http-equiv="Content-Type" content="text/html; charset=us-ascii">
+   <LINK REL="Previous"  HREF="000083.html">
+   <LINK REL="Next"  HREF="000085.html">
+ </HEAD>
+ <BODY BGCOLOR="#ffffff">
+   <H1>[Libpkg-svn] r100 - trunk/src</H1>
+    <B>zxombie at BerliOS</B> 
+    <A HREF="mailto:libpkg-svn%40lists.berlios.de?Subject=Re%3A%20%5BLibpkg-svn%5D%20r100%20-%20trunk/src&In-Reply-To=%3C200604210115.k3L1FrLR027713%40sheep.berlios.de%3E"
+       TITLE="[Libpkg-svn] r100 - trunk/src">zxombie at berlios.de
+       </A><BR>
+    <I>Fri Apr 21 03:15:53 CEST 2006</I>
+    <P><UL>
+        <LI>Previous message: <A HREF="000083.html">[Libpkg-svn] r99 - trunk/src
+</A></li>
+        <LI>Next message: <A HREF="000085.html">[Libpkg-svn] r101 - trunk/src
+</A></li>
+         <LI> <B>Messages sorted by:</B> 
+              <a href="date.html#84">[ date ]</a>
+              <a href="thread.html#84">[ thread ]</a>
+              <a href="subject.html#84">[ subject ]</a>
+              <a href="author.html#84">[ author ]</a>
+         </LI>
+       </UL>
+    <HR>  
+<!--beginarticle-->
+<PRE>Author: zxombie
+Date: 2006-04-21 03:15:47 +0200 (Fri, 21 Apr 2006)
+New Revision: 100
+
+Modified:
+   trunk/src/pkg_db_freebsd.c
+Log:
+Add the start of a reworked package installation callback.
+
+
+Modified: trunk/src/pkg_db_freebsd.c
+===================================================================
+--- trunk/src/pkg_db_freebsd.c	2006-04-21 01:12:06 UTC (rev 99)
++++ trunk/src/pkg_db_freebsd.c	2006-04-21 01:15:47 UTC (rev 100)
+@@ -70,6 +70,10 @@
+ pkg_static struct pkg	 *freebsd_get_package(struct pkg_db *, const char *);	
+ 
+ /* Internal */
++#ifdef NEW_DB
++pkg_static int			 freebsd_do_install(struct pkg_db *,
++				struct pkg *);
++#else
+ pkg_static struct pkg_file	*freebsd_build_contents(
+ 				struct pkg_freebsd_contents *);
+ pkg_static int			 freebsd_do_cwd(struct pkg_db *, struct pkg *,
+@@ -78,6 +82,7 @@
+ 				struct pkg_freebsd_contents *, int);
+ pkg_static void			 freebsd_format_cmd(char *, int, const char *,
+ 				const char *, const char *);
++#endif
+ 
+ /**
+  * @defgroup PackageDBFreebsd FreeBSD Package Database handeling
+@@ -123,9 +128,10 @@
+  * @return 0 on success, -1 on error
+  */
+ static int
+-freebsd_install_pkg_action(struct pkg_db *db, struct pkg *pkg, int reg __unused,
++freebsd_install_pkg_action(struct pkg_db *db, struct pkg *pkg, int reg,
+     int fake, pkg_db_action *pkg_action)
+ {
++#ifndef NEW_DB
+ 	struct pkg_file	*contents_file;
+ 	struct pkg_file **control;
+ 	struct pkg_freebsd_contents *contents;
+@@ -133,15 +139,64 @@
+ 	char *directory, *last_file;
+ 	int i;
+ 	unsigned int pos, line;
++#endif
+ 
++	assert(db != NULL);
+ 	assert(pkg != NULL);
+ 
++#ifdef NEW_DB
++	/* Run +REQUIRE */
++	if (pkg_action != NULL)
++		pkg_action(PKG_DB_INFO, &quot;Running pre-install for %s..&quot;,
++		    pkg_get_name(pkg));
++
++	if (!fake) {
++		/** @todo Check if the force flag is set */
++		if (pkg_run_script(pkg, pkg_script_require) != 0) {
++			return -1;
++		}
++	}
++
++	/* Run Pre-install */
++	if (pkg_action != NULL)
++		pkg_action(PKG_DB_INFO, &quot;Running pre-install for %s..&quot;,
++		    pkg_get_name(pkg));
++
++	if (!fake)
++		pkg_run_script(pkg, pkg_script_pre);
++
++	/* Do the Install */
++	freebsd_do_install(db, pkg);
++
++	/* Extract the +MTREE */
++	if (pkg_action != NULL)
++		pkg_action(PKG_DB_INFO, &quot;Running mtree for %s..&quot;,
++		    pkg_get_name(pkg));
++
++	if (!fake)
++		pkg_run_script(pkg, pkg_script_mtree);
++
++	/* Run post-install */
++	if (pkg_action != NULL)
++		pkg_action(PKG_DB_INFO, &quot;Running post-install for %s..&quot;,
++		    pkg_get_name(pkg));
++
++	if (!fake)
++		pkg_run_script(pkg, pkg_script_post);
++
++	/* Record the package installation */
++	if (!fake &amp;&amp; reg) {
++	}
++
++	/* Display contents of @display */
++#else
++	/* Get the control files from the package */
+ 	control = pkg_get_control_files(pkg);
+ 	if (!control) {
+ 		return -1;
+ 	}
+ 
+-	/* Find the contents file in the control files */
++	/* Find the +CONTENTS file in the control files */
+ 	for (pos = 0; control[pos] != NULL; pos++)
+ 		if (!strcmp(control[pos]-&gt;filename, &quot;+CONTENTS&quot;))
+ 			break;
+@@ -363,6 +418,7 @@
+ 
+ 	pkg_freebsd_contents_free(contents);
+ 
++#endif
+ 	return 0;
+ }
+ 
+@@ -489,6 +545,14 @@
+  * @{
+  */
+ 
++#ifdef NEW_DB
++static int
++freebsd_do_install(struct pkg_db *db __unused, struct pkg *pkg __unused)
++{
++	return -1;
++}
++
++#else
+ /**
+  * @brief Internal function to to the correct thing for an \@cwd line
+  * @return 0 if successful or -1 on error
+@@ -740,6 +804,7 @@
+ 	}
+ 	*buf = '\0';
+ }
++#endif
+ 
+ /**
+  * @}
+
+
+</PRE>
+
+<!--endarticle-->
+    <HR>
+    <P><UL>
+        <!--threads-->
+	<LI>Previous message: <A HREF="000083.html">[Libpkg-svn] r99 - trunk/src
+</A></li>
+	<LI>Next message: <A HREF="000085.html">[Libpkg-svn] r101 - trunk/src
+</A></li>
+         <LI> <B>Messages sorted by:</B> 
+              <a href="date.html#84">[ date ]</a>
+              <a href="thread.html#84">[ thread ]</a>
+              <a href="subject.html#84">[ subject ]</a>
+              <a href="author.html#84">[ author ]</a>
+         </LI>
+       </UL>
+
+<hr>
+<a href="https://lists.berlios.de/mailman/listinfo/libpkg-svn">More information about the Libpkg-svn
+mailing list</a><br>
+</body></html>

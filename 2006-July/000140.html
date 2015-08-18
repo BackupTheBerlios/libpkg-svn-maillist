@@ -1,0 +1,154 @@
+<!DOCTYPE HTML PUBLIC "-//W3C//DTD HTML 4.01 Transitional//EN">
+<HTML>
+ <HEAD>
+   <TITLE> [Libpkg-svn] r156 - trunk/src
+   </TITLE>
+   <LINK REL="Index" HREF="http://lists.berlios.de/pipermail/libpkg-svn/2006-July/index.html" >
+   <LINK REL="made" HREF="mailto:libpkg-svn%40lists.berlios.de?Subject=Re%3A%20%5BLibpkg-svn%5D%20r156%20-%20trunk/src&In-Reply-To=%3C200607210635.k6L6Zh39004630%40sheep.berlios.de%3E">
+   <META NAME="robots" CONTENT="index,nofollow">
+   <style type="text/css">
+       pre {
+           white-space: pre-wrap;       /* css-2.1, curent FF, Opera, Safari */
+           }
+   </style>
+   <META http-equiv="Content-Type" content="text/html; charset=us-ascii">
+   <LINK REL="Previous"  HREF="000139.html">
+   <LINK REL="Next"  HREF="000141.html">
+ </HEAD>
+ <BODY BGCOLOR="#ffffff">
+   <H1>[Libpkg-svn] r156 - trunk/src</H1>
+    <B>zxombie at BerliOS</B> 
+    <A HREF="mailto:libpkg-svn%40lists.berlios.de?Subject=Re%3A%20%5BLibpkg-svn%5D%20r156%20-%20trunk/src&In-Reply-To=%3C200607210635.k6L6Zh39004630%40sheep.berlios.de%3E"
+       TITLE="[Libpkg-svn] r156 - trunk/src">zxombie at mail.berlios.de
+       </A><BR>
+    <I>Fri Jul 21 08:35:43 CEST 2006</I>
+    <P><UL>
+        <LI>Previous message: <A HREF="000139.html">[Libpkg-svn] r155 - trunk/src
+</A></li>
+        <LI>Next message: <A HREF="000141.html">[Libpkg-svn] r157 - trunk/tools/pkg_info
+</A></li>
+         <LI> <B>Messages sorted by:</B> 
+              <a href="date.html#140">[ date ]</a>
+              <a href="thread.html#140">[ thread ]</a>
+              <a href="subject.html#140">[ subject ]</a>
+              <a href="author.html#140">[ author ]</a>
+         </LI>
+       </UL>
+    <HR>  
+<!--beginarticle-->
+<PRE>Author: zxombie
+Date: 2006-07-21 08:35:40 +0200 (Fri, 21 Jul 2006)
+New Revision: 156
+
+Modified:
+   trunk/src/pkg.h
+   trunk/src/pkg_util.c
+Log:
+Add pkg_abspath to return the absolute path of an object
+
+
+Modified: trunk/src/pkg.h
+===================================================================
+--- trunk/src/pkg.h	2006-07-21 05:27:39 UTC (rev 155)
++++ trunk/src/pkg.h	2006-07-21 06:35:40 UTC (rev 156)
+@@ -117,5 +117,6 @@
+ /**
+  * @}
+  */
++char	*pkg_abspath(const char *);
+ 
+ #endif /* __LIBPKG_PKG_H__ */
+
+Modified: trunk/src/pkg_util.c
+===================================================================
+--- trunk/src/pkg_util.c	2006-07-21 05:27:39 UTC (rev 155)
++++ trunk/src/pkg_util.c	2006-07-21 06:35:40 UTC (rev 156)
+@@ -30,8 +30,10 @@
+ #include &lt;sys/cdefs.h&gt;
+ __FBSDID(&quot;$FreeBSD$&quot;);
+ 
++#include &lt;sys/param.h&gt;
+ #include &lt;sys/stat.h&gt;
+ 
++#include &lt;assert.h&gt;
+ #include &lt;err.h&gt;
+ #include &lt;errno.h&gt;
+ #include &lt;md5.h&gt;
+@@ -107,6 +109,53 @@
+ }
+ 
+ /**
++ * @brief Creates an absolute pathname from a relative name
++ *
++ * Creates an absolute path, additionally removing all .'s, ..'s, and extraneous
++ * /'s, as realpath() would, but without resolving symlinks.
++ * @return The absolute pathname
++ * @return NULL on error
++ */
++char *
++pkg_abspath(const char *pathname)
++{
++	char *tmp, *tmp1, *resolved_path;
++	char *cwd = NULL;
++	int len;
++
++	assert(pathname != NULL);
++
++	if (pathname[0] != '/') {
++		cwd = getcwd(NULL, MAXPATHLEN);
++		asprintf(&amp;resolved_path, &quot;%s/%s/&quot;, cwd, pathname);
++		free(cwd);    
++	} else
++		asprintf(&amp;resolved_path, &quot;%s/&quot;, pathname);
++
++	if (resolved_path == NULL)
++		return NULL;
++
++	while ((tmp = strstr(resolved_path, &quot;//&quot;)) != NULL)
++		strcpy(tmp, tmp + 1);
++ 
++	while ((tmp = strstr(resolved_path, &quot;/./&quot;)) != NULL)
++		strcpy(tmp, tmp + 2);
++ 
++	while ((tmp = strstr(resolved_path, &quot;/../&quot;)) != NULL) {
++		*tmp = '\0';
++		if ((tmp1 = strrchr(resolved_path, '/')) == NULL)
++			tmp1 = resolved_path;
++		strcpy(tmp1, tmp + 3);
++	}
++
++	len = strlen(resolved_path);
++	if (len &gt; 1 &amp;&amp; resolved_path[len - 1] == '/')
++		resolved_path[len - 1] = '\0';
++
++	return resolved_path;
++}
++
++/**
+  * @brief Checks a file against a given md5 checksum
+  * @return 0 if the file matches the checksum, or -1 otherwise
+  */
+
+
+</PRE>
+
+<!--endarticle-->
+    <HR>
+    <P><UL>
+        <!--threads-->
+	<LI>Previous message: <A HREF="000139.html">[Libpkg-svn] r155 - trunk/src
+</A></li>
+	<LI>Next message: <A HREF="000141.html">[Libpkg-svn] r157 - trunk/tools/pkg_info
+</A></li>
+         <LI> <B>Messages sorted by:</B> 
+              <a href="date.html#140">[ date ]</a>
+              <a href="thread.html#140">[ thread ]</a>
+              <a href="subject.html#140">[ subject ]</a>
+              <a href="author.html#140">[ author ]</a>
+         </LI>
+       </UL>
+
+<hr>
+<a href="https://lists.berlios.de/mailman/listinfo/libpkg-svn">More information about the Libpkg-svn
+mailing list</a><br>
+</body></html>

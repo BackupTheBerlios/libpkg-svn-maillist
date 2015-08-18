@@ -1,0 +1,82 @@
+<!DOCTYPE HTML PUBLIC "-//W3C//DTD HTML 4.01 Transitional//EN">
+<HTML>
+ <HEAD>
+   <TITLE> r308 - trunk/src
+   </TITLE>
+   <LINK REL="Index" HREF="http://lists.berlios.de/pipermail/libpkg-svn/2007-October/index.html" >
+   <LINK REL="made" HREF="mailto:libpkg-svn%40lists.berlios.de?Subject=Re%3A%20r308%20-%20trunk/src&In-Reply-To=%3C200710262209.l9QM9ODj004895%40sheep.berlios.de%3E">
+   <META NAME="robots" CONTENT="index,nofollow">
+   <style type="text/css">
+       pre {
+           white-space: pre-wrap;       /* css-2.1, curent FF, Opera, Safari */
+           }
+   </style>
+   <META http-equiv="Content-Type" content="text/html; charset=us-ascii">
+   
+   <LINK REL="Next"  HREF="000293.html">
+ </HEAD>
+ <BODY BGCOLOR="#ffffff">
+   <H1>r308 - trunk/src</H1>
+    <B>zxombie at users.berlios.de</B> 
+    <A HREF="mailto:libpkg-svn%40lists.berlios.de?Subject=Re%3A%20r308%20-%20trunk/src&In-Reply-To=%3C200710262209.l9QM9ODj004895%40sheep.berlios.de%3E"
+       TITLE="r308 - trunk/src">zxombie at users.berlios.de
+       </A><BR>
+    <I>Sat Oct 27 00:09:24 CEST 2007</I>
+    <P><UL>
+        
+        <LI>Next message: <A HREF="000293.html">r309 - trunk/src
+</A></li>
+         <LI> <B>Messages sorted by:</B> 
+              <a href="date.html#292">[ date ]</a>
+              <a href="thread.html#292">[ thread ]</a>
+              <a href="subject.html#292">[ subject ]</a>
+              <a href="author.html#292">[ author ]</a>
+         </LI>
+       </UL>
+    <HR>  
+<!--beginarticle-->
+<PRE>Author: zxombie
+Date: 2007-10-27 00:09:23 +0200 (Sat, 27 Oct 2007)
+New Revision: 308
+
+Modified:
+   trunk/src/pkg_freebsd_contents.c
+Log:
+Make pkg_freebsd_contents_line_str non-static to allow other's to use it
+
+Modified: trunk/src/pkg_freebsd_contents.c
+===================================================================
+--- trunk/src/pkg_freebsd_contents.c	2007-07-02 07:09:28 UTC (rev 307)
++++ trunk/src/pkg_freebsd_contents.c	2007-10-26 22:09:23 UTC (rev 308)
+@@ -47,7 +47,7 @@
+ /**
+  * @brief All possible line types in a +CONTENTS file
+  */
+-static const char *pkg_freebsd_contents_line_str[] = {
++const char *pkg_freebsd_contents_line_str[] = {
+ 	&quot;&quot;,
+ 	&quot;&quot;,
+ 	&quot;@comment&quot;,
+
+
+</PRE>
+
+<!--endarticle-->
+    <HR>
+    <P><UL>
+        <!--threads-->
+	
+	<LI>Next message: <A HREF="000293.html">r309 - trunk/src
+</A></li>
+         <LI> <B>Messages sorted by:</B> 
+              <a href="date.html#292">[ date ]</a>
+              <a href="thread.html#292">[ thread ]</a>
+              <a href="subject.html#292">[ subject ]</a>
+              <a href="author.html#292">[ author ]</a>
+         </LI>
+       </UL>
+
+<hr>
+<a href="https://lists.berlios.de/mailman/listinfo/libpkg-svn">More information about the Libpkg-svn
+mailing list</a><br>
+</body></html>

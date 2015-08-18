@@ -1,0 +1,588 @@
+<!DOCTYPE HTML PUBLIC "-//W3C//DTD HTML 4.01 Transitional//EN">
+<HTML>
+ <HEAD>
+   <TITLE> [Libpkg-svn] r31 - trunk/src
+   </TITLE>
+   <LINK REL="Index" HREF="http://lists.berlios.de/pipermail/libpkg-svn/2005-December/index.html" >
+   <LINK REL="made" HREF="mailto:libpkg-svn%40lists.berlios.de?Subject=Re%3A%20%5BLibpkg-svn%5D%20r31%20-%20trunk/src&In-Reply-To=%3C200512130849.jBD8nMQs030811%40sheep.berlios.de%3E">
+   <META NAME="robots" CONTENT="index,nofollow">
+   <style type="text/css">
+       pre {
+           white-space: pre-wrap;       /* css-2.1, curent FF, Opera, Safari */
+           }
+   </style>
+   <META http-equiv="Content-Type" content="text/html; charset=us-ascii">
+   
+   <LINK REL="Next"  HREF="000023.html">
+ </HEAD>
+ <BODY BGCOLOR="#ffffff">
+   <H1>[Libpkg-svn] r31 - trunk/src</H1>
+    <B>zxombie at BerliOS</B> 
+    <A HREF="mailto:libpkg-svn%40lists.berlios.de?Subject=Re%3A%20%5BLibpkg-svn%5D%20r31%20-%20trunk/src&In-Reply-To=%3C200512130849.jBD8nMQs030811%40sheep.berlios.de%3E"
+       TITLE="[Libpkg-svn] r31 - trunk/src">zxombie at berlios.de
+       </A><BR>
+    <I>Tue Dec 13 09:49:22 CET 2005</I>
+    <P><UL>
+        
+        <LI>Next message: <A HREF="000023.html">[Libpkg-svn] r32 - trunk/src
+</A></li>
+         <LI> <B>Messages sorted by:</B> 
+              <a href="date.html#22">[ date ]</a>
+              <a href="thread.html#22">[ thread ]</a>
+              <a href="subject.html#22">[ subject ]</a>
+              <a href="author.html#22">[ author ]</a>
+         </LI>
+       </UL>
+    <HR>  
+<!--beginarticle-->
+<PRE>Author: zxombie
+Date: 2005-12-13 09:48:27 +0100 (Tue, 13 Dec 2005)
+New Revision: 31
+
+Modified:
+   trunk/src/pkg.h
+   trunk/src/pkg_freebsd.c
+   trunk/src/pkg_freebsd.h
+   trunk/src/pkg_freebsd_contents.c
+   trunk/src/pkg_freebsd_private.h
+Log:
+Add pkg_new_freebsd_empty to create an empty package to add files to.
+Implement the pkg_add_file callback for empty FreeBSD packages.
+Add pkg_freebsd_contents_add_line to add a line to a +CONTENTS file
+Add pkg_freebsd_contents_add_file to add file data to a +CONTENTS file
+Modify pkg_freebsd_contents_new to allow the creation of empty files
+Improve the use of white space
+
+
+Modified: trunk/src/pkg.h
+===================================================================
+--- trunk/src/pkg.h	2005-11-28 10:29:40 UTC (rev 30)
++++ trunk/src/pkg.h	2005-12-13 08:48:27 UTC (rev 31)
+@@ -54,6 +54,7 @@
+ struct pkg		*pkg_new_empty(const char *);
+ struct pkg		*pkg_new_freebsd_from_file(FILE *);
+ struct pkg		*pkg_new_freebsd_installed(const char *, const char *);
++struct pkg		*pkg_new_freebsd_empty(const char *);
+ struct pkg		*pkg_make_freebsd(struct pkg *, FILE *);
+ int			 pkg_add_file(struct pkg *, struct pkg_file *);
+ struct pkg		**pkg_get_dependencies(struct pkg *);
+
+Modified: trunk/src/pkg_freebsd.c
+===================================================================
+--- trunk/src/pkg_freebsd.c	2005-11-28 10:29:40 UTC (rev 30)
++++ trunk/src/pkg_freebsd.c	2005-12-13 08:48:27 UTC (rev 31)
+@@ -52,13 +52,18 @@
+ 	/* If not null contains the next file in
+ 	 * the archive after the control files */
+ 	struct pkg_file	*next;
++
++	struct pkg_file **all_files;
++	unsigned int	  all_files_size;
++	unsigned int	  all_files_pos;
+ };
+ 
+ /* Callbacks */
++static int			  freebsd_add_file(struct pkg *, struct pkg_file *);
+ static struct pkg_file		**freebsd_get_control_files(struct pkg *);
+-static struct pkg_file		*freebsd_get_next_file(struct pkg *);
++static struct pkg_file		 *freebsd_get_next_file(struct pkg *);
+ static struct pkg		**freebsd_get_deps(struct pkg *);
+-static int			 freebsd_free(struct pkg *);
++static int			  freebsd_free(struct pkg *);
+ 
+ /* Internal functions */
+ static struct freebsd_package	*freebsd_get_package(FILE *,
+@@ -173,8 +178,43 @@
+ 	return pkg;
+ }
+ 
+-/* XXX Make this a callback */
+ struct pkg *
++pkg_new_freebsd_empty(const char *pkg_name)
++{
++	struct pkg *pkg;
++	struct freebsd_package *f_pkg;
++
++	if (pkg_name == NULL)
++		return NULL;
++
++	pkg = pkg_new(pkg_name, freebsd_add_file, NULL, NULL, NULL, freebsd_free);
++	if (pkg == NULL)
++		return NULL;
++
++	f_pkg = freebsd_get_package(NULL, NULL);
++	pkg-&gt;data = f_pkg;
++	if (f_pkg == NULL) {
++		pkg_free(pkg);
++		return NULL;
++	}
++	f_pkg-&gt;all_files_size = sizeof(struct pkg_file *);
++	f_pkg-&gt;all_files_pos = 0;
++	f_pkg-&gt;all_files = malloc(f_pkg-&gt;all_files_size);
++	if (f_pkg-&gt;all_files == NULL) {
++		pkg_free(pkg);
++		return NULL;
++	}
++	f_pkg-&gt;all_files[0] = NULL;
++
++	/* Setup the +CONTENTS file */
++	pkg_freebsd_contents_add_line(f_pkg-&gt;contents, PKG_LINE_COMMENT,
++	    &quot;PKG_FORMAT_REVISION:1.1&quot;);
++	pkg_freebsd_contents_add_line(f_pkg-&gt;contents, PKG_LINE_NAME, pkg_name);
++
++	return pkg;
++}
++
++struct pkg *
+ pkg_make_freebsd(struct pkg *pkg, FILE *fd)
+ {
+ 	struct freebsd_package *f_pkg;
+@@ -183,6 +223,7 @@
+ 	    freebsd_get_next_file, freebsd_get_deps, freebsd_free);
+ 	f_pkg = freebsd_get_package(fd, NULL);
+ 	pkg-&gt;data = f_pkg;
++
+ 	return pkg;
+ }
+ 
+@@ -205,6 +246,9 @@
+ 	/* Init the struct */
+ 	f_pkg-&gt;archive = NULL;
+ 	f_pkg-&gt;next = NULL;
++	f_pkg-&gt;all_files = NULL;
++	f_pkg-&gt;all_files_size = 0;
++	f_pkg-&gt;all_files_pos = 0;
+ 	f_pkg-&gt;control = control;
+ 	f_pkg-&gt;contents = NULL;
+ 	f_pkg-&gt;fd = fd;
+@@ -289,17 +333,37 @@
+ 				f_pkg-&gt;control[control_pos] = NULL;
+ 			}
+ 		}
+-	} else {
+-		/*
+-		 *Either fd points to an archive or
+-		 * contents points to a +CONTENTS file
+-		 */
+-		assert(0);
+ 	}
+ 
+ 	return f_pkg;
+ }
+ 
++static int
++freebsd_add_file(struct pkg *pkg, struct pkg_file *file)
++{
++	struct freebsd_package *f_pkg;
++
++	assert(pkg != NULL);
++	assert(file != NULL);
++	assert(pkg-&gt;data != NULL);
++
++	f_pkg = pkg-&gt;data;
++
++	assert(f_pkg-&gt;all_files != NULL);
++
++	f_pkg-&gt;all_files_size += sizeof(struct pkg_file *);
++	f_pkg-&gt;all_files = realloc(f_pkg-&gt;all_files, f_pkg-&gt;all_files_size);
++	f_pkg-&gt;all_files[f_pkg-&gt;all_files_pos] = file;
++	f_pkg-&gt;all_files_pos++;
++	f_pkg-&gt;all_files[f_pkg-&gt;all_files_pos] = NULL;
++
++	/* XXX Add the file to the +CONTENTS file */
++	assert(f_pkg-&gt;contents != NULL);
++	pkg_freebsd_contents_add_file(f_pkg-&gt;contents, file);
++	
++	return 0;
++}
++
+ /* Return the array of control files */
+ static struct pkg_file **
+ freebsd_get_control_files(struct pkg *pkg)
+@@ -482,7 +546,7 @@
+ 	f_pkg-&gt;fd = NULL;
+ 
+ 	if (f_pkg-&gt;control) {
+-		for (pos=0; f_pkg-&gt;control[pos] != NULL; pos++)
++		for (pos = 0; f_pkg-&gt;control[pos] != NULL; pos++)
+ 			pkg_file_free(f_pkg-&gt;control[pos]);
+ 		free(f_pkg-&gt;control);
+ 		f_pkg-&gt;control = NULL;
+@@ -492,6 +556,13 @@
+ 		pkg_file_free(f_pkg-&gt;next);
+ 	pkg_freebsd_contents_free(f_pkg-&gt;contents);
+ 
++	if (f_pkg-&gt;all_files) {
++		for (pos = 0; f_pkg-&gt;all_files[pos] != NULL; pos++)
++			pkg_file_free(f_pkg-&gt;all_files[pos]);
++
++		free(f_pkg-&gt;all_files);
++	}
++	
+ 	free(f_pkg);
+ 
+ 	return 0;
+
+Modified: trunk/src/pkg_freebsd.h
+===================================================================
+--- trunk/src/pkg_freebsd.h	2005-11-28 10:29:40 UTC (rev 30)
++++ trunk/src/pkg_freebsd.h	2005-12-13 08:48:27 UTC (rev 31)
+@@ -47,7 +47,13 @@
+ 	PKG_LINE_FILE = 11
+ };
+ 
++extern const char *pkg_freebsd_contents_line_str[];
++
+ struct pkg_freebsd_contents *pkg_freebsd_contents_new(const char *);
++int pkg_freebsd_contents_add_line(struct pkg_freebsd_contents *, int,
++				const char *);
++int pkg_freebsd_contents_add_file(struct pkg_freebsd_contents *,
++				struct pkg_file *);
+ int pkg_freebsd_contents_free(struct pkg_freebsd_contents *);
+ 
+ #endif /* __LIBPKG_PKG_FREEBSD_H__ */
+
+Modified: trunk/src/pkg_freebsd_contents.c
+===================================================================
+--- trunk/src/pkg_freebsd_contents.c	2005-11-28 10:29:40 UTC (rev 30)
++++ trunk/src/pkg_freebsd_contents.c	2005-12-13 08:48:27 UTC (rev 31)
+@@ -28,8 +28,10 @@
+  */
+ 
+ #include &lt;sys/param.h&gt;
++#include &lt;sys/types.h&gt;
+ 
+ #include &lt;assert.h&gt;
++#include &lt;md5.h&gt;
+ #include &lt;stdlib.h&gt;
+ #include &lt;string.h&gt;
+ 
+@@ -38,118 +40,203 @@
+ #include &quot;pkg_private.h&quot;
+ #include &quot;pkg_freebsd_private.h&quot;
+ 
++const char *pkg_freebsd_contents_line_str[] = {
++	&quot;&quot;,
++	&quot;@comment&quot;,
++	&quot;@name&quot;,
++	&quot;@cwd&quot;,
++	&quot;@pkgdep&quot;,
++	&quot;@conflicts&quot;,
++	&quot;@exec&quot;,
++	&quot;@unexec&quot;,
++	&quot;@ignore&quot;,
++	&quot;@dirrm&quot;,
++	&quot;@mtree&quot;,
++	NULL
++};
++
+ struct pkg_freebsd_contents *
+ pkg_freebsd_contents_new(const char *contents)
+ {
+ 	struct pkg_freebsd_contents *cont;
+ 	int pos;
+ 
+-	if (contents == NULL)
+-		return NULL;
+-
+ 	cont = malloc(sizeof(struct pkg_freebsd_contents));
+-	if (!cont) {
++	if (!cont)
+ 		return NULL;
+-	}
+ 
+-	cont-&gt;file = strdup(contents);
+-	if (!cont-&gt;file) {
+-		free(cont);
+-		return NULL;
+-	}
+-	cont-&gt;lines = NULL;
++	if (contents == NULL) {
++		cont-&gt;file = NULL;
++		cont-&gt;line_count = 0;
++		cont-&gt;line_size = 0;
++		cont-&gt;lines = NULL;
++	} else {
++		cont-&gt;file = strdup(contents);
++		if (!cont-&gt;file) {
++			free(cont);
++			return NULL;
++		}
++		cont-&gt;lines = NULL;
+ 
+-	pos = 0;
+-	cont-&gt;line_count = 0;
+-	while (cont-&gt;file[pos] != '\0') {
+-		if (cont-&gt;file[pos] == '\n')
++		pos = 0;
++		cont-&gt;line_count = 0;
++		while (cont-&gt;file[pos] != '\0') {
++			if (cont-&gt;file[pos] == '\n')
++				cont-&gt;line_count++;
++			pos++;
++		}
++		/* Check the last line contains data */
++		if (pos &gt; 0 &amp;&amp; cont-&gt;file[pos-1] != '\n')
+ 			cont-&gt;line_count++;
+-		pos++;
++
++		if (cont-&gt;line_count == 0) {
++			pkg_freebsd_contents_free(cont);
++			return NULL;
++		}
++		cont-&gt;lines = malloc(sizeof(struct pkg_freebsd_contents_line) *
++		    cont-&gt;line_count);
++		if (!cont-&gt;lines) {
++			pkg_freebsd_contents_free(cont);
++			return NULL;
++		}
++
++		/*
++		 * Make each line in cont-&gt;lines point to the start of it's line
++		 * and be a valid string
++		 */
++		cont-&gt;lines[0].line = cont-&gt;file;
++		pos = 1;
++		while (pos &lt; cont-&gt;line_count) {
++			cont-&gt;lines[pos].line = strchr(cont-&gt;lines[pos-1].line, '\n');
++			if (cont-&gt;lines[pos].line) {
++				/* Terminate the last line */
++				cont-&gt;lines[pos].line[0] = '\0';
++				cont-&gt;lines[pos].line++;
++			} else
++				break;
++			pos++;
++		}
++		/* The last line may need to be terminated at the correct place */
++		pos = strlen(cont-&gt;lines[cont-&gt;line_count-1].line);
++		if (cont-&gt;lines[cont-&gt;line_count-1].line[--pos] == '\n') {
++			cont-&gt;lines[cont-&gt;line_count-1].line[pos] = '\0';
++		}
++
++		/*
++	         * Set the data part of the line. ie not the control word 
++	         * Set the line_type
++	         */
++		pos = 0;
++		while (pos &lt; cont-&gt;line_count) {
++			char *space;
++
++			space = strchr(cont-&gt;lines[pos].line, ' ');
++			if (space &amp;&amp; space[0] != '\0') {
++				space[0] = '\0';
++				space++;
++				if (space[0] != '\0')
++					cont-&gt;lines[pos].data = space;
++			}
++
++			/* Get the correct line type for the line */
++			if (cont-&gt;lines[pos].line[0] != '@') {
++				cont-&gt;lines[pos].line_type = PKG_LINE_FILE;
++			} else if (!strcmp(cont-&gt;lines[pos].line, &quot;@comment&quot;)) {
++				cont-&gt;lines[pos].line_type = PKG_LINE_COMMENT;
++			} else if (!strcmp(cont-&gt;lines[pos].line, &quot;@name&quot;)) {
++				cont-&gt;lines[pos].line_type = PKG_LINE_NAME;
++			} else if (!strcmp(cont-&gt;lines[pos].line, &quot;@cwd&quot;)) {
++				cont-&gt;lines[pos].line_type = PKG_LINE_CWD;
++			} else if (!strcmp(cont-&gt;lines[pos].line, &quot;@pkgdep&quot;)) {
++				cont-&gt;lines[pos].line_type = PKG_LINE_PKGDEP;
++			} else if (!strcmp(cont-&gt;lines[pos].line, &quot;@conflicts&quot;)) {
++				cont-&gt;lines[pos].line_type = PKG_LINE_CONFLICTS;
++			} else if (!strcmp(cont-&gt;lines[pos].line, &quot;@exec&quot;)) {
++				cont-&gt;lines[pos].line_type = PKG_LINE_EXEC;
++			} else if (!strcmp(cont-&gt;lines[pos].line, &quot;@unexec&quot;)) {
++				cont-&gt;lines[pos].line_type = PKG_LINE_UNEXEC;
++			} else if (!strcmp(cont-&gt;lines[pos].line, &quot;@ignore&quot;)) {
++				cont-&gt;lines[pos].line_type = PKG_LINE_IGNORE;
++			} else if (!strcmp(cont-&gt;lines[pos].line, &quot;@dirrm&quot;)) {
++				cont-&gt;lines[pos].line_type = PKG_LINE_DIRRM;
++			} else if (!strcmp(cont-&gt;lines[pos].line, &quot;@mtree&quot;)) {
++				cont-&gt;lines[pos].line_type = PKG_LINE_MTREE;
++			} else {
++				cont-&gt;lines[pos].line_type = PKG_LINE_UNKNOWN;
++				fprintf(stderr, &quot;Unknown line type %s\n&quot;, cont-&gt;lines[pos].line);
++			}
++			pos++;
++		}
+ 	}
+-	/* Check the last line contains data */
+-	if (pos &gt; 0 &amp;&amp; cont-&gt;file[pos-1] != '\n')
+-		cont-&gt;line_count++;
++	return cont;
++}
+ 
+-	if (cont-&gt;line_count == 0) {
+-		pkg_freebsd_contents_free(cont);
+-		return NULL;
++int
++pkg_freebsd_contents_add_line(struct pkg_freebsd_contents *contents, int type,
++	const char *data)
++{
++	if (!contents || !data)
++		return -1;
++
++	if (!(type &gt; 0 &amp;&amp; type &lt;= PKG_LINE_FILE)) {
++		return -1;
+ 	}
+-	cont-&gt;lines = malloc(sizeof(struct pkg_freebsd_contents_line) *
+-	    cont-&gt;line_count);
+-	if (!cont-&gt;lines) {
+-		pkg_freebsd_contents_free(cont);
+-		return NULL;
+-	}
+ 
++	/* Add the lines to the +CONTENTS file */
++	contents-&gt;line_size += sizeof(struct pkg_freebsd_contents_line);
++	if (contents-&gt;lines == NULL)
++		contents-&gt;lines = malloc(contents-&gt;line_size);
++	else
++		contents-&gt;lines = realloc(contents-&gt;lines, contents-&gt;line_size);
++
++	/* Init the values */
++	contents-&gt;lines[contents-&gt;line_count].data = NULL;
++	contents-&gt;lines[contents-&gt;line_count].line = NULL;
++	contents-&gt;lines[contents-&gt;line_count].line_type = type;
++
+ 	/*
+-	 * Make each line in cont-&gt;lines point to the start of it's line
+-	 * and be a valid string
++	 * If the line is a file then the line will be the filename,
++	 * the data will be NULL
+ 	 */
+-	cont-&gt;lines[0].line = cont-&gt;file;
+-	pos = 1;
+-	while (pos &lt; cont-&gt;line_count) {
+-		cont-&gt;lines[pos].line = strchr(cont-&gt;lines[pos-1].line, '\n');
+-		if (cont-&gt;lines[pos].line) {
+-			/* Terminate the last line */
+-			cont-&gt;lines[pos].line[0] = '\0';
+-			cont-&gt;lines[pos].line++;
+-		} else
+-			break;
+-		pos++;
++	if (type == PKG_LINE_FILE) {
++		contents-&gt;lines[contents-&gt;line_count].line = strdup(data);
++		assert(contents-&gt;lines[contents-&gt;line_count].line != NULL);
++	} else {
++		contents-&gt;lines[contents-&gt;line_count].line =
++		    strdup(pkg_freebsd_contents_line_str[type]);
++		contents-&gt;lines[contents-&gt;line_count].data = strdup(data);
++		assert(contents-&gt;lines[contents-&gt;line_count].data != NULL);
+ 	}
+-	/* The last line may need to be terminated at the correct place */
+-	pos = strlen(cont-&gt;lines[cont-&gt;line_count-1].line);
+-	if (cont-&gt;lines[cont-&gt;line_count-1].line[--pos] == '\n') {
+-		cont-&gt;lines[cont-&gt;line_count-1].line[pos] = '\0';
+-	}
++	contents-&gt;line_count++;
+ 
+-	/*
+-         * Set the data part of the line. ie not the control word 
+-         * Set the line_type
+-         */
+-	pos = 0;
+-	while (pos &lt; cont-&gt;line_count) {
+-		char *space;
++	return 0;
++}
+ 
+-		space = strchr(cont-&gt;lines[pos].line, ' ');
+-		if (space &amp;&amp; space[0] != '\0') {
+-			space[0] = '\0';
+-			space++;
+-			if (space[0] != '\0')
+-				cont-&gt;lines[pos].data = space;
+-		}
++/*
++ * Add's a file the the +CONTENTS file
++ */
++int
++pkg_freebsd_contents_add_file(struct pkg_freebsd_contents *contents,
++		struct pkg_file *file)
++{
++	char md5[33], tmp[37];
+ 
+-		/* Get the correct line type for the line */
+-		if (cont-&gt;lines[pos].line[0] != '@') {
+-			cont-&gt;lines[pos].line_type = PKG_LINE_FILE;
+-		} else if (!strcmp(cont-&gt;lines[pos].line, &quot;@comment&quot;)) {
+-			cont-&gt;lines[pos].line_type = PKG_LINE_COMMENT;
+-		} else if (!strcmp(cont-&gt;lines[pos].line, &quot;@name&quot;)) {
+-			cont-&gt;lines[pos].line_type = PKG_LINE_NAME;
+-		} else if (!strcmp(cont-&gt;lines[pos].line, &quot;@cwd&quot;)) {
+-			cont-&gt;lines[pos].line_type = PKG_LINE_CWD;
+-		} else if (!strcmp(cont-&gt;lines[pos].line, &quot;@pkgdep&quot;)) {
+-			cont-&gt;lines[pos].line_type = PKG_LINE_PKGDEP;
+-		} else if (!strcmp(cont-&gt;lines[pos].line, &quot;@conflicts&quot;)) {
+-			cont-&gt;lines[pos].line_type = PKG_LINE_CONFLICTS;
+-		} else if (!strcmp(cont-&gt;lines[pos].line, &quot;@exec&quot;)) {
+-			cont-&gt;lines[pos].line_type = PKG_LINE_EXEC;
+-		} else if (!strcmp(cont-&gt;lines[pos].line, &quot;@unexec&quot;)) {
+-			cont-&gt;lines[pos].line_type = PKG_LINE_UNEXEC;
+-		} else if (!strcmp(cont-&gt;lines[pos].line, &quot;@ignore&quot;)) {
+-			cont-&gt;lines[pos].line_type = PKG_LINE_IGNORE;
+-		} else if (!strcmp(cont-&gt;lines[pos].line, &quot;@dirrm&quot;)) {
+-			cont-&gt;lines[pos].line_type = PKG_LINE_DIRRM;
+-		} else if (!strcmp(cont-&gt;lines[pos].line, &quot;@mtree&quot;)) {
+-			cont-&gt;lines[pos].line_type = PKG_LINE_MTREE;
+-		} else {
+-			cont-&gt;lines[pos].line_type = PKG_LINE_UNKNOWN;
+-			fprintf(stderr, &quot;Unknown line type %s\n&quot;, cont-&gt;lines[pos].line);
+-		}
+-		pos++;
++	if (contents == NULL || contents-&gt;file != NULL || file == NULL)
++		return -1;
++
++	if (pkg_freebsd_contents_add_line(contents, PKG_LINE_FILE,
++	    file-&gt;filename) != 0) {
++		return -1;
+ 	}
+ 
+-	return cont;
++	MD5Data(file-&gt;contents, file-&gt;len, md5);
++	snprintf(tmp, 37, &quot;MD5:%s&quot;, md5);
++	if (pkg_freebsd_contents_add_line(contents, PKG_LINE_COMMENT, tmp)
++	    != 0) {
++		return -1;
++	}
++
++	return 0;
+ }
+ 
+ int
+
+Modified: trunk/src/pkg_freebsd_private.h
+===================================================================
+--- trunk/src/pkg_freebsd_private.h	2005-11-28 10:29:40 UTC (rev 30)
++++ trunk/src/pkg_freebsd_private.h	2005-12-13 08:48:27 UTC (rev 31)
+@@ -39,6 +39,7 @@
+ struct pkg_freebsd_contents {
+ 	char	*file;
+ 	int	 line_count;
++	int	 line_size;
+ 	struct pkg_freebsd_contents_line *lines;
+ };
+ 
+
+
+</PRE>
+
+<!--endarticle-->
+    <HR>
+    <P><UL>
+        <!--threads-->
+	
+	<LI>Next message: <A HREF="000023.html">[Libpkg-svn] r32 - trunk/src
+</A></li>
+         <LI> <B>Messages sorted by:</B> 
+              <a href="date.html#22">[ date ]</a>
+              <a href="thread.html#22">[ thread ]</a>
+              <a href="subject.html#22">[ subject ]</a>
+              <a href="author.html#22">[ author ]</a>
+         </LI>
+       </UL>
+
+<hr>
+<a href="https://lists.berlios.de/mailman/listinfo/libpkg-svn">More information about the Libpkg-svn
+mailing list</a><br>
+</body></html>

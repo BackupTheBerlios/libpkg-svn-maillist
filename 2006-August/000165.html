@@ -1,0 +1,138 @@
+<!DOCTYPE HTML PUBLIC "-//W3C//DTD HTML 4.01 Transitional//EN">
+<HTML>
+ <HEAD>
+   <TITLE> [Libpkg-svn] r181 - trunk/src
+   </TITLE>
+   <LINK REL="Index" HREF="http://lists.berlios.de/pipermail/libpkg-svn/2006-August/index.html" >
+   <LINK REL="made" HREF="mailto:libpkg-svn%40lists.berlios.de?Subject=Re%3A%20%5BLibpkg-svn%5D%20r181%20-%20trunk/src&In-Reply-To=%3C200608310104.k7V14wHw029354%40sheep.berlios.de%3E">
+   <META NAME="robots" CONTENT="index,nofollow">
+   <style type="text/css">
+       pre {
+           white-space: pre-wrap;       /* css-2.1, curent FF, Opera, Safari */
+           }
+   </style>
+   <META http-equiv="Content-Type" content="text/html; charset=us-ascii">
+   <LINK REL="Previous"  HREF="000164.html">
+   <LINK REL="Next"  HREF="000166.html">
+ </HEAD>
+ <BODY BGCOLOR="#ffffff">
+   <H1>[Libpkg-svn] r181 - trunk/src</H1>
+    <B>zxombie at BerliOS</B> 
+    <A HREF="mailto:libpkg-svn%40lists.berlios.de?Subject=Re%3A%20%5BLibpkg-svn%5D%20r181%20-%20trunk/src&In-Reply-To=%3C200608310104.k7V14wHw029354%40sheep.berlios.de%3E"
+       TITLE="[Libpkg-svn] r181 - trunk/src">zxombie at mail.berlios.de
+       </A><BR>
+    <I>Thu Aug 31 03:04:58 CEST 2006</I>
+    <P><UL>
+        <LI>Previous message: <A HREF="000164.html">[Libpkg-svn] r180 - in trunk: . tests
+</A></li>
+        <LI>Next message: <A HREF="000166.html">[Libpkg-svn] r182 - trunk/tests
+</A></li>
+         <LI> <B>Messages sorted by:</B> 
+              <a href="date.html#165">[ date ]</a>
+              <a href="thread.html#165">[ thread ]</a>
+              <a href="subject.html#165">[ subject ]</a>
+              <a href="author.html#165">[ author ]</a>
+         </LI>
+       </UL>
+    <HR>  
+<!--beginarticle-->
+<PRE>Author: zxombie
+Date: 2006-08-31 03:04:51 +0200 (Thu, 31 Aug 2006)
+New Revision: 181
+
+Modified:
+   trunk/src/pkgfile.c
+Log:
+When creating an empty file from memory just use a null pointer
+
+
+Modified: trunk/src/pkgfile.c
+===================================================================
+--- trunk/src/pkgfile.c	2006-08-30 12:17:16 UTC (rev 180)
++++ trunk/src/pkgfile.c	2006-08-31 01:04:51 UTC (rev 181)
+@@ -203,12 +203,16 @@
+ 		return NULL;
+ 
+ 	file-&gt;length = length;
+-	file-&gt;data = malloc(file-&gt;length);
+-	if (file-&gt;data == NULL) {
+-		pkgfile_free(file);
+-		return NULL;
++	if (file-&gt;length == 0) {
++		file-&gt;data = NULL;
++	} else {
++		file-&gt;data = malloc(file-&gt;length);
++		if (file-&gt;data == NULL) {
++			pkgfile_free(file);
++			return NULL;
++		}
++		memcpy(file-&gt;data, contents, file-&gt;length);
+ 	}
+-	memcpy(file-&gt;data, contents, file-&gt;length);
+ 
+ 	return file;
+ }
+@@ -602,7 +606,7 @@
+ 	case pkgfile_none:
+ 		return -1;
+ 	case pkgfile_regular:
+-		if (file-&gt;loc == pkgfile_loc_mem &amp;&amp; file-&gt;data != NULL) {
++		if (file-&gt;loc == pkgfile_loc_mem) {
+ 			uint64_t length;
+ 			struct stat sb;
+ 			size_t write_size;
+@@ -642,17 +646,20 @@
+ 				fclose(fd);
+ 				return -1;
+ 			}
+-			/* We can now write to the file */
+-			buf = file-&gt;data;
++			if (file-&gt;data == NULL) {
++			} else {
++				/* We can now write to the file */
++				buf = file-&gt;data;
+ 
+-			length = file-&gt;length;
+-			while (length &gt; 0) {
+-				write_size = fwrite(buf, 1, length, fd);
+-				length -= write_size;
+-				buf += write_size;
+-				if (write_size == 0) {
+-					assert(0);
+-					break;
++				length = file-&gt;length;
++				while (length &gt; 0) {
++					write_size = fwrite(buf, 1, length, fd);
++					length -= write_size;
++					buf += write_size;
++					if (write_size == 0) {
++						assert(0);
++						break;
++					}
+ 				}
+ 			}
+ 
+
+
+</PRE>
+
+<!--endarticle-->
+    <HR>
+    <P><UL>
+        <!--threads-->
+	<LI>Previous message: <A HREF="000164.html">[Libpkg-svn] r180 - in trunk: . tests
+</A></li>
+	<LI>Next message: <A HREF="000166.html">[Libpkg-svn] r182 - trunk/tests
+</A></li>
+         <LI> <B>Messages sorted by:</B> 
+              <a href="date.html#165">[ date ]</a>
+              <a href="thread.html#165">[ thread ]</a>
+              <a href="subject.html#165">[ subject ]</a>
+              <a href="author.html#165">[ author ]</a>
+         </LI>
+       </UL>
+
+<hr>
+<a href="https://lists.berlios.de/mailman/listinfo/libpkg-svn">More information about the Libpkg-svn
+mailing list</a><br>
+</body></html>

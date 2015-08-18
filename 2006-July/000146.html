@@ -1,0 +1,124 @@
+<!DOCTYPE HTML PUBLIC "-//W3C//DTD HTML 4.01 Transitional//EN">
+<HTML>
+ <HEAD>
+   <TITLE> [Libpkg-svn] r162 - trunk/src
+   </TITLE>
+   <LINK REL="Index" HREF="http://lists.berlios.de/pipermail/libpkg-svn/2006-July/index.html" >
+   <LINK REL="made" HREF="mailto:libpkg-svn%40lists.berlios.de?Subject=Re%3A%20%5BLibpkg-svn%5D%20r162%20-%20trunk/src&In-Reply-To=%3C200607240709.k6O79CWt020057%40sheep.berlios.de%3E">
+   <META NAME="robots" CONTENT="index,nofollow">
+   <style type="text/css">
+       pre {
+           white-space: pre-wrap;       /* css-2.1, curent FF, Opera, Safari */
+           }
+   </style>
+   <META http-equiv="Content-Type" content="text/html; charset=us-ascii">
+   <LINK REL="Previous"  HREF="000145.html">
+   <LINK REL="Next"  HREF="000147.html">
+ </HEAD>
+ <BODY BGCOLOR="#ffffff">
+   <H1>[Libpkg-svn] r162 - trunk/src</H1>
+    <B>zxombie at BerliOS</B> 
+    <A HREF="mailto:libpkg-svn%40lists.berlios.de?Subject=Re%3A%20%5BLibpkg-svn%5D%20r162%20-%20trunk/src&In-Reply-To=%3C200607240709.k6O79CWt020057%40sheep.berlios.de%3E"
+       TITLE="[Libpkg-svn] r162 - trunk/src">zxombie at mail.berlios.de
+       </A><BR>
+    <I>Mon Jul 24 09:09:12 CEST 2006</I>
+    <P><UL>
+        <LI>Previous message: <A HREF="000145.html">[Libpkg-svn] r161 - trunk/tools/pkg_add
+</A></li>
+        <LI>Next message: <A HREF="000147.html">[Libpkg-svn] r163 - trunk/src
+</A></li>
+         <LI> <B>Messages sorted by:</B> 
+              <a href="date.html#146">[ date ]</a>
+              <a href="thread.html#146">[ thread ]</a>
+              <a href="subject.html#146">[ subject ]</a>
+              <a href="author.html#146">[ author ]</a>
+         </LI>
+       </UL>
+    <HR>  
+<!--beginarticle-->
+<PRE>Author: zxombie
+Date: 2006-07-24 09:08:55 +0200 (Mon, 24 Jul 2006)
+New Revision: 162
+
+Modified:
+   trunk/src/pkg_freebsd.c
+Log:
+Fix package registration
+
+Revision 161 changed pkg_add not pkg_info
+
+
+Modified: trunk/src/pkg_freebsd.c
+===================================================================
+--- trunk/src/pkg_freebsd.c	2006-07-24 03:23:22 UTC (rev 161)
++++ trunk/src/pkg_freebsd.c	2006-07-24 07:08:55 UTC (rev 162)
+@@ -418,7 +418,7 @@
+ 
+ 	for (pos = 0; fpkg-&gt;control[pos] != NULL; pos++) {
+ 		const char *pkg_filename = pkgfile_get_name(fpkg-&gt;control[pos]);
+-		if (strcmp(basename(pkg_filename), filename)==0)
++		if (strcmp(basename(pkg_filename), filename) == 0)
+ 			return fpkg-&gt;control[pos];
+ 	}
+ 	return NULL;
+@@ -441,6 +441,7 @@
+ 	struct pkg_freebsd_contents *contents;
+ 	char *file_data;
+ 	int chdir_first = 1;
++	int only_control_files = 0;
+ 
+ 	assert(pkg != NULL);
+ 	assert(pkg_action != NULL);
+@@ -525,12 +526,15 @@
+ 		}
+ 		case PKG_LINE_FILE:
+ 		{
+-			struct pkgfile *file;
++			struct pkgfile *file = NULL;
+ 
+-			file = pkg_get_next_file(pkg);
+-			if (file == NULL)
++			if (!only_control_files)
++				file = pkg_get_next_file(pkg);
++			if (only_control_files || file == NULL) {
++				only_control_files = ~0;
+ 				file = pkg_get_control_file(pkg,
+ 				    contents-&gt;lines[pos].line);
++			}
+ 			if (file == NULL) {
+ 				/* File not found in the package */
+ 				ret = -1;
+@@ -579,6 +583,9 @@
+ 	/* Register the package */
+ 	pkg_register(pkg, pkg_action, data, control);
+ 
++	/* Set the return to 0 as we have fully installed the package */
++	ret = 0;
++
+ exit:
+ 	if (contents != NULL)
+ 		pkg_freebsd_contents_free(contents);
+
+
+</PRE>
+
+<!--endarticle-->
+    <HR>
+    <P><UL>
+        <!--threads-->
+	<LI>Previous message: <A HREF="000145.html">[Libpkg-svn] r161 - trunk/tools/pkg_add
+</A></li>
+	<LI>Next message: <A HREF="000147.html">[Libpkg-svn] r163 - trunk/src
+</A></li>
+         <LI> <B>Messages sorted by:</B> 
+              <a href="date.html#146">[ date ]</a>
+              <a href="thread.html#146">[ thread ]</a>
+              <a href="subject.html#146">[ subject ]</a>
+              <a href="author.html#146">[ author ]</a>
+         </LI>
+       </UL>
+
+<hr>
+<a href="https://lists.berlios.de/mailman/listinfo/libpkg-svn">More information about the Libpkg-svn
+mailing list</a><br>
+</body></html>

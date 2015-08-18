@@ -1,0 +1,89 @@
+<!DOCTYPE HTML PUBLIC "-//W3C//DTD HTML 4.01 Transitional//EN">
+<HTML>
+ <HEAD>
+   <TITLE> [Libpkg-svn] r123 - trunk/tools/pkg_add
+   </TITLE>
+   <LINK REL="Index" HREF="http://lists.berlios.de/pipermail/libpkg-svn/2006-May/index.html" >
+   <LINK REL="made" HREF="mailto:libpkg-svn%40lists.berlios.de?Subject=Re%3A%20%5BLibpkg-svn%5D%20r123%20-%20trunk/tools/pkg_add&In-Reply-To=%3C200605030542.k435ggXP005914%40sheep.berlios.de%3E">
+   <META NAME="robots" CONTENT="index,nofollow">
+   <style type="text/css">
+       pre {
+           white-space: pre-wrap;       /* css-2.1, curent FF, Opera, Safari */
+           }
+   </style>
+   <META http-equiv="Content-Type" content="text/html; charset=us-ascii">
+   <LINK REL="Previous"  HREF="000106.html">
+   
+ </HEAD>
+ <BODY BGCOLOR="#ffffff">
+   <H1>[Libpkg-svn] r123 - trunk/tools/pkg_add</H1>
+    <B>zxombie at BerliOS</B> 
+    <A HREF="mailto:libpkg-svn%40lists.berlios.de?Subject=Re%3A%20%5BLibpkg-svn%5D%20r123%20-%20trunk/tools/pkg_add&In-Reply-To=%3C200605030542.k435ggXP005914%40sheep.berlios.de%3E"
+       TITLE="[Libpkg-svn] r123 - trunk/tools/pkg_add">zxombie at berlios.de
+       </A><BR>
+    <I>Wed May  3 07:42:42 CEST 2006</I>
+    <P><UL>
+        <LI>Previous message: <A HREF="000106.html">[Libpkg-svn] r122 - trunk/tools/pkg_add
+</A></li>
+        
+         <LI> <B>Messages sorted by:</B> 
+              <a href="date.html#107">[ date ]</a>
+              <a href="thread.html#107">[ thread ]</a>
+              <a href="subject.html#107">[ subject ]</a>
+              <a href="author.html#107">[ author ]</a>
+         </LI>
+       </UL>
+    <HR>  
+<!--beginarticle-->
+<PRE>Author: zxombie
+Date: 2006-05-03 07:42:38 +0200 (Wed, 03 May 2006)
+New Revision: 123
+
+Modified:
+   trunk/tools/pkg_add/Makefile
+Log:
+When building a profiling pkg_add pull in the profiling system libraries
+
+Modified: trunk/tools/pkg_add/Makefile
+===================================================================
+--- trunk/tools/pkg_add/Makefile	2006-05-01 12:20:45 UTC (rev 122)
++++ trunk/tools/pkg_add/Makefile	2006-05-03 05:42:38 UTC (rev 123)
+@@ -6,10 +6,13 @@
+ .if defined(WITH_PROFILE)
+ CFLAGS	+= -ggdb -pg -lc
+ LDADD	 = ${.CURDIR}/../../src/libpkg_p.a
++LDADD	+= /usr/lib/libmd_p.a /usr/lib/libarchive_p.a /usr/lib/libbz2_p.a
++LDADD	+= /usr/lib/libz_p.a /usr/lib/libfetch_p.a /usr/lib/libssl_p.a
++LDADD	+= /usr/lib/libcrypto_p.a
+ .else
+-LDADD	 = ${.CURDIR}/../../src/libpkg.a
++LDADD	 = ${.CURDIR}/../../src/libpkg.a 
++LDADD	+= -lmd -larchive -lbz2 -lz -lfetch
+ .endif
+-LDADD	+= -lmd -larchive -lbz2 -lz -lfetch
+ NOMAN	 = 1
+ NO_MAN	 = 1
+ 
+
+
+</PRE>
+
+<!--endarticle-->
+    <HR>
+    <P><UL>
+        <!--threads-->
+	<LI>Previous message: <A HREF="000106.html">[Libpkg-svn] r122 - trunk/tools/pkg_add
+</A></li>
+	
+         <LI> <B>Messages sorted by:</B> 
+              <a href="date.html#107">[ date ]</a>
+              <a href="thread.html#107">[ thread ]</a>
+              <a href="subject.html#107">[ subject ]</a>
+              <a href="author.html#107">[ author ]</a>
+         </LI>
+       </UL>
+
+<hr>
+<a href="https://lists.berlios.de/mailman/listinfo/libpkg-svn">More information about the Libpkg-svn
+mailing list</a><br>
+</body></html>

@@ -1,0 +1,85 @@
+<!DOCTYPE HTML PUBLIC "-//W3C//DTD HTML 4.01 Transitional//EN">
+<HTML>
+ <HEAD>
+   <TITLE> [Libpkg-svn] r128 - trunk/src
+   </TITLE>
+   <LINK REL="Index" HREF="http://lists.berlios.de/pipermail/libpkg-svn/2006-June/index.html" >
+   <LINK REL="made" HREF="mailto:libpkg-svn%40lists.berlios.de?Subject=Re%3A%20%5BLibpkg-svn%5D%20r128%20-%20trunk/src&In-Reply-To=%3C200606230430.k5N4Ujpg032092%40sheep.berlios.de%3E">
+   <META NAME="robots" CONTENT="index,nofollow">
+   <style type="text/css">
+       pre {
+           white-space: pre-wrap;       /* css-2.1, curent FF, Opera, Safari */
+           }
+   </style>
+   <META http-equiv="Content-Type" content="text/html; charset=us-ascii">
+   <LINK REL="Previous"  HREF="000111.html">
+   <LINK REL="Next"  HREF="000113.html">
+ </HEAD>
+ <BODY BGCOLOR="#ffffff">
+   <H1>[Libpkg-svn] r128 - trunk/src</H1>
+    <B>zxombie at BerliOS</B> 
+    <A HREF="mailto:libpkg-svn%40lists.berlios.de?Subject=Re%3A%20%5BLibpkg-svn%5D%20r128%20-%20trunk/src&In-Reply-To=%3C200606230430.k5N4Ujpg032092%40sheep.berlios.de%3E"
+       TITLE="[Libpkg-svn] r128 - trunk/src">zxombie at berlios.de
+       </A><BR>
+    <I>Fri Jun 23 06:30:45 CEST 2006</I>
+    <P><UL>
+        <LI>Previous message: <A HREF="000111.html">[Libpkg-svn] r127 - trunk/src
+</A></li>
+        <LI>Next message: <A HREF="000113.html">[Libpkg-svn] r129 - trunk/src
+</A></li>
+         <LI> <B>Messages sorted by:</B> 
+              <a href="date.html#112">[ date ]</a>
+              <a href="thread.html#112">[ thread ]</a>
+              <a href="subject.html#112">[ subject ]</a>
+              <a href="author.html#112">[ author ]</a>
+         </LI>
+       </UL>
+    <HR>  
+<!--beginarticle-->
+<PRE>Author: zxombie
+Date: 2006-06-23 06:30:40 +0200 (Fri, 23 Jun 2006)
+New Revision: 128
+
+Modified:
+   trunk/src/pkgfile.c
+Log:
+Fix symlinks
+
+
+Modified: trunk/src/pkgfile.c
+===================================================================
+--- trunk/src/pkgfile.c	2006-06-23 04:24:05 UTC (rev 127)
++++ trunk/src/pkgfile.c	2006-06-23 04:30:40 UTC (rev 128)
+@@ -445,7 +445,7 @@
+ 	case pkgfile_hardlink:
+ 		break;
+ 	case pkgfile_symlink:
+-		if (symlink(file-&gt;name, file-&gt;data) != 0)
++		if (symlink(file-&gt;data, file-&gt;name) != 0)
+ 			return -1;
+ 		break;
+ 	case pkgfile_dir:
+
+
+</PRE>
+
+<!--endarticle-->
+    <HR>
+    <P><UL>
+        <!--threads-->
+	<LI>Previous message: <A HREF="000111.html">[Libpkg-svn] r127 - trunk/src
+</A></li>
+	<LI>Next message: <A HREF="000113.html">[Libpkg-svn] r129 - trunk/src
+</A></li>
+         <LI> <B>Messages sorted by:</B> 
+              <a href="date.html#112">[ date ]</a>
+              <a href="thread.html#112">[ thread ]</a>
+              <a href="subject.html#112">[ subject ]</a>
+              <a href="author.html#112">[ author ]</a>
+         </LI>
+       </UL>
+
+<hr>
+<a href="https://lists.berlios.de/mailman/listinfo/libpkg-svn">More information about the Libpkg-svn
+mailing list</a><br>
+</body></html>

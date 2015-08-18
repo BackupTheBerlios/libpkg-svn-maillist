@@ -1,0 +1,288 @@
+<!DOCTYPE HTML PUBLIC "-//W3C//DTD HTML 4.01 Transitional//EN">
+<HTML>
+ <HEAD>
+   <TITLE> [Libpkg-svn] r180 - in trunk: . tests
+   </TITLE>
+   <LINK REL="Index" HREF="http://lists.berlios.de/pipermail/libpkg-svn/2006-August/index.html" >
+   <LINK REL="made" HREF="mailto:libpkg-svn%40lists.berlios.de?Subject=Re%3A%20%5BLibpkg-svn%5D%20r180%20-%20in%20trunk%3A%20.%20tests&In-Reply-To=%3C200608301217.k7UCHIiU009661%40sheep.berlios.de%3E">
+   <META NAME="robots" CONTENT="index,nofollow">
+   <style type="text/css">
+       pre {
+           white-space: pre-wrap;       /* css-2.1, curent FF, Opera, Safari */
+           }
+   </style>
+   <META http-equiv="Content-Type" content="text/html; charset=us-ascii">
+   <LINK REL="Previous"  HREF="000163.html">
+   <LINK REL="Next"  HREF="000165.html">
+ </HEAD>
+ <BODY BGCOLOR="#ffffff">
+   <H1>[Libpkg-svn] r180 - in trunk: . tests</H1>
+    <B>zxombie at BerliOS</B> 
+    <A HREF="mailto:libpkg-svn%40lists.berlios.de?Subject=Re%3A%20%5BLibpkg-svn%5D%20r180%20-%20in%20trunk%3A%20.%20tests&In-Reply-To=%3C200608301217.k7UCHIiU009661%40sheep.berlios.de%3E"
+       TITLE="[Libpkg-svn] r180 - in trunk: . tests">zxombie at mail.berlios.de
+       </A><BR>
+    <I>Wed Aug 30 14:17:18 CEST 2006</I>
+    <P><UL>
+        <LI>Previous message: <A HREF="000163.html">[Libpkg-svn] r179 - trunk/src
+</A></li>
+        <LI>Next message: <A HREF="000165.html">[Libpkg-svn] r181 - trunk/src
+</A></li>
+         <LI> <B>Messages sorted by:</B> 
+              <a href="date.html#164">[ date ]</a>
+              <a href="thread.html#164">[ thread ]</a>
+              <a href="subject.html#164">[ subject ]</a>
+              <a href="author.html#164">[ author ]</a>
+         </LI>
+       </UL>
+    <HR>  
+<!--beginarticle-->
+<PRE>Author: zxombie
+Date: 2006-08-30 14:17:16 +0200 (Wed, 30 Aug 2006)
+New Revision: 180
+
+Added:
+   trunk/tests/
+   trunk/tests/Makefile
+   trunk/tests/main.c
+   trunk/tests/pkgfile.c
+   trunk/tests/test.h
+Modified:
+   trunk/Makefile
+Log:
+Add the start of unit tests
+
+
+Modified: trunk/Makefile
+===================================================================
+--- trunk/Makefile	2006-08-24 11:45:57 UTC (rev 179)
++++ trunk/Makefile	2006-08-30 12:17:16 UTC (rev 180)
+@@ -1,6 +1,11 @@
+-SUBDIR=src tools
++SUBDIR=src tools tests
+ 
+ docs:
+ 	/usr/local/bin/doxygen Doxyfile
+ 
++test:
++	cd ${.CURDIR}/tests &amp;&amp; make run_test
++
++.PHONEY: test
++
+ .include &lt;bsd.subdir.mk&gt;
+
+Added: trunk/tests/Makefile
+===================================================================
+--- trunk/tests/Makefile	2006-08-24 11:45:57 UTC (rev 179)
++++ trunk/tests/Makefile	2006-08-30 12:17:16 UTC (rev 180)
+@@ -0,0 +1,13 @@
++PROG=		test
++
++SRCS=		main.c pkgfile.c
++CFLAGS+=	-I/usr/local/include -I${.CURDIR}/../src
++LDADD+=		-L/usr/local/lib -lcheck
++LDADD+=		${.OBJDIR}/../src/libpkg.a /usr/lib/libmd.a
++
++MAN=
++
++run_test: all
++	cd ${.OBJDIR} &amp;&amp; ./test
++
++.include &lt;bsd.prog.mk&gt;
+
+Added: trunk/tests/main.c
+===================================================================
+--- trunk/tests/main.c	2006-08-24 11:45:57 UTC (rev 179)
++++ trunk/tests/main.c	2006-08-30 12:17:16 UTC (rev 180)
+@@ -0,0 +1,17 @@
++#include &quot;test.h&quot;
++#include &lt;stdlib.h&gt;
++
++int
++main(int argc, char *argv[])
++{
++	int fail_count;
++	Suite *s;
++	SRunner *sr;
++
++	sr = srunner_create(pkgfile_suite());
++	srunner_run_all(sr, CK_NORMAL);
++	fail_count = srunner_ntests_failed(sr);
++	srunner_free(sr);
++
++	return (fail_count == 0) ? EXIT_SUCCESS : EXIT_FAILURE;
++}
+
+Added: trunk/tests/pkgfile.c
+===================================================================
+--- trunk/tests/pkgfile.c	2006-08-24 11:45:57 UTC (rev 179)
++++ trunk/tests/pkgfile.c	2006-08-30 12:17:16 UTC (rev 180)
+@@ -0,0 +1,135 @@
++#include &quot;test.h&quot;
++
++#include &lt;sys/types.h&gt;
++#include &lt;sys/stat.h&gt;
++
++#include &lt;stdlib.h&gt;
++
++#include &lt;pkg.h&gt;
++
++int
++setup_testdir()
++{
++	system(&quot;rm -fr testdir&quot;);
++	return system(&quot;mkdir testdir&quot;);
++}
++
++int
++cleanup_testdir()
++{
++	if (system(&quot;rmdir testdir&quot;) == 0)
++		return 0;
++
++	system(&quot;rm -fr testdir&quot;);
++	return 1;
++}
++
++#define SETUP_TESTDIR() fail_unless(setup_testdir() == 0, &quot;Couldn't create the test dir&quot;)
++#define CLEANUP_TESTDIR() fail_unless(cleanup_testdir() == 0, &quot;Couldn't cleanup the test dir&quot;)
++
++/* Tests on creating a regular file from a buffer */
++START_TEST(pkgfile_regular)
++{
++	struct pkgfile *file;
++	FILE *fd;
++	struct stat sb;
++
++	/* Test creating a regular file from bad data fails */
++	fail_unless(pkgfile_new_regular(NULL, NULL, 0) == NULL, NULL);
++	fail_unless(pkgfile_new_regular(NULL, &quot;&quot;, 0) == NULL, NULL);
++	fail_unless(pkgfile_new_regular(&quot;&quot;, NULL, 1) == NULL, NULL);
++
++	/* Create an empty file */
++	file = pkgfile_new_regular(&quot;testdir/Foo&quot;, NULL, 0);
++	fail_unless(file != NULL, &quot;pkgfile_new_regular(\&quot;\&quot;, NULL, 0) &quot;
++	    &quot;returned NULL&quot;);
++	fail_unless(strcmp(pkgfile_get_name(file), &quot;testdir/Foo&quot;) == 0,
++	    &quot;pkgfile_get_name didn't return \&quot;testdir/Foo\&quot;&quot;);
++	fail_unless(pkgfile_get_size(file) == 0,
++	    &quot;pkgfile_get_size didn't return 0&quot;);
++	fail_unless(pkgfile_get_data(file) != NULL,
++	    &quot;pkgfile_get_data returned NULL&quot;);
++
++	SETUP_TESTDIR();
++	fail_unless(pkgfile_write(file) == 0, &quot;pkfile_write returned non zero&quot;);
++	fd = fopen(&quot;testdir/Foo&quot;, &quot;r&quot;);
++	fail_unless(fd != NULL, &quot;Could not open testdir/Foo&quot;);
++	fstat(fileno(fd), &amp;sb);
++	fail_unless(sb.st_size == 0, &quot;Created file size os not zero&quot;);
++	fclose(fd);
++	system(&quot;rm testdir/Foo&quot;);
++	CLEANUP_TESTDIR();
++
++	fail_unless(pkgfile_free(file) == 0, &quot;pkg_free returned non zero&quot;);
++}
++END_TEST
++
++/* Tests on creating a symlink from a buffer */
++START_TEST(pkgfile_symlink)
++{
++	struct pkgfile *file;
++
++	/* Test creating a symlink from bad data fails */
++	file = pkgfile_new_symlink(NULL, NULL);
++	fail_unless(file == NULL, &quot;pkgfile_new_symlink(NULL, NULL) didn't &quot;
++	    &quot;return NULL&quot;);
++
++	file = pkgfile_new_symlink(&quot;&quot;, NULL);
++	fail_unless(file == NULL, &quot;pkgfile_new_symlink(\&quot;\&quot;, NULL) didn't &quot;
++	    &quot;return NULL&quot;);
++
++	file = pkgfile_new_symlink(NULL, &quot;&quot;);
++	fail_unless(file == NULL, &quot;pkgfile_new_symlink(NULL, \&quot;\&quot;) didn't &quot;
++	    &quot;return NULL&quot;);
++}
++END_TEST
++
++/* Tests on creating a hardlink from a buffer */
++START_TEST(pkgfile_hardlink)
++{
++	struct pkgfile *file;
++
++	/* Test creating a hard link from bad data fails */
++	file = pkgfile_new_hardlink(NULL, NULL);
++	fail_unless(file == NULL, &quot;pkgfile_new_hardlink(NULL, NULL) didn't &quot;
++	    &quot;return NULL&quot;);
++
++	file = pkgfile_new_hardlink(&quot;&quot;, NULL);
++	fail_unless(file == NULL, &quot;pkgfile_new_hardlink(\&quot;\&quot;, NULL) didn't &quot;
++	    &quot;return NULL&quot;);
++
++	file = pkgfile_new_hardlink(NULL, &quot;&quot;);
++	fail_unless(file == NULL, &quot;pkgfile_new_hardlink(NULL, \&quot;\&quot;) didn't &quot;
++	    &quot;return NULL&quot;);
++}
++END_TEST
++
++/* Tests on creating a directory from a buffer */
++START_TEST(pkgfile_directory)
++{
++	struct pkgfile *file;
++
++	/* Test creating a symlink from bad data fails */
++	file = pkgfile_new_directory(NULL);
++	fail_unless(file == NULL, &quot;pkgfile_new_directory(NULL) didn't &quot;
++	    &quot;return NULL&quot;);
++}
++END_TEST
++
++Suite *
++pkgfile_suite()
++{
++	Suite *s;
++	TCase *tc_core;
++
++	s = suite_create(&quot;pkgfile&quot;);
++	tc_core = tcase_create(&quot;base&quot;);
++
++	suite_add_tcase (s, tc_core);
++	tcase_add_test(tc_core, pkgfile_regular);
++	tcase_add_test(tc_core, pkgfile_symlink);
++	tcase_add_test(tc_core, pkgfile_hardlink);
++	tcase_add_test(tc_core, pkgfile_directory);
++
++	return s;
++}
+
+Added: trunk/tests/test.h
+===================================================================
+--- trunk/tests/test.h	2006-08-24 11:45:57 UTC (rev 179)
++++ trunk/tests/test.h	2006-08-30 12:17:16 UTC (rev 180)
+@@ -0,0 +1,4 @@
++#include &lt;check.h&gt;
++
++Suite *pkgfile_suite(void);
++
+
+
+</PRE>
+
+<!--endarticle-->
+    <HR>
+    <P><UL>
+        <!--threads-->
+	<LI>Previous message: <A HREF="000163.html">[Libpkg-svn] r179 - trunk/src
+</A></li>
+	<LI>Next message: <A HREF="000165.html">[Libpkg-svn] r181 - trunk/src
+</A></li>
+         <LI> <B>Messages sorted by:</B> 
+              <a href="date.html#164">[ date ]</a>
+              <a href="thread.html#164">[ thread ]</a>
+              <a href="subject.html#164">[ subject ]</a>
+              <a href="author.html#164">[ author ]</a>
+         </LI>
+       </UL>
+
+<hr>
+<a href="https://lists.berlios.de/mailman/listinfo/libpkg-svn">More information about the Libpkg-svn
+mailing list</a><br>
+</body></html>

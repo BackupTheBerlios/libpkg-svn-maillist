@@ -1,0 +1,188 @@
+<!DOCTYPE HTML PUBLIC "-//W3C//DTD HTML 4.01 Transitional//EN">
+<HTML>
+ <HEAD>
+   <TITLE> [Libpkg-svn] r285 - trunk/tools/pkg_info
+   </TITLE>
+   <LINK REL="Index" HREF="http://lists.berlios.de/pipermail/libpkg-svn/2007-March/index.html" >
+   <LINK REL="made" HREF="mailto:libpkg-svn%40lists.berlios.de?Subject=Re%3A%20%5BLibpkg-svn%5D%20r285%20-%20trunk/tools/pkg_info&In-Reply-To=%3C200703110940.l2B9e0Z8014066%40sheep.berlios.de%3E">
+   <META NAME="robots" CONTENT="index,nofollow">
+   <style type="text/css">
+       pre {
+           white-space: pre-wrap;       /* css-2.1, curent FF, Opera, Safari */
+           }
+   </style>
+   <META http-equiv="Content-Type" content="text/html; charset=us-ascii">
+   <LINK REL="Previous"  HREF="000268.html">
+   <LINK REL="Next"  HREF="000270.html">
+ </HEAD>
+ <BODY BGCOLOR="#ffffff">
+   <H1>[Libpkg-svn] r285 - trunk/tools/pkg_info</H1>
+    <B>zxombie at BerliOS</B> 
+    <A HREF="mailto:libpkg-svn%40lists.berlios.de?Subject=Re%3A%20%5BLibpkg-svn%5D%20r285%20-%20trunk/tools/pkg_info&In-Reply-To=%3C200703110940.l2B9e0Z8014066%40sheep.berlios.de%3E"
+       TITLE="[Libpkg-svn] r285 - trunk/tools/pkg_info">zxombie at mail.berlios.de
+       </A><BR>
+    <I>Sun Mar 11 10:40:00 CET 2007</I>
+    <P><UL>
+        <LI>Previous message: <A HREF="000268.html">[Libpkg-svn] r284 - trunk/src
+</A></li>
+        <LI>Next message: <A HREF="000270.html">[Libpkg-svn] r286 - trunk/tools/pkg_info
+</A></li>
+         <LI> <B>Messages sorted by:</B> 
+              <a href="date.html#269">[ date ]</a>
+              <a href="thread.html#269">[ thread ]</a>
+              <a href="subject.html#269">[ subject ]</a>
+              <a href="author.html#269">[ author ]</a>
+         </LI>
+       </UL>
+    <HR>  
+<!--beginarticle-->
+<PRE>Author: zxombie
+Date: 2007-03-11 10:40:00 +0100 (Sun, 11 Mar 2007)
+New Revision: 285
+
+Added:
+   trunk/tools/pkg_info/run.sh
+   trunk/tools/pkg_info/test.sh
+Log:
+Add tests for pkg_info
+
+
+Added: trunk/tools/pkg_info/run.sh
+===================================================================
+--- trunk/tools/pkg_info/run.sh	2007-03-11 09:38:35 UTC (rev 284)
++++ trunk/tools/pkg_info/run.sh	2007-03-11 09:40:00 UTC (rev 285)
+@@ -0,0 +1,43 @@
++#!/bin/sh
++
++PACKAGE=$1
++shift
++TESTNO=$1
++
++if [ ${TESTNO} -eq 1 ] ; then
++	pkg_add ./${PACKAGE}.tbz
++	pkg_info
++	if [ $? -ne 0 ] ; then
++		exit 1
++	fi
++elif [ ${TESTNO} -eq 2 ] ; then
++	pkg_add -p /usr/pkg ./${PACKAGE}.tbz
++	pkg_info
++	if [ $? -ne 0 ] ; then
++		exit 1
++	fi
++elif [ ${TESTNO} -eq 3 ] ; then
++	pkg_add ./${PACKAGE}.tbz
++	pkg_info ${PACKAGE}
++	if [ $? -ne 0 ] ; then
++		exit 1
++	fi
++elif [ ${TESTNO} -eq 4 ] ; then
++	pkg_add -p /usr/pkg ./${PACKAGE}.tbz
++	pkg_info ${PACKAGE}
++	if [ $? -ne 0 ] ; then
++		exit 1
++	fi
++elif [ ${TESTNO} -eq 5 ] ; then
++	pkg_add ./${PACKAGE}.tbz
++	pkg_info -f ${PACKAGE}
++	if [ $? -ne 0 ] ; then
++		exit 1
++	fi
++elif [ ${TESTNO} -eq 6 ] ; then
++	pkg_add -p /usr/pkg ./${PACKAGE}.tbz
++	pkg_info -f ${PACKAGE}
++	if [ $? -ne 0 ] ; then
++		exit 1
++	fi
++fi
+
+
+Property changes on: trunk/tools/pkg_info/run.sh
+___________________________________________________________________
+Name: svn:executable
+   + *
+
+Added: trunk/tools/pkg_info/test.sh
+===================================================================
+--- trunk/tools/pkg_info/test.sh	2007-03-11 09:38:35 UTC (rev 284)
++++ trunk/tools/pkg_info/test.sh	2007-03-11 09:40:00 UTC (rev 285)
+@@ -0,0 +1,49 @@
++#!/bin/sh
++
++cd `dirname $0`
++DIR=`pwd`
++
++cd ..
++. ${DIR}/../test.sh
++cd ${DIR}
++
++TEST_NO=$1
++shift
++
++TEST_MAX=6
++TOOL_NAME=pkg_info
++
++# Runs the tests for either the libpkg or cvs version of pkg_add
++do_tests() {
++	RUN=$1
++	LIBPKG=$2
++
++	i=1
++	while [ $i -le $TEST_MAX ] ; do
++		do_test $i $RUN $LIBPKG
++		i=$((i+1))
++	done
++}
++
++# Runs the test
++run_test() {
++
++	build_tool
++
++	if [ &quot;X${TEST_NO}&quot; != &quot;X&quot; ] ; then
++		do_test $TEST_NO cvs
++		do_test $TEST_NO libpkg true
++	else
++		# Get the reference data from the FreeBSD cvs pkg_add
++		do_tests cvs
++		# Get the test data from out pkg_add
++		do_tests libpkg true
++	fi
++}
++
++CWD=`pwd`
++cd `dirname $0`
++
++run_test
++
++cd $CWD
+
+
+Property changes on: trunk/tools/pkg_info/test.sh
+___________________________________________________________________
+Name: svn:executable
+   + *
+
+
+</PRE>
+
+<!--endarticle-->
+    <HR>
+    <P><UL>
+        <!--threads-->
+	<LI>Previous message: <A HREF="000268.html">[Libpkg-svn] r284 - trunk/src
+</A></li>
+	<LI>Next message: <A HREF="000270.html">[Libpkg-svn] r286 - trunk/tools/pkg_info
+</A></li>
+         <LI> <B>Messages sorted by:</B> 
+              <a href="date.html#269">[ date ]</a>
+              <a href="thread.html#269">[ thread ]</a>
+              <a href="subject.html#269">[ subject ]</a>
+              <a href="author.html#269">[ author ]</a>
+         </LI>
+       </UL>
+
+<hr>
+<a href="https://lists.berlios.de/mailman/listinfo/libpkg-svn">More information about the Libpkg-svn
+mailing list</a><br>
+</body></html>

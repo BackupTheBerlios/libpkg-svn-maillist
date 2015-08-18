@@ -1,0 +1,114 @@
+<!DOCTYPE HTML PUBLIC "-//W3C//DTD HTML 4.01 Transitional//EN">
+<HTML>
+ <HEAD>
+   <TITLE> [Libpkg-svn] r105 - trunk/src
+   </TITLE>
+   <LINK REL="Index" HREF="http://lists.berlios.de/pipermail/libpkg-svn/2006-April/index.html" >
+   <LINK REL="made" HREF="mailto:libpkg-svn%40lists.berlios.de?Subject=Re%3A%20%5BLibpkg-svn%5D%20r105%20-%20trunk/src&In-Reply-To=%3C200604250338.k3P3c976000209%40sheep.berlios.de%3E">
+   <META NAME="robots" CONTENT="index,nofollow">
+   <style type="text/css">
+       pre {
+           white-space: pre-wrap;       /* css-2.1, curent FF, Opera, Safari */
+           }
+   </style>
+   <META http-equiv="Content-Type" content="text/html; charset=us-ascii">
+   <LINK REL="Previous"  HREF="000088.html">
+   <LINK REL="Next"  HREF="000090.html">
+ </HEAD>
+ <BODY BGCOLOR="#ffffff">
+   <H1>[Libpkg-svn] r105 - trunk/src</H1>
+    <B>zxombie at BerliOS</B> 
+    <A HREF="mailto:libpkg-svn%40lists.berlios.de?Subject=Re%3A%20%5BLibpkg-svn%5D%20r105%20-%20trunk/src&In-Reply-To=%3C200604250338.k3P3c976000209%40sheep.berlios.de%3E"
+       TITLE="[Libpkg-svn] r105 - trunk/src">zxombie at berlios.de
+       </A><BR>
+    <I>Tue Apr 25 05:38:09 CEST 2006</I>
+    <P><UL>
+        <LI>Previous message: <A HREF="000088.html">[Libpkg-svn] r104 - trunk/src
+</A></li>
+        <LI>Next message: <A HREF="000090.html">[Libpkg-svn] r106 - trunk/src
+</A></li>
+         <LI> <B>Messages sorted by:</B> 
+              <a href="date.html#89">[ date ]</a>
+              <a href="thread.html#89">[ thread ]</a>
+              <a href="subject.html#89">[ subject ]</a>
+              <a href="author.html#89">[ author ]</a>
+         </LI>
+       </UL>
+    <HR>  
+<!--beginarticle-->
+<PRE>Author: zxombie
+Date: 2006-04-25 05:37:40 +0200 (Tue, 25 Apr 2006)
+New Revision: 105
+
+Modified:
+   trunk/src/pkg_db_freebsd.c
+Log:
+Install files and fix the checks to se if this is a fake run
+
+
+Modified: trunk/src/pkg_db_freebsd.c
+===================================================================
+--- trunk/src/pkg_db_freebsd.c	2006-04-25 02:54:57 UTC (rev 104)
++++ trunk/src/pkg_db_freebsd.c	2006-04-25 03:37:40 UTC (rev 105)
+@@ -577,16 +577,16 @@
+ 	if (strcmp(dir, &quot;.&quot;) == 0) {
+ 		snprintf(install_data-&gt;directory, MAXPATHLEN,
+ 		    &quot;%s&quot; DB_LOCATION &quot;/%s&quot;, db-&gt;db_base, pkg_get_name(pkg));
+-		if (install_data-&gt;fake != 0)
+-			pkg_dir_build(install_data-&gt;directory);
+ 	} else {
+ 		snprintf(install_data-&gt;directory, MAXPATHLEN, &quot;%s/%s&quot;,
+ 		    db-&gt;db_base, dir);
+ 	}
+ 
+ 	pkg_action(PKG_DB_PACKAGE, &quot;CWD to %s&quot;, install_data-&gt;directory);
+-	if (install_data-&gt;fake != 0)
++	if (!install_data-&gt;fake) {
++		pkg_dir_build(install_data-&gt;directory);
+ 		return chdir(install_data-&gt;directory);
++	}
+ 
+ 	return 0;
+ }
+@@ -602,10 +602,15 @@
+ 	assert(file != NULL);
+ 
+ 	install_data = data;
++
+ 	snprintf(install_data-&gt;last_file, FILENAME_MAX, &quot;%s&quot;,
+ 	    pkg_file_get_name(file));
+-	printf(&quot;%s\n&quot;, pkg_file_get_name(file));
+-	return -1;
++
++	pkg_action(PKG_DB_PACKAGE, &quot;%s/%s&quot;, install_data-&gt;directory,
++	    pkg_file_get_name(file));
++	if (!install_data-&gt;fake)
++		return pkg_file_write(file);
++	return 0;
+ }
+ 
+ static int
+
+
+</PRE>
+
+<!--endarticle-->
+    <HR>
+    <P><UL>
+        <!--threads-->
+	<LI>Previous message: <A HREF="000088.html">[Libpkg-svn] r104 - trunk/src
+</A></li>
+	<LI>Next message: <A HREF="000090.html">[Libpkg-svn] r106 - trunk/src
+</A></li>
+         <LI> <B>Messages sorted by:</B> 
+              <a href="date.html#89">[ date ]</a>
+              <a href="thread.html#89">[ thread ]</a>
+              <a href="subject.html#89">[ subject ]</a>
+              <a href="author.html#89">[ author ]</a>
+         </LI>
+       </UL>
+
+<hr>
+<a href="https://lists.berlios.de/mailman/listinfo/libpkg-svn">More information about the Libpkg-svn
+mailing list</a><br>
+</body></html>

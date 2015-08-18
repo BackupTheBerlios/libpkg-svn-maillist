@@ -1,0 +1,90 @@
+<!DOCTYPE HTML PUBLIC "-//W3C//DTD HTML 4.01 Transitional//EN">
+<HTML>
+ <HEAD>
+   <TITLE> [Libpkg-svn] r174 - trunk/src
+   </TITLE>
+   <LINK REL="Index" HREF="http://lists.berlios.de/pipermail/libpkg-svn/2006-August/index.html" >
+   <LINK REL="made" HREF="mailto:libpkg-svn%40lists.berlios.de?Subject=Re%3A%20%5BLibpkg-svn%5D%20r174%20-%20trunk/src&In-Reply-To=%3C200608020839.k728dEGB030854%40sheep.berlios.de%3E">
+   <META NAME="robots" CONTENT="index,nofollow">
+   <style type="text/css">
+       pre {
+           white-space: pre-wrap;       /* css-2.1, curent FF, Opera, Safari */
+           }
+   </style>
+   <META http-equiv="Content-Type" content="text/html; charset=us-ascii">
+   <LINK REL="Previous"  HREF="000157.html">
+   <LINK REL="Next"  HREF="000159.html">
+ </HEAD>
+ <BODY BGCOLOR="#ffffff">
+   <H1>[Libpkg-svn] r174 - trunk/src</H1>
+    <B>zxombie at BerliOS</B> 
+    <A HREF="mailto:libpkg-svn%40lists.berlios.de?Subject=Re%3A%20%5BLibpkg-svn%5D%20r174%20-%20trunk/src&In-Reply-To=%3C200608020839.k728dEGB030854%40sheep.berlios.de%3E"
+       TITLE="[Libpkg-svn] r174 - trunk/src">zxombie at mail.berlios.de
+       </A><BR>
+    <I>Wed Aug  2 10:39:14 CEST 2006</I>
+    <P><UL>
+        <LI>Previous message: <A HREF="000157.html">[Libpkg-svn] r173 - in trunk: src tools/pkg_info
+</A></li>
+        <LI>Next message: <A HREF="000159.html">[Libpkg-svn] r175 - trunk/src
+</A></li>
+         <LI> <B>Messages sorted by:</B> 
+              <a href="date.html#158">[ date ]</a>
+              <a href="thread.html#158">[ thread ]</a>
+              <a href="subject.html#158">[ subject ]</a>
+              <a href="author.html#158">[ author ]</a>
+         </LI>
+       </UL>
+    <HR>  
+<!--beginarticle-->
+<PRE>Author: zxombie
+Date: 2006-08-02 10:39:09 +0200 (Wed, 02 Aug 2006)
+New Revision: 174
+
+Modified:
+   trunk/src/pkg.h
+Log:
+Remove two unneeded const's
+
+
+Modified: trunk/src/pkg.h
+===================================================================
+--- trunk/src/pkg.h	2006-08-02 08:24:21 UTC (rev 173)
++++ trunk/src/pkg.h	2006-08-02 08:39:09 UTC (rev 174)
+@@ -104,10 +104,10 @@
+ struct pkgfile		**pkg_get_control_files(struct pkg *);
+ struct pkgfile		 *pkg_get_control_file(struct pkg *, const char *);
+ struct pkg		**pkg_get_dependencies(struct pkg *);
+-const const char	 *pkg_get_name(struct pkg *);
++const char		 *pkg_get_name(struct pkg *);
+ struct pkgfile		 *pkg_get_next_file(struct pkg *);
+-const const char	 *pkg_get_origin(struct pkg *);
+-const const char	 *pkg_get_version(struct pkg *);
++const char		 *pkg_get_origin(struct pkg *);
++const char		 *pkg_get_version(struct pkg *);
+ int			  pkg_run_script(struct pkg *, const char *,pkg_script);
+ int			  pkg_add_dependency(struct pkg *, struct pkg *);
+ int			  pkg_add_file(struct pkg *, struct pkgfile *);
+
+
+</PRE>
+
+<!--endarticle-->
+    <HR>
+    <P><UL>
+        <!--threads-->
+	<LI>Previous message: <A HREF="000157.html">[Libpkg-svn] r173 - in trunk: src tools/pkg_info
+</A></li>
+	<LI>Next message: <A HREF="000159.html">[Libpkg-svn] r175 - trunk/src
+</A></li>
+         <LI> <B>Messages sorted by:</B> 
+              <a href="date.html#158">[ date ]</a>
+              <a href="thread.html#158">[ thread ]</a>
+              <a href="subject.html#158">[ subject ]</a>
+              <a href="author.html#158">[ author ]</a>
+         </LI>
+       </UL>
+
+<hr>
+<a href="https://lists.berlios.de/mailman/listinfo/libpkg-svn">More information about the Libpkg-svn
+mailing list</a><br>
+</body></html>

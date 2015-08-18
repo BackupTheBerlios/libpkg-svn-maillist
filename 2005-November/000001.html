@@ -1,0 +1,329 @@
+<!DOCTYPE HTML PUBLIC "-//W3C//DTD HTML 4.01 Transitional//EN">
+<HTML>
+ <HEAD>
+   <TITLE> [Libpkg-svn] r7 - trunk/src
+   </TITLE>
+   <LINK REL="Index" HREF="http://lists.berlios.de/pipermail/libpkg-svn/2005-November/index.html" >
+   <LINK REL="made" HREF="mailto:libpkg-svn%40lists.berlios.de?Subject=Re%3A%20%5BLibpkg-svn%5D%20r7%20-%20trunk/src&In-Reply-To=%3C200511100157.jAA1v4Vf021137%40sheep.berlios.de%3E">
+   <META NAME="robots" CONTENT="index,nofollow">
+   <style type="text/css">
+       pre {
+           white-space: pre-wrap;       /* css-2.1, curent FF, Opera, Safari */
+           }
+   </style>
+   <META http-equiv="Content-Type" content="text/html; charset=us-ascii">
+   <LINK REL="Previous"  HREF="000000.html">
+   <LINK REL="Next"  HREF="000002.html">
+ </HEAD>
+ <BODY BGCOLOR="#ffffff">
+   <H1>[Libpkg-svn] r7 - trunk/src</H1>
+    <B>Andrew Turner at BerliOS</B> 
+    <A HREF="mailto:libpkg-svn%40lists.berlios.de?Subject=Re%3A%20%5BLibpkg-svn%5D%20r7%20-%20trunk/src&In-Reply-To=%3C200511100157.jAA1v4Vf021137%40sheep.berlios.de%3E"
+       TITLE="[Libpkg-svn] r7 - trunk/src">zxombie at berlios.de
+       </A><BR>
+    <I>Thu Nov 10 02:57:04 CET 2005</I>
+    <P><UL>
+        <LI>Previous message: <A HREF="000000.html">[Libpkg-svn] r6 - trunk
+</A></li>
+        <LI>Next message: <A HREF="000002.html">[Libpkg-svn] r8 - trunk/src
+</A></li>
+         <LI> <B>Messages sorted by:</B> 
+              <a href="date.html#1">[ date ]</a>
+              <a href="thread.html#1">[ thread ]</a>
+              <a href="subject.html#1">[ subject ]</a>
+              <a href="author.html#1">[ author ]</a>
+         </LI>
+       </UL>
+    <HR>  
+<!--beginarticle-->
+<PRE>Author: zxombie
+Date: 2005-11-10 02:57:00 +0100 (Thu, 10 Nov 2005)
+New Revision: 7
+
+Modified:
+   trunk/src/Makefile
+   trunk/src/pkg.c
+   trunk/src/pkg.h
+   trunk/src/pkg_freebsd.c
+   trunk/src/pkg_private.h
+   trunk/src/pkg_repo.c
+   trunk/src/pkg_repo_files.c
+   trunk/src/pkg_repo_ftp.c
+Log:
+Move the free callbacks to pkg_object
+
+Modified: trunk/src/Makefile
+===================================================================
+--- trunk/src/Makefile	2005-11-09 07:28:33 UTC (rev 6)
++++ trunk/src/Makefile	2005-11-10 01:57:00 UTC (rev 7)
+@@ -18,7 +18,7 @@
+ SRCS+=	pkg_repo.c pkg_repo_files.c pkg_repo_ftp.c
+ 
+ # Misc functions
+-SRCS+=	pkg_error.c pkg_util.c
++SRCS+=	pkg_error.c pkg_util.c pkg_list.c
+ 
+ INC=	pkg.h
+ 
+
+Modified: trunk/src/pkg.c
+===================================================================
+--- trunk/src/pkg.c	2005-11-09 07:28:33 UTC (rev 6)
++++ trunk/src/pkg.c	2005-11-10 01:57:00 UTC (rev 7)
+@@ -56,7 +56,7 @@
+ 
+ 	pkg-&gt;pkg_get_control_files = control_files;
+ 	pkg-&gt;pkg_get_next_file = next_file;
+-	pkg-&gt;pkg_free = free_pkg;
++	pkg-&gt;pkg_object.free = free_pkg;
+ 
+ 	pkg-&gt;pkg_object.data = NULL;
+ 	pkg-&gt;pkg_object.error_str = NULL;
+@@ -111,8 +111,8 @@
+ 	if (pkg-&gt;pkg_name)
+ 		free(pkg-&gt;pkg_name);
+ 
+-	if (pkg-&gt;pkg_free)
+-		pkg-&gt;pkg_free(pkg);
++	if (pkg-&gt;pkg_object.free)
++		pkg-&gt;pkg_object.free((struct pkg_object *)pkg);
+ 
+ 	free(pkg);
+ 
+
+Modified: trunk/src/pkg.h
+===================================================================
+--- trunk/src/pkg.h	2005-11-09 07:28:33 UTC (rev 6)
++++ trunk/src/pkg.h	2005-11-10 01:57:00 UTC (rev 7)
+@@ -43,14 +43,20 @@
+ #define PKG_FAIL	5 /* Failed */
+ 
+ /*
+- * This must be the first item in child structs so we know where it is.
++ * Generic object for all other objects.
++ * It must be named pkg_object
+  */
++struct pkg_object;
++
++typedef int	pkg_free_callback(struct pkg_object *);
++
++/* This must be the first item in child structs so we know where it is. */
+ struct pkg_object {
+ 	/* The Error string for the user */
+-	char	*error_str;
++	char			*error_str;
+ 	/* Object internal data */
+-	void	*data;
+-	char	 pack[2];
++	void			*data;
++	pkg_free_callback	*free;
+ };
+ 
+ /* This is the struct to read the error from when NULL is returned */
+@@ -84,14 +90,22 @@
+ 
+ typedef struct pkg_file_list	*pkg_get_control_files_callback(struct pkg *);
+ typedef struct pkg_file		*pkg_get_next_file_callback(struct pkg *);
+-typedef int			 pkg_free_callback(struct pkg *);
+ 
+ struct pkg		*pkg_new(const char *,
+ 				pkg_get_control_files_callback *,
+ 				pkg_get_next_file_callback *,
+ 				pkg_free_callback *);
+ struct pkg		*pkg_new_freebsd(FILE *);
++
+ /*
++ * Object to hold a collection of packages in
++ */
++struct pkg_list;
++
++struct pkg_list	*pkg_list_add(struct pkg_list *, struct pkg_object *);
++int		 pkg_list_free(struct pkg_list *);
++
++/*
+  * Returns all control files from the package
+  * Eg. +CONTENTS from FreeBSD Packages
+  */
+@@ -125,10 +139,9 @@
+ typedef int	 pkg_repo_unmark_callback(struct pkg_repo *, const char *);
+ typedef int	 pkg_repo_install_callback(struct pkg_repo *, struct pkg_db *);
+ typedef struct pkg *pkg_repo_get_pkg_callback(struct pkg_repo *, const char *);
+-typedef int	 pkg_repo_free_callback(struct pkg_repo *);
+ 
+ struct pkg_repo	*pkg_repo_new(pkg_repo_get_pkg_callback *,
+-			pkg_repo_free_callback *);
++			pkg_free_callback *);
+ struct pkg_repo	*pkg_repo_new_files(void);
+ struct pkg_repo	*pkg_repo_new_ftp(const char *, const char *);
+ struct pkg	*pkg_repo_get_pkg(struct pkg_repo *, const char *);
+
+Modified: trunk/src/pkg_freebsd.c
+===================================================================
+--- trunk/src/pkg_freebsd.c	2005-11-09 07:28:33 UTC (rev 6)
++++ trunk/src/pkg_freebsd.c	2005-11-10 01:57:00 UTC (rev 7)
+@@ -51,7 +51,7 @@
+ /* Callbacks */
+ static struct pkg_file_list	*freebsd_get_control_files(struct pkg *);
+ static struct pkg_file		*freebsd_get_next_file(struct pkg *);
+-static int			 freebsd_free(struct pkg *);
++static int			 freebsd_free(struct pkg_object *);
+ 
+ /* Internal functions */
+ static struct pkg_file		*freebsd_get_next_entry(struct archive *);
+@@ -164,9 +164,9 @@
+ }
+ 
+ static int
+-freebsd_free(struct pkg *pkg)
++freebsd_free(struct pkg_object *obj)
+ {
+-
++	struct pkg *pkg = (struct pkg *)obj;
+ 	assert(pkg != NULL);
+ 
+ 	freebsd_free_package(pkg-&gt;pkg_object.data);
+
+Modified: trunk/src/pkg_private.h
+===================================================================
+--- trunk/src/pkg_private.h	2005-11-09 07:28:33 UTC (rev 6)
++++ trunk/src/pkg_private.h	2005-11-10 01:57:00 UTC (rev 7)
+@@ -56,8 +56,6 @@
+ 	char	*pkg_name;
+ 	pkg_get_control_files_callback	*pkg_get_control_files;
+ 	pkg_get_next_file_callback	*pkg_get_next_file;
+-	pkg_free_callback		*pkg_free;
+-
+ };
+ 
+ struct pkg_db {
+@@ -73,7 +71,6 @@
+ 	struct pkg_object	 pkg_object;
+ 
+ 	pkg_repo_get_pkg_callback	*pkg_get;
+-	pkg_repo_free_callback		*pkg_free;
+ };
+ 
+ int pkg_dir_build(const char *);
+
+Modified: trunk/src/pkg_repo.c
+===================================================================
+--- trunk/src/pkg_repo.c	2005-11-09 07:28:33 UTC (rev 6)
++++ trunk/src/pkg_repo.c	2005-11-10 01:57:00 UTC (rev 7)
+@@ -37,7 +37,7 @@
+  */
+ struct pkg_repo *
+ pkg_repo_new(pkg_repo_get_pkg_callback *pkg_get,
+-             pkg_repo_free_callback *pfree)
++             pkg_free_callback *pfree)
+ {
+ 	struct pkg_repo *repo;
+ 
+@@ -48,8 +48,8 @@
+ 	}
+ 
+ 	repo-&gt;pkg_get = pkg_get;
+-	repo-&gt;pkg_free = pfree;
+-
++	
++	repo-&gt;pkg_object.free = pfree;
+ 	repo-&gt;pkg_object.data = NULL;
+ 	repo-&gt;pkg_object.error_str = NULL;
+ 
+@@ -88,8 +88,8 @@
+ 		return PKG_FAIL;
+ 	}
+ 
+-	if (repo-&gt;pkg_free)
+-		repo-&gt;pkg_free(repo);
++	if (repo-&gt;pkg_object.free)
++		repo-&gt;pkg_object.free((struct pkg_object *)repo);
+ 
+ 	if (repo-&gt;pkg_object.error_str) {
+ 		free(repo-&gt;pkg_object.error_str);
+
+Modified: trunk/src/pkg_repo_files.c
+===================================================================
+--- trunk/src/pkg_repo_files.c	2005-11-09 07:28:33 UTC (rev 6)
++++ trunk/src/pkg_repo_files.c	2005-11-10 01:57:00 UTC (rev 7)
+@@ -36,7 +36,6 @@
+ #include &quot;pkg.h&quot;
+ #include &quot;pkg_private.h&quot;
+ 
+-static int files_free(struct pkg_repo *);
+ static struct pkg *file_get_pkg(struct pkg_repo *, const char *);
+ 
+ /*
+@@ -45,7 +44,7 @@
+ struct pkg_repo *
+ pkg_repo_new_files()
+ {
+-	return pkg_repo_new(file_get_pkg, files_free);
++	return pkg_repo_new(file_get_pkg, NULL);
+ }
+ 
+ static struct pkg *
+@@ -77,12 +76,3 @@
+ 
+ 	return pkg;
+ }
+-
+-/*
+- * Frees the repo's data
+- */
+-static int
+-files_free(struct pkg_repo *repo __unused)
+-{
+-	return PKG_OK;
+-}
+
+Modified: trunk/src/pkg_repo_ftp.c
+===================================================================
+--- trunk/src/pkg_repo_ftp.c	2005-11-09 07:28:33 UTC (rev 6)
++++ trunk/src/pkg_repo_ftp.c	2005-11-10 01:57:00 UTC (rev 7)
+@@ -84,7 +84,7 @@
+ int getosreldate(void);
+ 
+ static struct pkg *ftp_get_pkg(struct pkg_repo *, const char *);
+-static int ftp_free(struct pkg_repo *);
++static int ftp_free(struct pkg_object *);
+ 
+ //static int pkg_in_All(const char *);
+ static int pkg_name_has_extension(const char *);
+@@ -260,10 +260,12 @@
+  * Free the struct ftp_repo
+  */
+ static int
+-ftp_free(struct pkg_repo *repo)
++ftp_free(struct pkg_object *obj)
+ {
++	struct pkg_repo *repo;
+ 	struct ftp_repo *f_repo;
+ 
++	repo = (struct pkg_repo *)obj;
+ 	if (!repo) {
+ 		pkg_error_set(&amp;pkg_null, &quot;No package repo specified&quot;);
+ 		return PKG_FAIL;
+
+
+</PRE>
+
+<!--endarticle-->
+    <HR>
+    <P><UL>
+        <!--threads-->
+	<LI>Previous message: <A HREF="000000.html">[Libpkg-svn] r6 - trunk
+</A></li>
+	<LI>Next message: <A HREF="000002.html">[Libpkg-svn] r8 - trunk/src
+</A></li>
+         <LI> <B>Messages sorted by:</B> 
+              <a href="date.html#1">[ date ]</a>
+              <a href="thread.html#1">[ thread ]</a>
+              <a href="subject.html#1">[ subject ]</a>
+              <a href="author.html#1">[ author ]</a>
+         </LI>
+       </UL>
+
+<hr>
+<a href="https://lists.berlios.de/mailman/listinfo/libpkg-svn">More information about the Libpkg-svn
+mailing list</a><br>
+</body></html>

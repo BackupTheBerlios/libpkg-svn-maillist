@@ -1,0 +1,198 @@
+<!DOCTYPE HTML PUBLIC "-//W3C//DTD HTML 4.01 Transitional//EN">
+<HTML>
+ <HEAD>
+   <TITLE> [Libpkg-svn] r194 - trunk/tests
+   </TITLE>
+   <LINK REL="Index" HREF="http://lists.berlios.de/pipermail/libpkg-svn/2006-September/index.html" >
+   <LINK REL="made" HREF="mailto:libpkg-svn%40lists.berlios.de?Subject=Re%3A%20%5BLibpkg-svn%5D%20r194%20-%20trunk/tests&In-Reply-To=%3C200609071112.k87BCS92017979%40sheep.berlios.de%3E">
+   <META NAME="robots" CONTENT="index,nofollow">
+   <style type="text/css">
+       pre {
+           white-space: pre-wrap;       /* css-2.1, curent FF, Opera, Safari */
+           }
+   </style>
+   <META http-equiv="Content-Type" content="text/html; charset=us-ascii">
+   <LINK REL="Previous"  HREF="000177.html">
+   <LINK REL="Next"  HREF="000179.html">
+ </HEAD>
+ <BODY BGCOLOR="#ffffff">
+   <H1>[Libpkg-svn] r194 - trunk/tests</H1>
+    <B>zxombie at BerliOS</B> 
+    <A HREF="mailto:libpkg-svn%40lists.berlios.de?Subject=Re%3A%20%5BLibpkg-svn%5D%20r194%20-%20trunk/tests&In-Reply-To=%3C200609071112.k87BCS92017979%40sheep.berlios.de%3E"
+       TITLE="[Libpkg-svn] r194 - trunk/tests">zxombie at mail.berlios.de
+       </A><BR>
+    <I>Thu Sep  7 13:12:28 CEST 2006</I>
+    <P><UL>
+        <LI>Previous message: <A HREF="000177.html">[Libpkg-svn] r193 - trunk/tests
+</A></li>
+        <LI>Next message: <A HREF="000179.html">[Libpkg-svn] r195 - trunk/tests
+</A></li>
+         <LI> <B>Messages sorted by:</B> 
+              <a href="date.html#178">[ date ]</a>
+              <a href="thread.html#178">[ thread ]</a>
+              <a href="subject.html#178">[ subject ]</a>
+              <a href="author.html#178">[ author ]</a>
+         </LI>
+       </UL>
+    <HR>  
+<!--beginarticle-->
+<PRE>Author: zxombie
+Date: 2006-09-07 13:12:28 +0200 (Thu, 07 Sep 2006)
+New Revision: 194
+
+Modified:
+   trunk/tests/pkgfile.c
+Log:
+Move more test into basic_file_tests
+
+
+Modified: trunk/tests/pkgfile.c
+===================================================================
+--- trunk/tests/pkgfile.c	2006-09-05 12:09:26 UTC (rev 193)
++++ trunk/tests/pkgfile.c	2006-09-07 11:12:28 UTC (rev 194)
+@@ -18,7 +18,8 @@
+ #define DEPTH_DIR &quot;testdir/dir&quot;
+ #define DEPTH_FILE DEPTH_DIR &quot;/DEPTH&quot;
+ 
+-void basic_file_tests(struct pkgfile *, pkgfile_type, pkgfile_loc);
++void basic_file_tests(struct pkgfile *, pkgfile_type, pkgfile_loc, const char *,
++	unsigned int);
+ void test_checksums(struct pkgfile *, const char *);
+ void existing_regular_test(struct pkgfile *);
+ void existing_symlink_test(struct pkgfile *);
+@@ -30,13 +31,35 @@
+  * Check a pkgfile object is correct after it has been created
+  */
+ void
+-basic_file_tests(struct pkgfile *file, pkgfile_type type, pkgfile_loc loc)
++basic_file_tests(struct pkgfile *file, pkgfile_type type, pkgfile_loc loc,
++	const char *data, unsigned int length)
+ {
+ 	fail_unless(file-&gt;loc == loc, NULL);
+ 	fail_unless(file-&gt;type == type, NULL);
+ 	fail_unless(file-&gt;fd == NULL, NULL);
+ 	fail_unless(file-&gt;mode == 0, NULL);
+ 	fail_unless(file-&gt;md5[0] == '\0', NULL);
++
++	/* Test the file length */
++	fail_unless(pkgfile_get_size(file) == length, NULL);
++	fail_unless(file-&gt;length == length, NULL);
++
++	/* Test the data */
++	if (data != NULL) {
++		fail_unless(pkgfile_get_data(file) != NULL, NULL);
++		fail_unless(strncmp(pkgfile_get_data(file), data, length) == 0,
++		    NULL);
++
++		if (file-&gt;type != pkgfile_dir) {
++			fail_unless(file-&gt;data != NULL, NULL);
++			fail_unless(strncmp(file-&gt;data, data, length) == 0,
++			    NULL);
++		} else {
++			fail_unless(file-&gt;data == NULL, NULL);
++			fail_unless(strncmp(file-&gt;name, data, length) == 0,
++			    NULL);
++		}
++	}
+ }
+ 
+ void
+@@ -79,6 +102,8 @@
+ 	SETUP_TESTDIR();
+ 	system(&quot;touch &quot; LINK_TARGET);
+ 	system(&quot;echo Hello &gt; &quot; BASIC_FILE);
++
++	/* This should fail as BASIC_FILE already exists */
+ 	fail_unless(pkgfile_write(file) == -1, NULL);
+ 	fd = fopen(BASIC_FILE, &quot;r&quot;);
+ 	fread(buf, 5, 1, fd);
+@@ -145,9 +170,8 @@
+ 	    != NULL, NULL);
+ 	fail_unless(strcmp(pkgfile_get_name(file), BASIC_FILE) == 0, NULL);
+ 	fail_unless(strcmp(file-&gt;name, BASIC_FILE) == 0, NULL);
+-	basic_file_tests(file, pkgfile_regular, pkgfile_loc_mem);
++	basic_file_tests(file, pkgfile_regular, pkgfile_loc_mem, NULL, 0);
+ 
+-	fail_unless(pkgfile_get_size(file) == 0, NULL);
+ 	fail_unless(pkgfile_get_data(file) == NULL, NULL);
+ 
+ 	/* The md5 of an empty string is d41d8cd98f00b204e9800998ecf8427e */
+@@ -197,12 +221,9 @@
+ 	    != NULL, NULL);
+ 	fail_unless(strcmp(pkgfile_get_name(file), BASIC_FILE) == 0, NULL);
+ 	fail_unless(strcmp(file-&gt;name, BASIC_FILE) == 0, NULL);
+-	basic_file_tests(file, pkgfile_regular, pkgfile_loc_mem);
++	basic_file_tests(file, pkgfile_regular, pkgfile_loc_mem, &quot;0123456789&quot;,
++	    10);
+ 
+-	/* Test the file length */
+-	fail_unless(pkgfile_get_size(file) == 10, NULL);
+-	fail_unless(file-&gt;length == 10, NULL);
+-
+ 	/* Test the data */
+ 	fail_unless(pkgfile_get_data(file) != NULL, NULL);
+ 	fail_unless(strncmp(pkgfile_get_data(file), &quot;0123456789&quot;, 10)== 0,NULL);
+@@ -299,12 +320,9 @@
+ 
+ 	fail_unless((file = pkgfile_new_symlink(BASIC_FILE, LINK_TARGET))
+ 	    != NULL, NULL);
+-	basic_file_tests(file, pkgfile_symlink, pkgfile_loc_mem);
++	basic_file_tests(file, pkgfile_symlink, pkgfile_loc_mem, LINK_TARGET,
++	    LINK_TARGET_LENGTH);
+ 
+-	/* Test the file length */
+-	fail_unless(pkgfile_get_size(file) == LINK_TARGET_LENGTH, NULL);
+-	fail_unless(file-&gt;length == LINK_TARGET_LENGTH, NULL);
+-
+ 	/* Test the data */
+ 	fail_unless(pkgfile_get_data(file) != NULL, NULL);
+ 	fail_unless(strcmp(pkgfile_get_data(file), LINK_TARGET) == 0, NULL);
+@@ -393,12 +411,9 @@
+ 
+ 	fail_unless((file = pkgfile_new_hardlink(BASIC_FILE, LINK_TARGET))
+ 	    != NULL, NULL);
+-	basic_file_tests(file, pkgfile_hardlink, pkgfile_loc_mem);
++	basic_file_tests(file, pkgfile_hardlink, pkgfile_loc_mem, LINK_TARGET,
++	    LINK_TARGET_LENGTH);
+ 
+-	/* Test the file length */
+-	fail_unless(pkgfile_get_size(file) == LINK_TARGET_LENGTH, NULL);
+-	fail_unless(file-&gt;length == LINK_TARGET_LENGTH, NULL);
+-
+ 	/* Test the data */
+ 	fail_unless(pkgfile_get_data(file) != NULL, NULL);
+ 	fail_unless(strcmp(pkgfile_get_data(file), LINK_TARGET) == 0, NULL);
+@@ -490,7 +505,8 @@
+ 	struct stat sb;
+ 
+ 	fail_unless((file = pkgfile_new_directory(BASIC_FILE)) != NULL, NULL);
+-	basic_file_tests(file, pkgfile_dir, pkgfile_loc_mem);
++	basic_file_tests(file, pkgfile_dir, pkgfile_loc_mem, BASIC_FILE,
++	    BASIC_FILE_LENGTH);
+ 
+ 	/* Test the file length */
+ 	fail_unless(pkgfile_get_size(file) == BASIC_FILE_LENGTH, NULL);
+
+
+</PRE>
+
+<!--endarticle-->
+    <HR>
+    <P><UL>
+        <!--threads-->
+	<LI>Previous message: <A HREF="000177.html">[Libpkg-svn] r193 - trunk/tests
+</A></li>
+	<LI>Next message: <A HREF="000179.html">[Libpkg-svn] r195 - trunk/tests
+</A></li>
+         <LI> <B>Messages sorted by:</B> 
+              <a href="date.html#178">[ date ]</a>
+              <a href="thread.html#178">[ thread ]</a>
+              <a href="subject.html#178">[ subject ]</a>
+              <a href="author.html#178">[ author ]</a>
+         </LI>
+       </UL>
+
+<hr>
+<a href="https://lists.berlios.de/mailman/listinfo/libpkg-svn">More information about the Libpkg-svn
+mailing list</a><br>
+</body></html>

@@ -1,0 +1,153 @@
+<!DOCTYPE HTML PUBLIC "-//W3C//DTD HTML 4.01 Transitional//EN">
+<HTML>
+ <HEAD>
+   <TITLE> [Libpkg-svn] r267 - trunk/tools/pkg_delete
+   </TITLE>
+   <LINK REL="Index" HREF="http://lists.berlios.de/pipermail/libpkg-svn/2007-February/index.html" >
+   <LINK REL="made" HREF="mailto:libpkg-svn%40lists.berlios.de?Subject=Re%3A%20%5BLibpkg-svn%5D%20r267%20-%20trunk/tools/pkg_delete&In-Reply-To=%3C200702140928.l1E9Seja031633%40sheep.berlios.de%3E">
+   <META NAME="robots" CONTENT="index,nofollow">
+   <style type="text/css">
+       pre {
+           white-space: pre-wrap;       /* css-2.1, curent FF, Opera, Safari */
+           }
+   </style>
+   <META http-equiv="Content-Type" content="text/html; charset=us-ascii">
+   <LINK REL="Previous"  HREF="000250.html">
+   <LINK REL="Next"  HREF="000252.html">
+ </HEAD>
+ <BODY BGCOLOR="#ffffff">
+   <H1>[Libpkg-svn] r267 - trunk/tools/pkg_delete</H1>
+    <B>zxombie at BerliOS</B> 
+    <A HREF="mailto:libpkg-svn%40lists.berlios.de?Subject=Re%3A%20%5BLibpkg-svn%5D%20r267%20-%20trunk/tools/pkg_delete&In-Reply-To=%3C200702140928.l1E9Seja031633%40sheep.berlios.de%3E"
+       TITLE="[Libpkg-svn] r267 - trunk/tools/pkg_delete">zxombie at mail.berlios.de
+       </A><BR>
+    <I>Wed Feb 14 10:28:40 CET 2007</I>
+    <P><UL>
+        <LI>Previous message: <A HREF="000250.html">[Libpkg-svn] r266 - trunk/tools/pkg_delete
+</A></li>
+        <LI>Next message: <A HREF="000252.html">[Libpkg-svn] r268 - trunk/tools/pkg_add
+</A></li>
+         <LI> <B>Messages sorted by:</B> 
+              <a href="date.html#251">[ date ]</a>
+              <a href="thread.html#251">[ thread ]</a>
+              <a href="subject.html#251">[ subject ]</a>
+              <a href="author.html#251">[ author ]</a>
+         </LI>
+       </UL>
+    <HR>  
+<!--beginarticle-->
+<PRE>Author: zxombie
+Date: 2007-02-14 10:28:39 +0100 (Wed, 14 Feb 2007)
+New Revision: 267
+
+Modified:
+   trunk/tools/pkg_delete/test.sh
+Log:
+Merge in the pkg_add test script to the pkg_delete test script
+
+
+Modified: trunk/tools/pkg_delete/test.sh
+===================================================================
+--- trunk/tools/pkg_delete/test.sh	2007-02-14 09:25:38 UTC (rev 266)
++++ trunk/tools/pkg_delete/test.sh	2007-02-14 09:28:39 UTC (rev 267)
+@@ -2,21 +2,39 @@
+ 
+ . `dirname $0`/../test.sh
+ 
+-# Rins the tests for either the libpkg or cvs version of pkg_delete
++TEST_NO=$1
++shift
++
++TEST_MAX=7
++TOOL_NAME=pkg_delete
++
+ do_test() {
++	i=$1
++	RUN=$2
++	LIBPKG=$3
++
++	build_chroot
++	if [ &quot;X$LIBPKG&quot; != &quot;X&quot; ]; then
++		cp ${TOOL_NAME} ${BASE_DIR}/base/usr/sbin/${TOOL_NAME}
++	fi
++	chroot ${BASE_DIR}/base /run.sh ${PACKAGE} ${i} &gt; ${RUN}.stdout.${i} 2&gt; ${RUN}.stderr.${i}
++	# Get the mtree file to use to compare the filesystems
++	mtree -c -p ${BASE_DIR}/base | grep -v &quot;^\#[[:space:]]*date:&quot; | sed &quot;s/time=[^ ]*//&quot; | grep -v &quot;^[ ]*${TOOL_NAME}[^\.]&quot; &gt; ${RUN}.mtree.${i}
++	# Create a tarball of the important dir's to compare later
++	rm ${BASE_DIR}/${RUN}-${i}.tar
++	tar -cf ${BASE_DIR}/${RUN}-${i}.tar ${BASE_DIR}/base/var/db/pkg ${BASE_DIR}/base/usr/local ${BASE_DIR}/base/usr/pkg
++	# Cleanup the package directories
++	rm -fr ${BASE_DIR}/base/var/db/pkg ${BASE_DIR}/base/usr/local ${BASE_DIR}/base/usr/pkg
++}
++
++# Runs the tests for either the libpkg or cvs version of pkg_delete
++do_tests() {
+ 	RUN=$1
++	LIBPKG=$2
+ 
+ 	i=1
+-	while [ $i -le 5 ] ; do
+-		chroot ${BASE_DIR}/base /run.sh ${PACKAGE} ${i} &gt; ${RUN}.stdout.${i} 2&gt; ${RUN}.stderr.${i}
+-		# Get the mtree file to use to compare the filesystems
+-		mtree -c -p ${BASE_DIR}/base | grep -v &quot;^\#[[:space:]]*date:&quot; | sed &quot;s/time=[^ ]*//&quot; | grep -v &quot;^[ ]*pkg_delete&quot; &gt; ${RUN}.mtree.${i}
+-		# Create a tarball of the important dir's to compare later
+-		rm ${BASE_DIR}/${RUN}-${i}.tar
+-		tar -cf ${BASE_DIR}/${RUN}-${i}.tar ${BASE_DIR}/base/var/db/pkg ${BASE_DIR}/base/usr/local
+-		# Cleanup the package directories
+-		rm -fr ${BASE_DIR}/base/var/db/pkg ${BASE_DIR}/base/usr/local
+-
++	while [ $i -le $TEST_MAX ] ; do
++		do_test $i $RUN $LIBPKG
+ 		i=$((i+1))
+ 	done
+ }
+@@ -24,15 +42,17 @@
+ # Runs the test
+ run_test() {
+ 
+-	# Get the reference data from the FreeBSD cvs pkg_delete
+-	build_chroot
+-	do_test cvs
++	build_tool
+ 
+-	# Get the test data from out pkg_delete
+-	build_chroot
+-	build_tool
+-	cp pkg_delete ${BASE_DIR}/base/usr/sbin/pkg_delete
+-	do_test libpkg
++	if [ &quot;X${TEST_NO}&quot; != &quot;X&quot; ] ; then
++		do_test $TEST_NO cvs
++		do_test $TEST_NO libpkg true
++	else
++		# Get the reference data from the FreeBSD cvs pkg_delete
++		do_tests cvs
++		# Get the test data from out pkg_delete
++		do_tests libpkg true
++	fi
+ }
+ 
+ CWD=`pwd`
+
+
+</PRE>
+
+<!--endarticle-->
+    <HR>
+    <P><UL>
+        <!--threads-->
+	<LI>Previous message: <A HREF="000250.html">[Libpkg-svn] r266 - trunk/tools/pkg_delete
+</A></li>
+	<LI>Next message: <A HREF="000252.html">[Libpkg-svn] r268 - trunk/tools/pkg_add
+</A></li>
+         <LI> <B>Messages sorted by:</B> 
+              <a href="date.html#251">[ date ]</a>
+              <a href="thread.html#251">[ thread ]</a>
+              <a href="subject.html#251">[ subject ]</a>
+              <a href="author.html#251">[ author ]</a>
+         </LI>
+       </UL>
+
+<hr>
+<a href="https://lists.berlios.de/mailman/listinfo/libpkg-svn">More information about the Libpkg-svn
+mailing list</a><br>
+</body></html>

@@ -1,0 +1,143 @@
+<!DOCTYPE HTML PUBLIC "-//W3C//DTD HTML 4.01 Transitional//EN">
+<HTML>
+ <HEAD>
+   <TITLE> [Libpkg-svn] r147 - trunk/tools/pkg_info
+   </TITLE>
+   <LINK REL="Index" HREF="http://lists.berlios.de/pipermail/libpkg-svn/2006-July/index.html" >
+   <LINK REL="made" HREF="mailto:libpkg-svn%40lists.berlios.de?Subject=Re%3A%20%5BLibpkg-svn%5D%20r147%20-%20trunk/tools/pkg_info&In-Reply-To=%3C200607140111.k6E1Bf1X009940%40sheep.berlios.de%3E">
+   <META NAME="robots" CONTENT="index,nofollow">
+   <style type="text/css">
+       pre {
+           white-space: pre-wrap;       /* css-2.1, curent FF, Opera, Safari */
+           }
+   </style>
+   <META http-equiv="Content-Type" content="text/html; charset=us-ascii">
+   <LINK REL="Previous"  HREF="000129.html">
+   <LINK REL="Next"  HREF="000135.html">
+ </HEAD>
+ <BODY BGCOLOR="#ffffff">
+   <H1>[Libpkg-svn] r147 - trunk/tools/pkg_info</H1>
+    <B>zxombie at BerliOS</B> 
+    <A HREF="mailto:libpkg-svn%40lists.berlios.de?Subject=Re%3A%20%5BLibpkg-svn%5D%20r147%20-%20trunk/tools/pkg_info&In-Reply-To=%3C200607140111.k6E1Bf1X009940%40sheep.berlios.de%3E"
+       TITLE="[Libpkg-svn] r147 - trunk/tools/pkg_info">zxombie at mail.berlios.de
+       </A><BR>
+    <I>Fri Jul 14 03:11:41 CEST 2006</I>
+    <P><UL>
+        <LI>Previous message: <A HREF="000129.html">[Libpkg-svn] r146 - trunk/src
+</A></li>
+        <LI>Next message: <A HREF="000135.html">[Libpkg-svn] r148 - trunk/src
+</A></li>
+         <LI> <B>Messages sorted by:</B> 
+              <a href="date.html#136">[ date ]</a>
+              <a href="thread.html#136">[ thread ]</a>
+              <a href="subject.html#136">[ subject ]</a>
+              <a href="author.html#136">[ author ]</a>
+         </LI>
+       </UL>
+    <HR>  
+<!--beginarticle-->
+<PRE>Author: zxombie
+Date: 2006-07-14 03:11:37 +0200 (Fri, 14 Jul 2006)
+New Revision: 147
+
+Modified:
+   trunk/tools/pkg_info/main.c
+   trunk/tools/pkg_info/pkg_info.h
+Log:
+Implement pkg_info -W
+
+All flags except -t should now be implemented. I can't find how to use -t in FreeBSD cvs pkg_info
+
+
+Modified: trunk/tools/pkg_info/main.c
+===================================================================
+--- trunk/tools/pkg_info/main.c	2006-07-13 13:37:09 UTC (rev 146)
++++ trunk/tools/pkg_info/main.c	2006-07-14 01:11:37 UTC (rev 147)
+@@ -46,6 +46,7 @@
+ 	info.check_package = NULL;
+ 	info.seperator = &quot;&quot;;
+ 	info.use_blocksize = 0;
++	info.search_file = NULL;
+ 
+ 	if (argc == 1) {
+ 		info.match_type = MATCH_ALL;
+@@ -146,7 +147,7 @@
+ 				info.flags |= SHOW_FMTREV;
+ 				break;
+ 			case 'W':
+-				errx(1, &quot;Unsupported argument&quot;);
++				info.search_file = optarg;
+ 				break;
+ 			case 'x':
+ 				info.match_type = MATCH_REGEX;
+@@ -206,6 +207,7 @@
+ 	retval = 1;
+ 	pkgs = NULL;
+ 
++	/* -e package name */
+ 	if (info.check_package != NULL) {
+ 		struct pkg *pkg;
+ 		pkg = pkg_db_get_package(info.db, info.check_package);
+@@ -215,6 +217,25 @@
+ 		}
+ 		return 1;
+ 	}
++
++	/* -W &lt;filename&gt; */
++	if (info.search_file != NULL) {
++		struct stat sb;
++
++		if (stat(info.search_file, &amp;sb) != 0) {
++			/* XXX */
++			return 1;
++		}
++		pkgs = pkg_db_get_installed_match_count(info.db,
++		    pkg_match_by_file, 1, (const void *)info.search_file);
++		if (info.quiet == 0)
++			printf(&quot;The following installed package(s) has %s &quot;
++			    &quot;origin:\n&quot;, info.origin);
++		printf(&quot;%s\n&quot;, pkg_get_name(pkgs[0]));
++		return 0;
++	}
++
++	/* -O &lt;origin&gt; */
+ 	if (info.origin != NULL) {
+ 		unsigned int pos;
+ 		pkgs = pkg_db_get_installed_match(info.db, pkg_match_by_origin,
+
+Modified: trunk/tools/pkg_info/pkg_info.h
+===================================================================
+--- trunk/tools/pkg_info/pkg_info.h	2006-07-13 13:37:09 UTC (rev 146)
++++ trunk/tools/pkg_info/pkg_info.h	2006-07-14 01:11:37 UTC (rev 147)
+@@ -76,6 +76,7 @@
+ 	int	  use_blocksize;
+ 	const char *check_package;
+ 	const char *origin;
++	const char *search_file;
+ 	const char *seperator;
+ };
+ 
+
+
+</PRE>
+
+<!--endarticle-->
+    <HR>
+    <P><UL>
+        <!--threads-->
+	<LI>Previous message: <A HREF="000129.html">[Libpkg-svn] r146 - trunk/src
+</A></li>
+	<LI>Next message: <A HREF="000135.html">[Libpkg-svn] r148 - trunk/src
+</A></li>
+         <LI> <B>Messages sorted by:</B> 
+              <a href="date.html#136">[ date ]</a>
+              <a href="thread.html#136">[ thread ]</a>
+              <a href="subject.html#136">[ subject ]</a>
+              <a href="author.html#136">[ author ]</a>
+         </LI>
+       </UL>
+
+<hr>
+<a href="https://lists.berlios.de/mailman/listinfo/libpkg-svn">More information about the Libpkg-svn
+mailing list</a><br>
+</body></html>

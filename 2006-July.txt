@@ -1,0 +1,3232 @@
+From zxombie at mail.berlios.de  Thu Jul 13 15:35:56 2006
+From: zxombie at mail.berlios.de (zxombie at BerliOS)
+Date: Thu, 13 Jul 2006 15:35:56 +0200
+Subject: [Libpkg-svn] r145 - trunk/src
+Message-ID: <200607131335.k6DDZunl009126@sheep.berlios.de>
+
+Author: zxombie
+Date: 2006-07-13 15:35:53 +0200 (Thu, 13 Jul 2006)
+New Revision: 145
+
+Modified:
+   trunk/src/pkg_freebsd.c
+Log:
+Fix a bug where pkgfile_new_from_disk could fail and return NULL
+
+
+Modified: trunk/src/pkg_freebsd.c
+===================================================================
+--- trunk/src/pkg_freebsd.c	2006-07-13 13:16:26 UTC (rev 144)
++++ trunk/src/pkg_freebsd.c	2006-07-13 13:35:53 UTC (rev 145)
+@@ -614,6 +614,8 @@
+ 				    fpkg->curdir,
+ 				    fpkg->contents->lines[fpkg->line].line);
+ 				file = pkgfile_new_from_disk(the_file, 1);
++				if (file == NULL)
++					return NULL;
+ 				fpkg->line++;
+ 
+ 				/* Add the recorded md5 to the file */
+
+
+
+From zxombie at mail.berlios.de  Thu Jul 13 15:37:13 2006
+From: zxombie at mail.berlios.de (zxombie at BerliOS)
+Date: Thu, 13 Jul 2006 15:37:13 +0200
+Subject: [Libpkg-svn] r146 - trunk/src
+Message-ID: <200607131337.k6DDbD7Z009491@sheep.berlios.de>
+
+Author: zxombie
+Date: 2006-07-13 15:37:09 +0200 (Thu, 13 Jul 2006)
+New Revision: 146
+
+Modified:
+   trunk/src/pkg_db.c
+   trunk/src/pkg_db.h
+Log:
+Add pkg_match_by_file to find (all) packages with a given file
+
+
+Modified: trunk/src/pkg_db.c
+===================================================================
+--- trunk/src/pkg_db.c	2006-07-13 13:35:53 UTC (rev 145)
++++ trunk/src/pkg_db.c	2006-07-13 13:37:09 UTC (rev 146)
+@@ -293,5 +293,28 @@
+ }
+ 
+ /**
++ * @brief Matches all packages by file.
++ * @param pkg The package to attempt to match
++ * @param filename The file to match
++ * @return 0 if the package origin is the same as origin, otherwise non zero
++ */
++int
++pkg_match_by_file(struct pkg *pkg, const void *filename)
++{
++	struct pkgfile *file;
++
++	file = pkg_get_next_file(pkg);
++	while (file != NULL) {
++		if (strcmp((const char *)filename, pkgfile_get_name(file)) ==0){
++			pkgfile_free(file);
++			return 0;
++		}
++		pkgfile_free(file);
++		file = pkg_get_next_file(pkg);
++	}
++	return -1;
++}
++
++/**
+  * @}
+  */
+
+Modified: trunk/src/pkg_db.h
+===================================================================
+--- trunk/src/pkg_db.h	2006-07-13 13:35:53 UTC (rev 145)
++++ trunk/src/pkg_db.h	2006-07-13 13:37:09 UTC (rev 146)
+@@ -60,5 +60,6 @@
+ 
+ int		  pkg_match_all(struct pkg *, const void *);
+ int		  pkg_match_by_origin(struct pkg *, const void *);
++int		  pkg_match_by_file(struct pkg *, const void *);
+ 
+ #endif /* __LIBPKG_PKG_DB_H__ */
+
+
+
+From zxombie at mail.berlios.de  Thu Jul 13 15:16:28 2006
+From: zxombie at mail.berlios.de (zxombie at BerliOS)
+Date: Thu, 13 Jul 2006 15:16:28 +0200
+Subject: [Libpkg-svn] r144 - in trunk: src tools/pkg_info
+Message-ID: <200607131316.k6DDGS3Z005527@sheep.berlios.de>
+
+Author: zxombie
+Date: 2006-07-13 15:16:26 +0200 (Thu, 13 Jul 2006)
+New Revision: 144
+
+Modified:
+   trunk/src/pkg.h
+   trunk/src/pkg_freebsd.c
+   trunk/src/pkg_private.h
+   trunk/src/pkgfile.c
+   trunk/tools/pkg_info/show.c
+Log:
+Add support to compare the checksum of files with the checksum recorded in the package
+Use it to implement -g in pkg_info
+Remove an unneeded assert in pkg_info
+Implement pkg_freebsd_get_contents as a way to retrieve a packages contents file
+
+
+Modified: trunk/src/pkg.h
+===================================================================
+--- trunk/src/pkg.h	2006-06-24 23:23:09 UTC (rev 143)
++++ trunk/src/pkg.h	2006-07-13 13:16:26 UTC (rev 144)
+@@ -65,6 +65,7 @@
+ uint64_t	 pkgfile_get_size(struct pkgfile *);
+ char		*pkgfile_get_data(struct pkgfile *, uint64_t);
+ char		*pkgfile_get_data_all(struct pkgfile *);
++int		 pkgfile_compare_checksum_md5(struct pkgfile *);
+ int		 pkgfile_seek(struct pkgfile *, uint64_t, int);
+ int		 pkgfile_set_mode(struct pkgfile *, mode_t);
+ int		 pkgfile_write(struct pkgfile *);
+
+Modified: trunk/src/pkg_freebsd.c
+===================================================================
+--- trunk/src/pkg_freebsd.c	2006-06-24 23:23:09 UTC (rev 143)
++++ trunk/src/pkg_freebsd.c	2006-07-13 13:16:26 UTC (rev 144)
+@@ -228,19 +228,26 @@
+ 	assert(0);
+ 	return NULL;
+ }
++#endif
+ 
+ /**
+  * @brief Gets the contents struct from a package
+- * @todo Write
++ *
++ * This will go away before 0.2
+  * @return The contents struct
+  */
+ struct pkg_freebsd_contents *
+ pkg_freebsd_get_contents(struct pkg *pkg __unused)
+ {
+-	assert(0);
+-	return NULL;
++	struct freebsd_package *fpkg;
++
++	if (pkg == NULL || pkg->data == NULL)
++		return NULL;
++	fpkg = pkg->data;
++	freebsd_open_control_files(fpkg);
++
++	return fpkg->contents;
+ }
+-#endif
+ 
+ /**
+  * @}
+@@ -599,7 +606,8 @@
+ 				fpkg->curdir = strdup(
+ 				    fpkg->contents->lines[fpkg->line].data);
+ 			}
+-			if (fpkg->contents->lines[fpkg->line].line_type == PKG_LINE_FILE) {
++			if (fpkg->contents->lines[fpkg->line].line_type ==
++			    PKG_LINE_FILE) {
+ 				char the_file[FILENAME_MAX + 1];
+ 
+ 				snprintf(the_file, FILENAME_MAX, "%s/%s",
+@@ -607,10 +615,20 @@
+ 				    fpkg->contents->lines[fpkg->line].line);
+ 				file = pkgfile_new_from_disk(the_file, 1);
+ 				fpkg->line++;
++
++				/* Add the recorded md5 to the file */
++				if (fpkg->contents->lines[fpkg->line].line_type
++				  == PKG_LINE_COMMENT) {
++					strncpy(file->md5,
++					    fpkg->contents->lines[fpkg->line].data + 4,
++					    32);
++					file->md5[33] = '\0';
++				}
+ 				return file;
+ 			}
+ 			fpkg->line++;
+ 		}
++		fpkg->line = 0;
+ 		return NULL;
+ 	} else {
+ 		file = freebsd_get_next_entry(fpkg->archive);
+
+Modified: trunk/src/pkg_private.h
+===================================================================
+--- trunk/src/pkg_private.h	2006-06-24 23:23:09 UTC (rev 143)
++++ trunk/src/pkg_private.h	2006-07-13 13:16:26 UTC (rev 144)
+@@ -43,6 +43,7 @@
+ 	char		*data;
+ 	uint64_t	 length;
+ 	mode_t		 mode;
++	char		 md5[33];
+ };
+ 
+ /*
+
+Modified: trunk/src/pkgfile.c
+===================================================================
+--- trunk/src/pkgfile.c	2006-06-24 23:23:09 UTC (rev 143)
++++ trunk/src/pkgfile.c	2006-07-13 13:16:26 UTC (rev 144)
+@@ -27,10 +27,14 @@
+  *
+  */
+ 
++#include <sys/types.h>
++#include <sys/mman.h>
++
+ #include <assert.h>
+ #include <errno.h>
+ #include <libgen.h>
+ #include <limits.h>
++#include <md5.h>
+ #include <stdio.h>
+ #include <stdlib.h>
+ #include <string.h>
+@@ -71,6 +75,7 @@
+ 	file->data = NULL;
+ 	file->length = 0;
+ 	file->mode = 0;
++	file->md5[0] = '\0';
+ 
+ 	return file;
+ }
+@@ -345,6 +350,48 @@
+ }
+ 
+ /**
++ * @brief Compares a file's MD5 checksum with the version on disk
++ * @return 1 if the recorded checksum is different to the disk checksum
++ * @return 0 if the recorded checksum is the same as the disk checksum
++ * @return -1 if there is a problem with the file object
++ */
++int
++pkgfile_compare_checksum_md5(struct pkgfile *file)
++{
++	if (file == NULL || file->md5[0] == '\0')
++		return -1;
++
++	assert(file->type != pkgfile_none);
++	assert(file->type != pkgfile_hardlink);
++	assert(file->type != pkgfile_symlink);
++	assert(file->type != pkgfile_dir);
++
++	switch (file->type) {
++		case pkgfile_none:
++		case pkgfile_hardlink:
++		case pkgfile_symlink:
++		case pkgfile_dir:
++			break;
++		case pkgfile_regular:
++		{
++			char checksum[33];
++
++			if (file->name == NULL)
++				return -1;
++
++			MD5File(file->name, checksum);
++
++			if (strncmp(checksum, file->md5, 32) == 0)
++				return 0;
++
++			printf("%s\n%s\n\n", checksum, file->name);
++			return 1;
++		}
++	}
++	return -1;
++}
++
++/**
+  * @brief Seeks to a given position in a file
+  * @return 0 on success or -1 on error
+  */
+
+Modified: trunk/tools/pkg_info/show.c
+===================================================================
+--- trunk/tools/pkg_info/show.c	2006-06-24 23:23:09 UTC (rev 143)
++++ trunk/tools/pkg_info/show.c	2006-07-13 13:16:26 UTC (rev 144)
+@@ -69,7 +69,6 @@
+ 	{ \
+ 		struct pkgfile *file; \
+ 		file = pkg_get_control_file(pkg, filename); \
+-		assert(file != NULL); \
+ 		if (file != NULL) \
+ 			show_file(file, seperator, title ":\n", quiet); \
+ 	}
+@@ -149,14 +148,20 @@
+ 
+ /* Show files that don't match the recorded checksum */
+ static void
+-show_cksum(struct pkg *pkg __unused, const char *seperator, const char *title,
+-    int quiet)
++show_cksum(struct pkg *pkg, const char *seperator, const char *title, int quiet)
+ {
++	struct pkgfile *file;
++
+ 	if (!quiet)
+ 		printf("%s%s", seperator, title);
+ 
+-	/* XXX */
+-	errx(1, "%s: Unimplemented", __func__);
++	file = pkg_get_next_file(pkg);
++	while (file != NULL) {
++		if (pkgfile_compare_checksum_md5(file) == 1)
++			printf("%s\n", pkgfile_get_name(file));
++		pkgfile_free(file);
++		file = pkg_get_next_file(pkg);
++	}
+ }
+ 
+ static void
+
+
+
+From zxombie at mail.berlios.de  Fri Jul 14 05:38:10 2006
+From: zxombie at mail.berlios.de (zxombie at BerliOS)
+Date: Fri, 14 Jul 2006 05:38:10 +0200
+Subject: [Libpkg-svn] r151 - www
+Message-ID: <200607140338.k6E3cASe017661@sheep.berlios.de>
+
+Author: zxombie
+Date: 2006-07-14 05:38:07 +0200 (Fri, 14 Jul 2006)
+New Revision: 151
+
+Added:
+   www/docs.xml
+Modified:
+   www/Makefile
+   www/nav.xml
+Log:
+Add a page with links to the documentation on it
+Update the navigation to include the doc page
+
+
+Modified: www/Makefile
+===================================================================
+--- www/Makefile	2006-07-14 02:43:38 UTC (rev 150)
++++ www/Makefile	2006-07-14 03:38:07 UTC (rev 151)
+@@ -1,4 +1,4 @@
+-FILES=index.html downloads.html index.css
++FILES=index.html downloads.html docs.html index.css
+ 
+ FILESDIR?=/home/groups/libpkg/htdocs/
+ 
+@@ -16,4 +16,7 @@
+ downloads.html: downloads.xml page.xsl nav.xml
+ 	xsltproc downloads.xml > downloads.html
+ 
++docs.html: docs.xml page.xsl nav.xml
++	xsltproc docs.xml > docs.html
++
+ page.xsl: nav.xml
+
+Added: www/docs.xml
+===================================================================
+--- www/docs.xml	2006-07-14 02:43:38 UTC (rev 150)
++++ www/docs.xml	2006-07-14 03:38:07 UTC (rev 151)
+@@ -0,0 +1,15 @@
++<?xml version='1.0'?>
++<?xml-stylesheet href="page.xsl" type="text/xsl"?>
++<page name="downloads">
++ <title>libpkg Documentation</title>
++ <body>
++  <div>
++   <h2>Trunk</h2>
++   <p><a href="doc/trunk/html/index.html">API documentation</a></p>
++  </div>
++  <div>
++   <h2>0.1.20060714</h2>
++   <p><a href="doc/0.1.20060714/html/index.html">API documentation</a></p>
++  </div>
++ </body>
++</page>
+
+Modified: www/nav.xml
+===================================================================
+--- www/nav.xml	2006-07-14 02:43:38 UTC (rev 150)
++++ www/nav.xml	2006-07-14 03:38:07 UTC (rev 151)
+@@ -2,5 +2,5 @@
+ <nav>
+  <page><title>Home</title><file>index</file></page>
+  <page><title>Downloads</title><file>downloads</file></page>
+- <page><title>Documentation</title><file>doc/trunk/html/index</file></page>
++ <page><title>Documentation</title><file>docs</file></page>
+ </nav>
+
+
+
+From zxombie at mail.berlios.de  Fri Jul 14 08:38:46 2006
+From: zxombie at mail.berlios.de (zxombie at BerliOS)
+Date: Fri, 14 Jul 2006 08:38:46 +0200
+Subject: [Libpkg-svn] r152 - trunk/src
+Message-ID: <200607140638.k6E6ck9d002160@sheep.berlios.de>
+
+Author: zxombie
+Date: 2006-07-14 08:38:44 +0200 (Fri, 14 Jul 2006)
+New Revision: 152
+
+Modified:
+   trunk/src/pkg_util.c
+Log:
+Document pkg_cached_file and related callbacks
+Remove an old @todo in pkg_exec
+
+
+Modified: trunk/src/pkg_util.c
+===================================================================
+--- trunk/src/pkg_util.c	2006-07-14 03:38:07 UTC (rev 151)
++++ trunk/src/pkg_util.c	2006-07-14 06:38:44 UTC (rev 152)
+@@ -138,7 +138,6 @@
+  * @brief Executes a program
+  * 
+  * It will use fmt as the format to generate the execv string.
+- * @todo Write
+  * @return the return value from the child process
+  */
+ int
+@@ -158,11 +157,35 @@
+ 	return ret;
+ }
+ 
++/**
++ * @}
++ */
++
++/**
++ * @defgroup PackageUtilCachedFileInternal File cacheing handler callbacks
++ * @ingroup PackageUtilCachedFile
++ * These functions are callbacks for a FILE pointer designed
++ * to cache the output of a another FILE pointer.
++ * This is useful when downloading with libfetch to not have
++ * to download the file again.
++ *
++ * @{
++ */
++
+ struct cached_read {
+ 	FILE *fd;
+ 	FILE *cache;
+ };
+ 
++/**
++ * @brief Reads from a file, caches the data and copies it to buf
++ * @param c A cached_read object
++ * @param buf The buffer to save the data to
++ * @param len The ammount of data to read
++ *
++ * This is a callback to fread
++ * @return The amount of data read or -1
++ */
+ static int
+ pkg_cached_readfn(void *c, char *buf, int len)
+ {
+@@ -192,6 +215,16 @@
+ 	return ret;
+ }
+ 
++/**
++ * @brief Seeks to a given point in a cached file
++ * @param c A cached_file object
++ * @param pos The position to move to
++ * @param whence Where to make the move relative to
++ *
++ * This is a callback for fseek
++ * @return -1 on error
++ * @return 0 on success
++ */
+ static fpos_t
+ pkg_cached_seekfn(void *c, fpos_t pos, int whence)
+ {
+@@ -201,6 +234,11 @@
+ 	return fseek(cr->fd, pos, whence);
+ }
+ 
++/**
++ * @brief Closes a cached file
++ * @param c A cached_file object
++ * @return 0
++ */
+ static int
+ pkg_cached_closefn(void *c)
+ {
+@@ -213,6 +251,23 @@
+ 	return 0;
+ }
+ 
++/**
++ * @}
++ */
++
++/**
++ * @defgroup PackageUtilCachedFile File cacheing handler creation
++ * @ingroup PackageUtil
++ *
++ * @{
++ */
++
++/**
++ * @brief Creates a new cached FILE pointer
++ * @param fd The file to cache
++ * @param file The location of the file cache
++ * @return A FILE pointer or NULL
++ */
+ FILE *
+ pkg_cached_file(FILE *fd, const char *file)
+ {
+
+
+
+From zxombie at mail.berlios.de  Fri Jul 14 04:43:44 2006
+From: zxombie at mail.berlios.de (zxombie at BerliOS)
+Date: Fri, 14 Jul 2006 04:43:44 +0200
+Subject: [Libpkg-svn] r150 - tags
+Message-ID: <200607140243.k6E2hiXR027215@sheep.berlios.de>
+
+Author: zxombie
+Date: 2006-07-14 04:43:38 +0200 (Fri, 14 Jul 2006)
+New Revision: 150
+
+Added:
+   tags/libpkg-0.1.20060714/
+Log:
+Tag the 0.1.20060714 release
+
+Copied: tags/libpkg-0.1.20060714 (from rev 149, trunk)
+
+
+
+From zxombie at mail.berlios.de  Fri Jul 14 04:15:26 2006
+From: zxombie at mail.berlios.de (zxombie at BerliOS)
+Date: Fri, 14 Jul 2006 04:15:26 +0200
+Subject: [Libpkg-svn] r149 - trunk
+Message-ID: <200607140215.k6E2FQHM020723@sheep.berlios.de>
+
+Author: zxombie
+Date: 2006-07-14 04:15:17 +0200 (Fri, 14 Jul 2006)
+New Revision: 149
+
+Modified:
+   trunk/CHANGELOG
+Log:
+Update CHANGELOG
+
+
+Modified: trunk/CHANGELOG
+===================================================================
+--- trunk/CHANGELOG	2006-07-14 01:19:52 UTC (rev 148)
++++ trunk/CHANGELOG	2006-07-14 02:15:17 UTC (rev 149)
+@@ -1,3 +1,93 @@
++2006-07-14
++ * Add pkg_db_get_installed_match_count to retrieve upto count packages that match
++ * Implement pkg_info -W
++ * Add pkg_match_by_file to find (all) packages with a given file
++ * Fix a bug where pkgfile_new_from_disk could fail and return NULL
++ * Add support to compare the checksum of files with the checksum recorded in the package
++ * Use it to implement -g in pkg_info
++ * Remove an unneeded assert in pkg_info
++ * Implement pkg_freebsd_get_contents as a way to retrieve a packages contents file
++
++2006-06-25
++ * Add support for pkg_info -b and -s
++
++2006-06-24
++ * Change a pkgfile_get_data_all to pkgfile_get_size as we are interested in the size not the contents
++ * Fix show_file in pkg_info
++ * Display the seperator at the end of each package
++ * Implement pkg_info -l
++ * Implement pkg_info -e
++ * Use "const char *" for the origin string
++ * Remove an unneeded strdup from pkg_info
++ * Fix a memory leak and correct a string in the last revisio
++ * Implement pkg_info -O
++ * Remove unneeded __unused's
++ * Support selecting packages by shell glob in pkg_info
++ * Allow pkg_info -G to stop shell globbing
++ * Write the correct error message when MATCH_EXACT couldn't find the package
++ * Remove unused commented out functions
++ * Support pkg_get_next_file for installed FreeBSD packages
++ * Use pkg_get_next_file to implement pkg_info -L
++ * Fix memory bug where strdup was used with a buffer that may not end with a null
++
++2006-06-23
++ * Set the mode when writing a pkgfile
++ * Fix symlinks
++ * Move pkg_file.c to pkgfile.c to follow change in name of struct
++ * Rename pkg_file to pkgfile
++ * Rewrite the pkgfile_* functions to be easter to work with
++ * Build a debugging pkg_info
++ * Fix a typo
++ * Add comments on what should be happening
++
++2006-05-03
++ * When building a profiling pkg_add pull in the profiling system libraries
++
++2006-05-02
++ * Fix memory leaks in pkg_add
++ * Have pkg_add use the new pkg_repo_ftp syntax to keep the file when -K is used
++ * Add support to save the file fetched to a given directory
++ * Add pkg_cached_file defintion to pkg_private.h
++ * Close the file we are reading from when we close
++ * Remove the function definition for pkg_cached_file from pkg_util.c as it is also in pkg_private.h
++ * Fix memory leaks in pkg_freebsd objects
++
++2006-05-01
++ * Add a FILE object creator to cache the output of another FILE object
++
++2006-04-29
++ * Rename the pkg Doxygen group to pkg
++ * Add struct pkg and the enum from pkg.h to the Package group docs
++
++2006-04-26
++ * Generate the documentation
++ * Reduce the warnings from Doxygen
++
++2006-04-25
++ * Remove the old FreeBSD package installation backend
++ * Ignore @conflicts lines when installing
++ * Fix freebsd_get_deps return an array with only a NULL when a package has no dependencies
++ * Don't mutilate the +CONTENTS file before installing it. Cvs pkg_add dosn't so neither should we
++ * Register the reverse dependency of a package
++ * Make sure we exit in the same directory we entered in when installing packages
++ * Fix the check for fake installations when executing scripts
++ * Install files and fix the checks to se if this is a fake run
++ * Add a package registration callback to pkg_install
++ * Don't install files when @ignore was the previous line in the +CONTENTS file
++ * In pkg_db_freebsd make sure the last directory and file are initilised
++
++2006-04-24
++ * Reorder the line type enum to a more sensible order
++ * Add support to decode @display lines
++ * As there is no data associated with files make sure it is NULL
++ * Add pkg_action_null, a pkg_action callback to do nothing. This means the check to se if pkg_action is NULL can be removed
++ * Add pkg_install, an internal function to install packages. This removes the need to know the internals of a package from pkg_db.
++ * Make pkg_freebsd know how to install it's self to a given database by using the pkg_install function
++
++2006-04-21
++ * Add the start of a reworked package installation callback.
++ * Add support for executing a script that will check to see if the package can be installed
++
+ 2006-04-14
+  * Allow packages to be installed without registering the installation
+  * Use change 93 to implement the -R flag in pkg_add
+@@ -6,6 +96,7 @@
+  * Use pkg_set_prefix rather than a prefix variable in freebsd_install_pkg_action
+  * Add pkg_script_mtree and use if when installing package. This runs the mtree on the +MTREE_DIRS file
+  * In freebsd_run_script unlink(2) the script so rmdir(2) will remove the temp directory
++ * Remove problems that have been solved from the README
+ 
+ 2006-04-12
+  * Implement execution of pre/post installation scripts
+
+
+
+From zxombie at mail.berlios.de  Fri Jul 14 03:20:24 2006
+From: zxombie at mail.berlios.de (zxombie at BerliOS)
+Date: Fri, 14 Jul 2006 03:20:24 +0200
+Subject: [Libpkg-svn] r148 - trunk/src
+Message-ID: <200607140120.k6E1KOmW011547@sheep.berlios.de>
+
+Author: zxombie
+Date: 2006-07-14 03:19:52 +0200 (Fri, 14 Jul 2006)
+New Revision: 148
+
+Modified:
+   trunk/src/pkg_db.c
+   trunk/src/pkg_db.h
+   trunk/src/pkg_db_freebsd.c
+   trunk/src/pkg_db_private.h
+Log:
+Add pkg_db_get_installed_match_count to retrieve upto count packages that match
+
+
+Modified: trunk/src/pkg_db.c
+===================================================================
+--- trunk/src/pkg_db.c	2006-07-14 01:11:37 UTC (rev 147)
++++ trunk/src/pkg_db.c	2006-07-14 01:19:52 UTC (rev 148)
+@@ -206,8 +206,26 @@
+  * @return A null-terminated array of packages or NULL
+  */
+ struct pkg **
+-pkg_db_get_installed_match(struct pkg_db *db, pkg_db_match *match, const void *data)
++pkg_db_get_installed_match(struct pkg_db *db, pkg_db_match *match,
++    const void *data)
+ {
++	return pkg_db_get_installed_match_count(db, match, 0, data);
++}
++
++/**
++ * @brief Retrieve a NULL terminated array of up to count installed
++ *     packages that match accepts
++ * @param db The database to get the installed packages from
++ * @param match A function that is passed each package and returns 0 if
++ *     the package is wanted in the array
++ * @param count The maximum number of packages to return or 0 to return all
++ * @param data Data to be passed to match
++ * @return A null-terminated array of packages or NULL
++ */
++struct pkg **
++pkg_db_get_installed_match_count(struct pkg_db *db, pkg_db_match *match,
++    unsigned int count, const void *data)
++{
+ 	if (!db)
+ 		return NULL;
+ 
+@@ -215,7 +233,7 @@
+ 		match = pkg_match_all;
+ 
+ 	if (db->pkg_get_installed_match)
+-		return db->pkg_get_installed_match(db, match, data);
++		return db->pkg_get_installed_match(db, match, count, data);
+ 
+ 	return NULL;
+ }
+
+Modified: trunk/src/pkg_db.h
+===================================================================
+--- trunk/src/pkg_db.h	2006-07-14 01:11:37 UTC (rev 147)
++++ trunk/src/pkg_db.h	2006-07-14 01:19:52 UTC (rev 148)
+@@ -55,6 +55,8 @@
+ struct pkg	**pkg_db_get_installed(struct pkg_db *);
+ struct pkg	**pkg_db_get_installed_match(struct pkg_db *, pkg_db_match *,
+ 			const void *);
++struct pkg	**pkg_db_get_installed_match_count(struct pkg_db *,
++			pkg_db_match *, unsigned int, const void *);
+ struct pkg	 *pkg_db_get_package(struct pkg_db *, const char *);
+ int		  pkg_db_free(struct pkg_db *);
+ 
+
+Modified: trunk/src/pkg_db_freebsd.c
+===================================================================
+--- trunk/src/pkg_db_freebsd.c	2006-07-14 01:11:37 UTC (rev 147)
++++ trunk/src/pkg_db_freebsd.c	2006-07-14 01:19:52 UTC (rev 148)
+@@ -73,7 +73,7 @@
+ 				struct pkg *, int, int, pkg_db_action *);
+ pkg_static int		  freebsd_is_installed(struct pkg_db *, struct pkg *);
+ pkg_static struct pkg	**freebsd_get_installed_match(struct pkg_db *,
+-				pkg_db_match *, const void *);
++				pkg_db_match *, unsigned int, const void *);
+ pkg_static struct pkg	 *freebsd_get_package(struct pkg_db *, const char *);	
+ 
+ /* pkg_install callbacks */
+@@ -227,7 +227,7 @@
+ 	/* Does the package have an origin and if so is that origin installed */
+ 	if (pkg_get_origin(pkg) != NULL) {
+ 		pkgs = freebsd_get_installed_match(db, pkg_match_by_origin,
+-		    (const void *)pkg_get_origin(pkg));
++		    0, (const void *)pkg_get_origin(pkg));
+ 		if (pkgs[0] != NULL)
+ 			is_installed = 0;
+ 		pkg_list_free(pkgs);
+@@ -241,7 +241,8 @@
+  *     function it returns 0. NULL on error
+  */
+ static struct pkg **
+-freebsd_get_installed_match(struct pkg_db *db, pkg_db_match *match, const void *data)
++freebsd_get_installed_match(struct pkg_db *db, pkg_db_match *match,
++    unsigned int count, const void *data)
+ {
+ 	DIR *d;
+ 	struct dirent *de;
+@@ -284,6 +285,10 @@
+ 			packages[packages_pos] = pkg;
+ 			packages_pos++;
+ 			packages[packages_pos] = NULL;
++
++			/* Stop after count packages */
++			if (count != 0 && packages_pos == count + 1)
++				break;
+ 		} else
+ 			pkg_free(pkg);
+ 		free(dir);
+
+Modified: trunk/src/pkg_db_private.h
+===================================================================
+--- trunk/src/pkg_db_private.h	2006-07-14 01:11:37 UTC (rev 147)
++++ trunk/src/pkg_db_private.h	2006-07-14 01:19:52 UTC (rev 148)
+@@ -36,7 +36,7 @@
+ typedef struct pkg	 *pkg_db_get_package_callback(struct pkg_db *,
+ 				const char *);
+ typedef struct pkg	**pkg_db_get_installed_match_callback(struct pkg_db *,
+-				pkg_db_match *, const void *);
++				pkg_db_match *, unsigned int, const void *);
+ 
+ 
+ struct pkg_db	*pkg_db_open(const char *, pkg_db_install_pkg_callback *,
+
+
+
+From zxombie at mail.berlios.de  Fri Jul 14 03:11:41 2006
+From: zxombie at mail.berlios.de (zxombie at BerliOS)
+Date: Fri, 14 Jul 2006 03:11:41 +0200
+Subject: [Libpkg-svn] r147 - trunk/tools/pkg_info
+Message-ID: <200607140111.k6E1Bf1X009940@sheep.berlios.de>
+
+Author: zxombie
+Date: 2006-07-14 03:11:37 +0200 (Fri, 14 Jul 2006)
+New Revision: 147
+
+Modified:
+   trunk/tools/pkg_info/main.c
+   trunk/tools/pkg_info/pkg_info.h
+Log:
+Implement pkg_info -W
+
+All flags except -t should now be implemented. I can't find how to use -t in FreeBSD cvs pkg_info
+
+
+Modified: trunk/tools/pkg_info/main.c
+===================================================================
+--- trunk/tools/pkg_info/main.c	2006-07-13 13:37:09 UTC (rev 146)
++++ trunk/tools/pkg_info/main.c	2006-07-14 01:11:37 UTC (rev 147)
+@@ -46,6 +46,7 @@
+ 	info.check_package = NULL;
+ 	info.seperator = "";
+ 	info.use_blocksize = 0;
++	info.search_file = NULL;
+ 
+ 	if (argc == 1) {
+ 		info.match_type = MATCH_ALL;
+@@ -146,7 +147,7 @@
+ 				info.flags |= SHOW_FMTREV;
+ 				break;
+ 			case 'W':
+-				errx(1, "Unsupported argument");
++				info.search_file = optarg;
+ 				break;
+ 			case 'x':
+ 				info.match_type = MATCH_REGEX;
+@@ -206,6 +207,7 @@
+ 	retval = 1;
+ 	pkgs = NULL;
+ 
++	/* -e package name */
+ 	if (info.check_package != NULL) {
+ 		struct pkg *pkg;
+ 		pkg = pkg_db_get_package(info.db, info.check_package);
+@@ -215,6 +217,25 @@
+ 		}
+ 		return 1;
+ 	}
++
++	/* -W <filename> */
++	if (info.search_file != NULL) {
++		struct stat sb;
++
++		if (stat(info.search_file, &sb) != 0) {
++			/* XXX */
++			return 1;
++		}
++		pkgs = pkg_db_get_installed_match_count(info.db,
++		    pkg_match_by_file, 1, (const void *)info.search_file);
++		if (info.quiet == 0)
++			printf("The following installed package(s) has %s "
++			    "origin:\n", info.origin);
++		printf("%s\n", pkg_get_name(pkgs[0]));
++		return 0;
++	}
++
++	/* -O <origin> */
+ 	if (info.origin != NULL) {
+ 		unsigned int pos;
+ 		pkgs = pkg_db_get_installed_match(info.db, pkg_match_by_origin,
+
+Modified: trunk/tools/pkg_info/pkg_info.h
+===================================================================
+--- trunk/tools/pkg_info/pkg_info.h	2006-07-13 13:37:09 UTC (rev 146)
++++ trunk/tools/pkg_info/pkg_info.h	2006-07-14 01:11:37 UTC (rev 147)
+@@ -76,6 +76,7 @@
+ 	int	  use_blocksize;
+ 	const char *check_package;
+ 	const char *origin;
++	const char *search_file;
+ 	const char *seperator;
+ };
+ 
+
+
+
+From zxombie at mail.berlios.de  Fri Jul 21 06:34:02 2006
+From: zxombie at mail.berlios.de (zxombie at BerliOS)
+Date: Fri, 21 Jul 2006 06:34:02 +0200
+Subject: [Libpkg-svn] r153 - trunk/src
+Message-ID: <200607210434.k6L4Y2V1002840@sheep.berlios.de>
+
+Author: zxombie
+Date: 2006-07-21 06:33:59 +0200 (Fri, 21 Jul 2006)
+New Revision: 153
+
+Modified:
+   trunk/src/pkg_private.h
+   trunk/src/pkgfile.c
+Log:
+Allow a file to be fopen'ed only when it is needed
+
+
+Modified: trunk/src/pkg_private.h
+===================================================================
+--- trunk/src/pkg_private.h	2006-07-14 06:38:44 UTC (rev 152)
++++ trunk/src/pkg_private.h	2006-07-21 04:33:59 UTC (rev 153)
+@@ -35,10 +35,17 @@
+ 
+ int archive_read_open_stream(struct archive *, FILE *, size_t);
+ 
++/* Package file location */
++typedef enum {
++	pkgfile_loc_disk,
++	pkgfile_loc_mem
++} pkgfile_loc;
++
+ /** @todo Reorder the struct to remove alignment gaps */
+ struct pkgfile {
+ 	char		*name;
+ 	pkgfile_type	 type;
++	pkgfile_loc	 loc;
+ 	FILE		*fd;
+ 	char		*data;
+ 	uint64_t	 length;
+@@ -53,7 +60,7 @@
+ /* Main callbacks used in most packages */
+ typedef struct pkg	**pkg_get_dependencies_callback(struct pkg *);
+ typedef struct pkgfile	**pkg_get_control_files_callback(struct pkg *);
+-typedef struct pkgfile  *pkg_get_control_file_callback(struct pkg *,
++typedef struct pkgfile   *pkg_get_control_file_callback(struct pkg *,
+ 				const char *);
+ typedef int		  pkg_free_callback(struct pkg *);
+ 
+
+Modified: trunk/src/pkgfile.c
+===================================================================
+--- trunk/src/pkgfile.c	2006-07-14 06:38:44 UTC (rev 152)
++++ trunk/src/pkgfile.c	2006-07-21 04:33:59 UTC (rev 153)
+@@ -42,7 +42,8 @@
+ #include "pkg.h"
+ #include "pkg_private.h"
+ 
+-static struct pkgfile*  pkgfile_new(const char *, pkgfile_type);
++static struct pkgfile	*pkgfile_new(const char *, pkgfile_type, pkgfile_loc);
++static int		 pkgfile_open_fd(struct pkgfile *file);
+ 
+ /**
+  * @defgroup PackageFileInternal Internal file functions
+@@ -56,7 +57,7 @@
+  * @return A new pkgfile object or NULL
+  */
+ static struct pkgfile*
+-pkgfile_new(const char *filename, pkgfile_type type)
++pkgfile_new(const char *filename, pkgfile_type type, pkgfile_loc location)
+ {
+ 	struct pkgfile *file;
+ 
+@@ -71,6 +72,7 @@
+ 	}
+ 
+ 	file->type = type;
++	file->loc = location;
+ 	file->fd = NULL;
+ 	file->data = NULL;
+ 	file->length = 0;
+@@ -81,6 +83,37 @@
+ }
+ 
+ /**
++ * @brief Creates a FILE pointer in the given pkgfile object
++ * @return  0 On success
++ * @return -1 On error
++ */
++static int
++pkgfile_open_fd(struct pkgfile *file)
++{
++	/* Consistancy check */
++	assert(file != NULL);
++	assert(file->loc == pkgfile_loc_disk);
++	assert(file->data == NULL);
++
++	/* Check if the file has already been opened */
++	if (file->fd != NULL)
++		return 0;
++
++	/* Open the file read write */
++	file->fd = fopen(file->name, "r+");
++	if (file->fd == NULL) {
++		/* Attempt to open file read only */
++		file->fd = fopen(file->name, "r");
++	}
++
++	/* If we failed return -1 */
++	if (file->fd == NULL)
++		return -1;
++
++	return 0;
++}
++
++/**
+  * @}
+  */
+ 
+@@ -105,22 +138,12 @@
+ 	if (i != 0)
+ 		return NULL;
+ 
+-	file = pkgfile_new(filename, pkgfile_none);
++	file = pkgfile_new(filename, pkgfile_none, pkgfile_loc_disk);
+ 	if (file == NULL)
+ 		return NULL;
+ 	
+ 	if (S_ISREG(sb.st_mode) || (follow_link && S_ISLNK(sb.st_mode))) {
+ 		file->type = pkgfile_regular;
+-		/* Attempt to open file read/write */
+-		file->fd = fopen(file->name, "r+");
+-		if (file->fd == NULL) {
+-			/* Attempt to open file read only */
+-			file->fd = fopen(file->name, "r");
+-			if (file->fd == NULL) {
+-				pkgfile_free(file);
+-				return NULL;
+-			}
+-		}
+ 	} else if(S_ISLNK(sb.st_mode)) {
+ 		file->type = pkgfile_symlink;
+ 	} else if (S_ISDIR(sb.st_mode)) {
+@@ -145,7 +168,7 @@
+ 	if (name == NULL || (contents == NULL && length > 0))
+ 		return NULL;
+ 
+-	file = pkgfile_new(name, pkgfile_regular);
++	file = pkgfile_new(name, pkgfile_regular, pkgfile_loc_mem);
+ 	if (file == NULL)
+ 		return NULL;
+ 
+@@ -173,7 +196,7 @@
+ 	if (file == NULL || data == NULL)
+ 		return NULL;
+ 
+-	pkgfile = pkgfile_new(file, pkgfile_symlink);
++	pkgfile = pkgfile_new(file, pkgfile_symlink, pkgfile_loc_mem);
+ 	if (pkgfile == NULL)
+ 		return NULL;
+ 
+@@ -198,7 +221,7 @@
+ 	if (file == NULL || other_file == NULL)
+ 		return NULL;
+ 
+-	pkgfile = pkgfile_new(file, pkgfile_hardlink);
++	pkgfile = pkgfile_new(file, pkgfile_hardlink, pkgfile_loc_mem);
+ 	if (pkgfile == NULL)
+ 		return NULL;
+ 
+@@ -223,7 +246,7 @@
+ 	if (dir == NULL)
+ 		return NULL;
+ 
+-	file = pkgfile_new(dir, pkgfile_dir);
++	file = pkgfile_new(dir, pkgfile_dir, pkgfile_loc_mem);
+ 	if (file == NULL)
+ 		return NULL;
+ 
+@@ -268,8 +291,10 @@
+ 		case pkgfile_hardlink:
+ 			break;
+ 		case pkgfile_regular:
+-			if (file->fd != NULL) {
++			if (file->loc == pkgfile_loc_disk) {
+ 				struct stat sb;
++
++				pkgfile_open_fd(file);
+ 				fstat(fileno(file->fd), &sb);
+ 				return sb.st_size;
+ 			} else if (file->data != NULL) {
+@@ -312,13 +337,14 @@
+ 			data = malloc(length);
+ 			if (data == NULL)
+ 				return NULL;
+-			if (file->fd != NULL) {
++			if (file->loc == pkgfile_loc_disk) {
+ 				/*
+ 				 * Read up to length bytes
+ 				 * from the file to data
+ 				 */
+ 				size_t len;
+ 
++				pkgfile_open_fd(file);
+ 				len = fread(data, 1, length, file->fd);
+ 			} else if (file->data != NULL) {
+ 				memcpy(data, file->data, length);
+@@ -407,10 +433,13 @@
+ 	assert(file->type != pkgfile_dir);
+ 
+ 	if (file->type == pkgfile_regular) {
+-		assert(file->fd != NULL);
++		assert(file->loc == pkgfile_loc_disk);
++		pkgfile_open_fd(file);
+ 		if (file->fd != NULL) {
+ 			if (fseek(file->fd, position, whence) != 0)
+ 				return -1;
++		} else {
++			return -1;
+ 		}
+ 	}
+ 	return 0;
+@@ -450,7 +479,7 @@
+ 	case pkgfile_none:
+ 		break;
+ 	case pkgfile_regular:
+-		if (file->data != NULL) {
++		if (file->loc == pkgfile_loc_mem && file->data != NULL) {
+ 			uint64_t length;
+ 			struct stat sb;
+ 			size_t write_size;
+
+
+
+From zxombie at mail.berlios.de  Fri Jul 21 06:58:14 2006
+From: zxombie at mail.berlios.de (zxombie at BerliOS)
+Date: Fri, 21 Jul 2006 06:58:14 +0200
+Subject: [Libpkg-svn] r154 - trunk/src
+Message-ID: <200607210458.k6L4wErP010658@sheep.berlios.de>
+
+Author: zxombie
+Date: 2006-07-21 06:58:00 +0200 (Fri, 21 Jul 2006)
+New Revision: 154
+
+Modified:
+   trunk/src/pkg_private.h
+   trunk/src/pkgfile.c
+Log:
+Push the lstat call into pkgfile_open_fd
+
+This makes pkg_info -W a lot faster it now tages around 1 second to to find the last file of aroung 580 packages
+
+
+Modified: trunk/src/pkg_private.h
+===================================================================
+--- trunk/src/pkg_private.h	2006-07-21 04:33:59 UTC (rev 153)
++++ trunk/src/pkg_private.h	2006-07-21 04:58:00 UTC (rev 154)
+@@ -46,6 +46,7 @@
+ 	char		*name;
+ 	pkgfile_type	 type;
+ 	pkgfile_loc	 loc;
++	int		 follow_link;
+ 	FILE		*fd;
+ 	char		*data;
+ 	uint64_t	 length;
+
+Modified: trunk/src/pkgfile.c
+===================================================================
+--- trunk/src/pkgfile.c	2006-07-21 04:33:59 UTC (rev 153)
++++ trunk/src/pkgfile.c	2006-07-21 04:58:00 UTC (rev 154)
+@@ -73,6 +73,7 @@
+ 
+ 	file->type = type;
+ 	file->loc = location;
++	file->follow_link = 0;
+ 	file->fd = NULL;
+ 	file->data = NULL;
+ 	file->length = 0;
+@@ -95,21 +96,44 @@
+ 	assert(file->loc == pkgfile_loc_disk);
+ 	assert(file->data == NULL);
+ 
+-	/* Check if the file has already been opened */
+-	if (file->fd != NULL)
+-		return 0;
++	/* Find the file type */
++	if (file->type == pkgfile_none) {
++		struct stat sb;
+ 
+-	/* Open the file read write */
+-	file->fd = fopen(file->name, "r+");
+-	if (file->fd == NULL) {
+-		/* Attempt to open file read only */
+-		file->fd = fopen(file->name, "r");
++		if (lstat(file->name, &sb) != 0)
++			return -1;
++
++		if (S_ISREG(sb.st_mode) ||
++		    (file->follow_link && S_ISLNK(sb.st_mode))) {
++			file->type = pkgfile_regular;
++		} else if(S_ISLNK(sb.st_mode)) {
++			file->type = pkgfile_symlink;
++		} else if (S_ISDIR(sb.st_mode)) {
++			file->type = pkgfile_dir;
++		} else {
++			return -1;
++		}
+ 	}
+ 
+-	/* If we failed return -1 */
+-	if (file->fd == NULL)
+-		return -1;
++	if (file->type == pkgfile_regular) {
++		/* Check if the file has already been opened */
++		if (file->fd != NULL)
++			return 0;
+ 
++		/* Open the file read write */
++		file->fd = fopen(file->name, "r+");
++		if (file->fd == NULL) {
++			/* Attempt to open file read only */
++			file->fd = fopen(file->name, "r");
++		}
++
++		/* If we failed return -1 */
++		if (file->fd == NULL) {
++			return -1;
++		}
++
++	}
++
+ 	return 0;
+ }
+ 
+@@ -129,30 +153,14 @@
+ struct pkgfile *
+ pkgfile_new_from_disk(const char *filename, int follow_link)
+ {
+-	struct stat sb;
+ 	struct pkgfile *file;
+-	int i;
+ 
+-	errno = 0;
+-	i = lstat(filename, &sb);
+-	if (i != 0)
+-		return NULL;
+-
+ 	file = pkgfile_new(filename, pkgfile_none, pkgfile_loc_disk);
+ 	if (file == NULL)
+ 		return NULL;
+-	
+-	if (S_ISREG(sb.st_mode) || (follow_link && S_ISLNK(sb.st_mode))) {
+-		file->type = pkgfile_regular;
+-	} else if(S_ISLNK(sb.st_mode)) {
+-		file->type = pkgfile_symlink;
+-	} else if (S_ISDIR(sb.st_mode)) {
+-		file->type = pkgfile_dir;
+-	} else {
+-		pkgfile_free(file);
+-		return NULL;
+-	}
+ 
++	file->follow_link = follow_link;
++
+ 	return file;
+ }
+ 
+@@ -281,6 +289,9 @@
+ 	if (file == NULL)
+ 		return 0;
+ 
++	if (file->loc == pkgfile_loc_disk)
++		pkgfile_open_fd(file);
++
+ 	assert(file->type != pkgfile_none);
+ 	assert(file->type != pkgfile_hardlink);
+ 	assert(file->type != pkgfile_dir);
+@@ -294,7 +305,6 @@
+ 			if (file->loc == pkgfile_loc_disk) {
+ 				struct stat sb;
+ 
+-				pkgfile_open_fd(file);
+ 				fstat(fileno(file->fd), &sb);
+ 				return sb.st_size;
+ 			} else if (file->data != NULL) {
+@@ -323,6 +333,9 @@
+ 	if (file == NULL)
+ 		return NULL;
+ 
++	if (file->loc == pkgfile_loc_disk)
++		pkgfile_open_fd(file);
++
+ 	assert(file->type != pkgfile_none);
+ 	assert(file->type != pkgfile_hardlink);
+ 	assert(file->type != pkgfile_dir);
+@@ -344,7 +357,6 @@
+ 				 */
+ 				size_t len;
+ 
+-				pkgfile_open_fd(file);
+ 				len = fread(data, 1, length, file->fd);
+ 			} else if (file->data != NULL) {
+ 				memcpy(data, file->data, length);
+@@ -387,6 +399,9 @@
+ 	if (file == NULL || file->md5[0] == '\0')
+ 		return -1;
+ 
++	if (file->loc == pkgfile_loc_disk)
++		pkgfile_open_fd(file);
++
+ 	assert(file->type != pkgfile_none);
+ 	assert(file->type != pkgfile_hardlink);
+ 	assert(file->type != pkgfile_symlink);
+@@ -427,6 +442,9 @@
+ 	if (file == NULL)
+ 		return -1;
+ 
++	if (file->loc == pkgfile_loc_disk)
++		pkgfile_open_fd(file);
++
+ 	assert(file->type != pkgfile_none);
+ 	assert(file->type != pkgfile_hardlink);
+ 	assert(file->type != pkgfile_symlink);
+@@ -434,7 +452,6 @@
+ 
+ 	if (file->type == pkgfile_regular) {
+ 		assert(file->loc == pkgfile_loc_disk);
+-		pkgfile_open_fd(file);
+ 		if (file->fd != NULL) {
+ 			if (fseek(file->fd, position, whence) != 0)
+ 				return -1;
+@@ -471,6 +488,9 @@
+ 	if (file == NULL)
+ 		return -1;
+ 
++	if (file->loc == pkgfile_loc_disk)
++		pkgfile_open_fd(file);
++
+ 	assert(file->type != pkgfile_none);
+ 	assert(file->type != pkgfile_hardlink);
+ 	assert(file->type != pkgfile_dir);
+
+
+
+From zxombie at mail.berlios.de  Fri Jul 21 07:27:45 2006
+From: zxombie at mail.berlios.de (zxombie at BerliOS)
+Date: Fri, 21 Jul 2006 07:27:45 +0200
+Subject: [Libpkg-svn] r155 - trunk/src
+Message-ID: <200607210527.k6L5RjkL018054@sheep.berlios.de>
+
+Author: zxombie
+Date: 2006-07-21 07:27:39 +0200 (Fri, 21 Jul 2006)
+New Revision: 155
+
+Modified:
+   trunk/src/pkg_freebsd.c
+   trunk/src/pkgfile.c
+Log:
+Remove an unneeded printf
+Add a comment on an if statement meaning
+
+
+Modified: trunk/src/pkg_freebsd.c
+===================================================================
+--- trunk/src/pkg_freebsd.c	2006-07-21 04:58:00 UTC (rev 154)
++++ trunk/src/pkg_freebsd.c	2006-07-21 05:27:39 UTC (rev 155)
+@@ -597,6 +597,7 @@
+ 		file = fpkg->next_file;
+ 		fpkg->next_file = NULL;
+ 	} else if (fpkg->archive == NULL)  {
++		/* Read the file from disk */
+ 		freebsd_parse_contents(fpkg);
+ 		while (fpkg->line < fpkg->contents->line_count) {
+ 			if (fpkg->contents->lines[fpkg->line].line_type ==
+
+Modified: trunk/src/pkgfile.c
+===================================================================
+--- trunk/src/pkgfile.c	2006-07-21 04:58:00 UTC (rev 154)
++++ trunk/src/pkgfile.c	2006-07-21 05:27:39 UTC (rev 155)
+@@ -425,7 +425,6 @@
+ 			if (strncmp(checksum, file->md5, 32) == 0)
+ 				return 0;
+ 
+-			printf("%s\n%s\n\n", checksum, file->name);
+ 			return 1;
+ 		}
+ 	}
+
+
+
+From zxombie at mail.berlios.de  Fri Jul 21 08:35:43 2006
+From: zxombie at mail.berlios.de (zxombie at BerliOS)
+Date: Fri, 21 Jul 2006 08:35:43 +0200
+Subject: [Libpkg-svn] r156 - trunk/src
+Message-ID: <200607210635.k6L6Zh39004630@sheep.berlios.de>
+
+Author: zxombie
+Date: 2006-07-21 08:35:40 +0200 (Fri, 21 Jul 2006)
+New Revision: 156
+
+Modified:
+   trunk/src/pkg.h
+   trunk/src/pkg_util.c
+Log:
+Add pkg_abspath to return the absolute path of an object
+
+
+Modified: trunk/src/pkg.h
+===================================================================
+--- trunk/src/pkg.h	2006-07-21 05:27:39 UTC (rev 155)
++++ trunk/src/pkg.h	2006-07-21 06:35:40 UTC (rev 156)
+@@ -117,5 +117,6 @@
+ /**
+  * @}
+  */
++char	*pkg_abspath(const char *);
+ 
+ #endif /* __LIBPKG_PKG_H__ */
+
+Modified: trunk/src/pkg_util.c
+===================================================================
+--- trunk/src/pkg_util.c	2006-07-21 05:27:39 UTC (rev 155)
++++ trunk/src/pkg_util.c	2006-07-21 06:35:40 UTC (rev 156)
+@@ -30,8 +30,10 @@
+ #include <sys/cdefs.h>
+ __FBSDID("$FreeBSD$");
+ 
++#include <sys/param.h>
+ #include <sys/stat.h>
+ 
++#include <assert.h>
+ #include <err.h>
+ #include <errno.h>
+ #include <md5.h>
+@@ -107,6 +109,53 @@
+ }
+ 
+ /**
++ * @brief Creates an absolute pathname from a relative name
++ *
++ * Creates an absolute path, additionally removing all .'s, ..'s, and extraneous
++ * /'s, as realpath() would, but without resolving symlinks.
++ * @return The absolute pathname
++ * @return NULL on error
++ */
++char *
++pkg_abspath(const char *pathname)
++{
++	char *tmp, *tmp1, *resolved_path;
++	char *cwd = NULL;
++	int len;
++
++	assert(pathname != NULL);
++
++	if (pathname[0] != '/') {
++		cwd = getcwd(NULL, MAXPATHLEN);
++		asprintf(&resolved_path, "%s/%s/", cwd, pathname);
++		free(cwd);    
++	} else
++		asprintf(&resolved_path, "%s/", pathname);
++
++	if (resolved_path == NULL)
++		return NULL;
++
++	while ((tmp = strstr(resolved_path, "//")) != NULL)
++		strcpy(tmp, tmp + 1);
++ 
++	while ((tmp = strstr(resolved_path, "/./")) != NULL)
++		strcpy(tmp, tmp + 2);
++ 
++	while ((tmp = strstr(resolved_path, "/../")) != NULL) {
++		*tmp = '\0';
++		if ((tmp1 = strrchr(resolved_path, '/')) == NULL)
++			tmp1 = resolved_path;
++		strcpy(tmp1, tmp + 3);
++	}
++
++	len = strlen(resolved_path);
++	if (len > 1 && resolved_path[len - 1] == '/')
++		resolved_path[len - 1] = '\0';
++
++	return resolved_path;
++}
++
++/**
+  * @brief Checks a file against a given md5 checksum
+  * @return 0 if the file matches the checksum, or -1 otherwise
+  */
+
+
+
+From zxombie at mail.berlios.de  Fri Jul 21 08:38:26 2006
+From: zxombie at mail.berlios.de (zxombie at BerliOS)
+Date: Fri, 21 Jul 2006 08:38:26 +0200
+Subject: [Libpkg-svn] r157 - trunk/tools/pkg_info
+Message-ID: <200607210638.k6L6cQ2V005381@sheep.berlios.de>
+
+Author: zxombie
+Date: 2006-07-21 08:38:23 +0200 (Fri, 21 Jul 2006)
+New Revision: 157
+
+Modified:
+   trunk/tools/pkg_info/main.c
+Log:
+Use pkg_abspath to get a file's absolute path
+Fix a string in copied code
+
+
+Modified: trunk/tools/pkg_info/main.c
+===================================================================
+--- trunk/tools/pkg_info/main.c	2006-07-21 06:35:40 UTC (rev 156)
++++ trunk/tools/pkg_info/main.c	2006-07-21 06:38:23 UTC (rev 157)
+@@ -147,6 +147,7 @@
+ 				info.flags |= SHOW_FMTREV;
+ 				break;
+ 			case 'W':
++				/* XXX Allow multiple -W files */
+ 				info.search_file = optarg;
+ 				break;
+ 			case 'x':
+@@ -221,17 +222,20 @@
+ 	/* -W <filename> */
+ 	if (info.search_file != NULL) {
+ 		struct stat sb;
++		char *abs_path;
+ 
+-		if (stat(info.search_file, &sb) != 0) {
++		abs_path = pkg_abspath(info.search_file);
++		if (stat(abs_path, &sb) != 0) {
+ 			/* XXX */
++			free(abs_path);
+ 			return 1;
+ 		}
+ 		pkgs = pkg_db_get_installed_match_count(info.db,
+-		    pkg_match_by_file, 1, (const void *)info.search_file);
++		    pkg_match_by_file, 1, (const void *)abs_path);
+ 		if (info.quiet == 0)
+-			printf("The following installed package(s) has %s "
+-			    "origin:\n", info.origin);
++			printf("%s was installed by package ", abs_path);
+ 		printf("%s\n", pkg_get_name(pkgs[0]));
++		free(abs_path);
+ 		return 0;
+ 	}
+ 
+
+
+
+From zxombie at mail.berlios.de  Sat Jul 22 09:51:52 2006
+From: zxombie at mail.berlios.de (zxombie at BerliOS)
+Date: Sat, 22 Jul 2006 09:51:52 +0200
+Subject: [Libpkg-svn] r158 - in trunk: src tools/pkg_add
+Message-ID: <200607220751.k6M7pqf9001493@sheep.berlios.de>
+
+Author: zxombie
+Date: 2006-07-22 09:51:51 +0200 (Sat, 22 Jul 2006)
+New Revision: 158
+
+Modified:
+   trunk/src/pkg_db.c
+   trunk/src/pkg_db.h
+   trunk/src/pkg_db_freebsd.c
+   trunk/src/pkg_db_private.h
+   trunk/tools/pkg_add/main.c
+Log:
+Allow the setting of the prefix of a package
+Use the new api to implement pkg_add -p and -P
+
+
+Modified: trunk/src/pkg_db.c
+===================================================================
+--- trunk/src/pkg_db.c	2006-07-21 06:38:23 UTC (rev 157)
++++ trunk/src/pkg_db.c	2006-07-22 07:51:51 UTC (rev 158)
+@@ -127,12 +127,17 @@
+ 
+ /**
+  * @brief Installs a package to the database
++ * @param db The database to install to
++ * @param pkg The package to install
++ * @param prefix The prefix to use to install the package or NULL
++ * @param reg If true register the package's installation
+  * @return 0 on success, -1 on error
+  */
+ int
+-pkg_db_install_pkg(struct pkg_db *db, struct pkg *pkg, int reg)
++pkg_db_install_pkg(struct pkg_db *db, struct pkg *pkg, const char *prefix,
++	int reg)
+ {
+-	return pkg_db_install_pkg_action(db, pkg, reg, 0, NULL);
++	return pkg_db_install_pkg_action(db, pkg, prefix, reg, 0, NULL);
+ }
+ 
+ /**
+@@ -147,8 +152,8 @@
+  * @return 0 if the package is installed, -1 otherwise
+  */
+ int
+-pkg_db_install_pkg_action(struct pkg_db *db, struct pkg *pkg, int reg, int fake,
+-    pkg_db_action *action)
++pkg_db_install_pkg_action(struct pkg_db *db, struct pkg *pkg,
++    const char *prefix, int reg, int fake, pkg_db_action *action)
+ {
+ 	if (!db) {
+ 		return -1;
+@@ -165,7 +170,7 @@
+ 	if (action == NULL)
+ 		action = pkg_action_null;
+ 
+-	return db->pkg_install(db, pkg, reg, fake, action);
++	return db->pkg_install(db, pkg, prefix, reg, fake, action);
+ }
+ 
+ /**
+
+Modified: trunk/src/pkg_db.h
+===================================================================
+--- trunk/src/pkg_db.h	2006-07-21 06:38:23 UTC (rev 157)
++++ trunk/src/pkg_db.h	2006-07-22 07:51:51 UTC (rev 158)
+@@ -48,9 +48,10 @@
+ typedef		  void pkg_db_action(int, const char *, ...);
+ 
+ struct pkg_db	 *pkg_db_open_freebsd(const char *);
+-int		  pkg_db_install_pkg(struct pkg_db *, struct pkg *, int);
+-int		  pkg_db_install_pkg_action(struct pkg_db *, struct pkg *, int,
+-			int, pkg_db_action *);
++int		  pkg_db_install_pkg(struct pkg_db *, struct pkg *,
++			const char *, int);
++int		  pkg_db_install_pkg_action(struct pkg_db *, struct pkg *,
++			const char *, int, int, pkg_db_action *);
+ int		  pkg_db_is_installed(struct pkg_db *, struct pkg *);
+ struct pkg	**pkg_db_get_installed(struct pkg_db *);
+ struct pkg	**pkg_db_get_installed_match(struct pkg_db *, pkg_db_match *,
+
+Modified: trunk/src/pkg_db_freebsd.c
+===================================================================
+--- trunk/src/pkg_db_freebsd.c	2006-07-21 06:38:23 UTC (rev 157)
++++ trunk/src/pkg_db_freebsd.c	2006-07-22 07:51:51 UTC (rev 158)
+@@ -70,7 +70,8 @@
+ };
+ 
+ pkg_static int		  freebsd_install_pkg_action(struct pkg_db *,
+-				struct pkg *, int, int, pkg_db_action *);
++				struct pkg *, const char *, int, int,
++				pkg_db_action *);
+ pkg_static int		  freebsd_is_installed(struct pkg_db *, struct pkg *);
+ pkg_static struct pkg	**freebsd_get_installed_match(struct pkg_db *,
+ 				pkg_db_match *, unsigned int, const void *);
+@@ -134,8 +135,8 @@
+  * @return 0 on success, -1 on error
+  */
+ static int
+-freebsd_install_pkg_action(struct pkg_db *db, struct pkg *pkg, int reg,
+-    int fake, pkg_db_action *pkg_action)
++freebsd_install_pkg_action(struct pkg_db *db, struct pkg *pkg,
++    const char *prefix __unused, int reg, int fake, pkg_db_action *pkg_action)
+ {
+ 	struct pkg_install_data install_data;
+ 	char cwd[MAXPATHLEN];
+
+Modified: trunk/src/pkg_db_private.h
+===================================================================
+--- trunk/src/pkg_db_private.h	2006-07-21 06:38:23 UTC (rev 157)
++++ trunk/src/pkg_db_private.h	2006-07-22 07:51:51 UTC (rev 158)
+@@ -30,8 +30,8 @@
+ #ifndef __LIBPKG_PKG_DB_PRIVATE_H__
+ #define __LIBPKG_PKG_DB_PRIVATE_H__
+ 
+-typedef int	 pkg_db_install_pkg_callback(struct pkg_db *, struct pkg *, int,
+-			int, pkg_db_action *);
++typedef int	 pkg_db_install_pkg_callback(struct pkg_db *, struct pkg *, 
++			const char *, int, int, pkg_db_action *);
+ typedef int 	 pkg_db_is_installed_callback(struct pkg_db *, struct pkg *);
+ typedef struct pkg	 *pkg_db_get_package_callback(struct pkg_db *,
+ 				const char *);
+
+Modified: trunk/tools/pkg_add/main.c
+===================================================================
+--- trunk/tools/pkg_add/main.c	2006-07-21 06:38:23 UTC (rev 157)
++++ trunk/tools/pkg_add/main.c	2006-07-22 07:51:51 UTC (rev 158)
+@@ -44,6 +44,8 @@
+ 	struct pkg	**pkgs;
+ 	int		  flags;
+ 	char		  chroot[PATH_MAX];
++	char		 *base_prefix;
++	char		 *prefix;
+ };
+ 
+ /* A linked list of packages that have been installed */
+@@ -58,7 +60,8 @@
+ 
+ static void usage(void);
+ static int pkg_add(struct pkg_add);
+-static int install_package(struct pkg *, struct pkg_repo *,struct pkg_db *,int);
++static int install_package(struct pkg *, struct pkg_repo *,struct pkg_db *,
++	const char *, const char *, int);
+ 
+ int
+ main (int argc, char *argv[])
+@@ -72,6 +75,8 @@
+ 	add.repo = NULL;
+ 	add.flags = 0;
+ 	add.chroot[0] = '\0';
++	add.base_prefix = NULL;
++	add.prefix = NULL;
+ 	while ((ch = getopt(argc, argv, options)) != -1) {
+ 		switch(ch) {
+ 		/* Case statements marked TODO will be supported in the next release */
+@@ -96,16 +101,19 @@
+ 			add.flags |= no_run_flag;
+ 			break;
+ 		case 'P':
++			add.base_prefix = optarg;
++			add.prefix = optarg;
+ 			errx(1, "Unsupported argument");
+ 			break;
+ 		case 'p':
++			add.base_prefix = optarg;
++			add.prefix = NULL;
+ 			errx(1, "Unsupported argument");
+ 			break;
+ 		case 'R':
+ 			add.flags |= no_record_install_flag;
+ 			break;
+ 		case 'r':
+-			pkg_repo_free(add.repo);
+ 			remote = 1;
+ 			break;
+ 		case 'S':
+@@ -128,6 +136,7 @@
+ 	argv += optind;
+ 
+ 	if (remote != 0) {
++		pkg_repo_free(add.repo);
+ 		if ((add.flags & keep_file_flag) == keep_file_flag)
+ 			add.repo = pkg_repo_new_ftp(NULL, NULL, NULL);
+ 		else
+@@ -194,7 +203,8 @@
+ 			    pkg_get_name(add.pkgs[i]));
+ 			continue;
+ 		}
+-		install_package(add.pkgs[i], add.repo, add.db, add.flags);
++		install_package(add.pkgs[i], add.repo, add.db, add.base_prefix,
++		    add.prefix, add.flags);
+ 	}
+ 	return 1;
+ }
+@@ -221,7 +231,7 @@
+  */
+ static int
+ install_package(struct pkg *pkg, struct pkg_repo *repo, struct pkg_db *db,
+-		int flags)
++		const char *base_prefix, const char *prefix, int flags)
+ {
+ 	unsigned int i;
+ 	int ret;
+@@ -266,8 +276,8 @@
+ 		deps[i] = new_pkg;
+ 
+ 		/* Install the dependency */
+-		if (install_package(deps[i], repo, db, flags) != 0 &&
+-		    (flags & force_flag) != force_flag) {
++		if (install_package(deps[i], repo, db, prefix, prefix, flags)
++		    != 0 && (flags & force_flag) != force_flag) {
+ 			pkg_list_free(deps);
+ 			return -1;
+ 		}
+@@ -279,11 +289,11 @@
+ 	if ((flags & verbosity_flag) == verbosity_flag) {
+ 		/* Install with a verbose output */
+ 		printf("extract: Package name is %s\n", pkg_get_name(pkg));
+-		ret = pkg_db_install_pkg_action(db, pkg,
++		ret = pkg_db_install_pkg_action(db, pkg, base_prefix,
+ 		    ((flags & no_record_install_flag)!= no_record_install_flag),
+ 		    ((flags & no_run_flag) == no_run_flag), pkg_action);
+ 	} else if ((flags & no_run_flag) == 0) {
+-		ret = pkg_db_install_pkg(db, pkg,
++		ret = pkg_db_install_pkg(db, pkg, base_prefix,
+ 		    ((flags & no_record_install_flag)!=no_record_install_flag));
+ 	}
+ 	/*
+
+
+
+From zxombie at mail.berlios.de  Sat Jul 22 11:56:53 2006
+From: zxombie at mail.berlios.de (zxombie at BerliOS)
+Date: Sat, 22 Jul 2006 11:56:53 +0200
+Subject: [Libpkg-svn] r159 - trunk/src
+Message-ID: <200607220956.k6M9urC2020145@sheep.berlios.de>
+
+Author: zxombie
+Date: 2006-07-22 11:56:48 +0200 (Sat, 22 Jul 2006)
+New Revision: 159
+
+Modified:
+   trunk/src/pkg.c
+   trunk/src/pkg.h
+   trunk/src/pkg_db_freebsd.c
+   trunk/src/pkg_freebsd.c
+   trunk/src/pkg_private.h
+Log:
+Add backend support for setting the package prefix
+
+
+Modified: trunk/src/pkg.c
+===================================================================
+--- trunk/src/pkg.c	2006-07-22 07:51:51 UTC (rev 158)
++++ trunk/src/pkg.c	2006-07-22 09:56:48 UTC (rev 159)
+@@ -396,7 +396,7 @@
+  * @return The return value of the script, or -1
+  */
+ int
+-pkg_run_script(struct pkg *pkg, pkg_script script)
++pkg_run_script(struct pkg *pkg, const char *prefix, pkg_script script)
+ {
+ 	if (pkg == NULL)
+ 			return -1;
+@@ -404,7 +404,7 @@
+ 	if (pkg->pkg_run_script == NULL)
+ 		return -1;
+ 
+-	return pkg->pkg_run_script(pkg, script);
++	return pkg->pkg_run_script(pkg, prefix, script);
+ }
+ 
+ /**
+@@ -464,9 +464,10 @@
+  * @return 0 on success or -1 or error
+  */
+ int
+-pkg_install(struct pkg *pkg, int reg, pkg_db_action * pkg_action, void *data,
+-		pkg_db_chdir *db_chdir,	pkg_db_install_file *install_file,
+-		pkg_db_exec *do_exec, pkg_db_register *pkg_register)
++pkg_install(struct pkg *pkg, const char *prefix, int reg,
++		pkg_db_action *pkg_action, void *data, pkg_db_chdir *db_chdir,
++		pkg_db_install_file *install_file, pkg_db_exec *do_exec,
++		pkg_db_register *pkg_register)
+ {
+ 	if (pkg == NULL || data == NULL || db_chdir == NULL ||
+ 	    install_file == NULL || do_exec == NULL || pkg_register == NULL)
+@@ -475,7 +476,7 @@
+ 	if (pkg->pkg_install == NULL)
+ 		return -1;
+ 
+-	return pkg->pkg_install(pkg, reg, pkg_action, data, db_chdir,
++	return pkg->pkg_install(pkg, prefix, reg, pkg_action, data, db_chdir,
+ 	    install_file, do_exec, pkg_register);
+ }
+ 
+
+Modified: trunk/src/pkg.h
+===================================================================
+--- trunk/src/pkg.h	2006-07-22 07:51:51 UTC (rev 158)
++++ trunk/src/pkg.h	2006-07-22 09:56:48 UTC (rev 159)
+@@ -108,7 +108,7 @@
+ struct pkgfile		 *pkg_get_next_file(struct pkg *);
+ const const char	 *pkg_get_origin(struct pkg *);
+ const const char	 *pkg_get_version(struct pkg *);
+-int			  pkg_run_script(struct pkg *, pkg_script);
++int			  pkg_run_script(struct pkg *, const char *,pkg_script);
+ int			  pkg_add_dependency(struct pkg *, struct pkg *);
+ int			  pkg_add_file(struct pkg *, struct pkgfile *);
+ int			  pkg_list_free(struct pkg **);
+
+Modified: trunk/src/pkg_db_freebsd.c
+===================================================================
+--- trunk/src/pkg_db_freebsd.c	2006-07-22 07:51:51 UTC (rev 158)
++++ trunk/src/pkg_db_freebsd.c	2006-07-22 09:56:48 UTC (rev 159)
+@@ -136,7 +136,7 @@
+  */
+ static int
+ freebsd_install_pkg_action(struct pkg_db *db, struct pkg *pkg,
+-    const char *prefix __unused, int reg, int fake, pkg_db_action *pkg_action)
++    const char *prefix, int reg, int fake, pkg_db_action *pkg_action)
+ {
+ 	struct pkg_install_data install_data;
+ 	char cwd[MAXPATHLEN];
+@@ -148,6 +148,14 @@
+ 	if (getwd(cwd) == NULL)
+ 		return -1;
+ 
++	/* Set the package environment */
++	if (prefix == NULL) {
++		prefix = pkg_get_prefix(pkg);
++		if (prefix == NULL)
++			prefix = "/usr/local";
++	}
++	setenv("PKG_PREFIX", prefix, 1);
++
+ 	pkg_action(PKG_DB_PACKAGE, "Package name is %s", pkg_get_name(pkg));
+ 
+ 	/* Run +REQUIRE */
+@@ -156,7 +164,7 @@
+ 
+ 	if (!fake) {
+ 		/** @todo Check if the force flag is set */
+-		if (pkg_run_script(pkg, pkg_script_require) != 0) {
++		if (pkg_run_script(pkg, prefix, pkg_script_require) != 0) {
+ 			return -1;
+ 		}
+ 	}
+@@ -166,28 +174,29 @@
+ 	    pkg_get_name(pkg));
+ 
+ 	if (!fake)
+-		pkg_run_script(pkg, pkg_script_pre);
++		pkg_run_script(pkg, prefix, pkg_script_pre);
+ 
+ 	/* Do the Install */
+ 	install_data.db = db;
+ 	install_data.fake = fake;
+ 	install_data.last_file[0] = '\0';
+ 	install_data.directory[0] = '\0';
+-	pkg_install(pkg, reg, pkg_action, &install_data, freebsd_do_chdir,
+-	    freebsd_install_file, freebsd_do_exec, freebsd_register);
++	pkg_install(pkg, prefix, reg, pkg_action, &install_data,
++	    freebsd_do_chdir, freebsd_install_file, freebsd_do_exec,
++	    freebsd_register);
+ 
+ 	/* Extract the +MTREE */
+ 	pkg_action(PKG_DB_INFO, "Running mtree for %s..", pkg_get_name(pkg));
+ 
+ 	if (!fake)
+-		pkg_run_script(pkg, pkg_script_mtree);
++		pkg_run_script(pkg, prefix, pkg_script_mtree);
+ 
+ 	/* Run post-install */
+ 	pkg_action(PKG_DB_INFO, "Running post-install for %s..",
+ 	    pkg_get_name(pkg));
+ 
+ 	if (!fake)
+-		pkg_run_script(pkg, pkg_script_post);
++		pkg_run_script(pkg, prefix, pkg_script_post);
+ 
+ 	/** @todo Display contents of \@display */
+ 
+
+Modified: trunk/src/pkg_freebsd.c
+===================================================================
+--- trunk/src/pkg_freebsd.c	2006-07-22 07:51:51 UTC (rev 158)
++++ trunk/src/pkg_freebsd.c	2006-07-22 09:56:48 UTC (rev 159)
+@@ -56,12 +56,13 @@
+ pkg_static struct pkgfile	 *freebsd_get_control_file(struct pkg *,
+ 					const char *);
+ pkg_static struct pkgfile	 *freebsd_get_next_file(struct pkg *);
+-pkg_static int			  freebsd_install(struct pkg *, int,
+-					pkg_db_action *, void *, pkg_db_chdir *,
+-				       	pkg_db_install_file *, pkg_db_exec *,
+-					pkg_db_register *);
++pkg_static int			  freebsd_install(struct pkg *, const char *,
++					int, pkg_db_action *, void *,
++					pkg_db_chdir *, pkg_db_install_file *,
++					pkg_db_exec *, pkg_db_register *);
+ pkg_static struct pkg		**freebsd_get_deps(struct pkg *);
+-pkg_static int			  freebsd_run_script(struct pkg *, pkg_script);
++pkg_static int			  freebsd_run_script(struct pkg *, const char *,
++					pkg_script);
+ pkg_static int			  freebsd_free(struct pkg *);
+ 
+ /* Internal functions */
+@@ -428,9 +429,10 @@
+  * @return 0 on success or -1 on error
+  */
+ static int
+-freebsd_install(struct pkg *pkg, int reg, pkg_db_action *pkg_action, void *data,
+-		pkg_db_chdir *db_chdir, pkg_db_install_file *install_file,
+-		pkg_db_exec *do_exec, pkg_db_register *pkg_register)
++freebsd_install(struct pkg *pkg, const char *prefix, int reg,
++		pkg_db_action *pkg_action, void *data, pkg_db_chdir *db_chdir,
++		pkg_db_install_file *install_file, pkg_db_exec *do_exec,
++		pkg_db_register *pkg_register)
+ {
+ 	int ret;
+ 	unsigned int pos;
+@@ -438,6 +440,7 @@
+ 	struct pkgfile *contents_file;
+ 	struct pkg_freebsd_contents *contents;
+ 	char *file_data;
++	int chdir_first = 1;
+ 
+ 	assert(pkg != NULL);
+ 	assert(pkg_action != NULL);
+@@ -507,11 +510,14 @@
+ 			const char *dir;
+ 
+ 			dir = contents->lines[pos].data;
+-			if (strcmp(dir, ".") == 0) {
+-				if (reg)
+-					db_chdir(pkg, pkg_action, data, dir);
+-			} else {
++			if (reg && strcmp(dir, ".") == 0)
+ 				db_chdir(pkg, pkg_action, data, dir);
++			else if (chdir_first && prefix != NULL)
++				db_chdir(pkg, pkg_action, data, prefix);
++			else
++				db_chdir(pkg, pkg_action, data, dir);
++
++				chdir_first = 0;
+ 			}
+ 			break;
+ 		}
+@@ -696,7 +702,7 @@
+  * @return 0
+  */
+ static int
+-freebsd_run_script(struct pkg *pkg, pkg_script script)
++freebsd_run_script(struct pkg *pkg, const char *prefix, pkg_script script)
+ {
+ 	struct freebsd_package *fpkg;
+ 	struct pkgfile *script_file;
+@@ -756,7 +762,8 @@
+ 	switch(script) {
+ 	case pkg_script_mtree:
+ 	{
+-		const char *prefix = pkg_get_prefix(pkg);
++		if (prefix == NULL)
++			prefix = pkg_get_prefix(pkg);
+ 		pkg_exec("mtree -U -f +MTREE_DIRS -d -e -p %s >/dev/null",
+ 		    (prefix != NULL ? prefix : "/usr/local"));
+ 		break;
+
+Modified: trunk/src/pkg_private.h
+===================================================================
+--- trunk/src/pkg_private.h	2006-07-22 07:51:51 UTC (rev 158)
++++ trunk/src/pkg_private.h	2006-07-22 09:56:48 UTC (rev 159)
+@@ -96,19 +96,21 @@
+ 				const char *);
+ typedef int		  pkg_db_register(struct pkg *, pkg_db_action *, void *,
+ 				struct pkgfile **);
+-typedef int	  	  pkg_install_callback(struct pkg*, int,
++typedef int	  	  pkg_install_callback(struct pkg *, const char *, int,
+ 				pkg_db_action *, void *, pkg_db_chdir *,
+ 				pkg_db_install_file *, pkg_db_exec *,
+ 				pkg_db_register *);
+ typedef struct pkgfile	 *pkg_get_next_file_callback(struct pkg *);
+-typedef int		  pkg_run_script_callback(struct pkg *, pkg_script);
++typedef int		  pkg_run_script_callback(struct pkg *, const char *,
++				pkg_script);
+ int			  pkg_add_callbacks_install(struct pkg *,
+ 				pkg_install_callback *,
+ 				pkg_get_next_file_callback *,
+ 				pkg_run_script_callback *);
+-int			  pkg_install(struct pkg *, int, pkg_db_action *,
+-				void *, pkg_db_chdir *, pkg_db_install_file *,
+-				pkg_db_exec *, pkg_db_register *);
++int			  pkg_install(struct pkg *, const char *, int,
++				pkg_db_action *, void *, pkg_db_chdir *,
++				pkg_db_install_file *, pkg_db_exec *,
++				pkg_db_register *);
+ 
+ struct pkg {
+ 	void	*data;
+
+
+
+From zxombie at mail.berlios.de  Sat Jul 22 13:09:30 2006
+From: zxombie at mail.berlios.de (zxombie at BerliOS)
+Date: Sat, 22 Jul 2006 13:09:30 +0200
+Subject: [Libpkg-svn] r160 - trunk/src
+Message-ID: <200607221109.k6MB9UeU001334@sheep.berlios.de>
+
+Author: zxombie
+Date: 2006-07-22 13:09:29 +0200 (Sat, 22 Jul 2006)
+New Revision: 160
+
+Modified:
+   trunk/src/pkg_db_freebsd.c
+   trunk/src/pkg_freebsd.c
+Log:
+Change the logic to set the PKG_PREFIX environment variable to not overwrite the prefix null pointer
+Correct the logic to change directory when installing packages
+
+
+Modified: trunk/src/pkg_db_freebsd.c
+===================================================================
+--- trunk/src/pkg_db_freebsd.c	2006-07-22 09:56:48 UTC (rev 159)
++++ trunk/src/pkg_db_freebsd.c	2006-07-22 11:09:29 UTC (rev 160)
+@@ -150,11 +150,13 @@
+ 
+ 	/* Set the package environment */
+ 	if (prefix == NULL) {
+-		prefix = pkg_get_prefix(pkg);
+-		if (prefix == NULL)
+-			prefix = "/usr/local";
+-	}
+-	setenv("PKG_PREFIX", prefix, 1);
++		const char *pkg_prefix = pkg_get_prefix(pkg);
++		if (pkg_prefix == NULL)
++			setenv("PKG_PREFIX", "/usr/local", 1);
++		else
++			setenv("PKG_PREFIX", pkg_prefix, 1);
++	} else
++		setenv("PKG_PREFIX", prefix, 1);
+ 
+ 	pkg_action(PKG_DB_PACKAGE, "Package name is %s", pkg_get_name(pkg));
+ 
+
+Modified: trunk/src/pkg_freebsd.c
+===================================================================
+--- trunk/src/pkg_freebsd.c	2006-07-22 09:56:48 UTC (rev 159)
++++ trunk/src/pkg_freebsd.c	2006-07-22 11:09:29 UTC (rev 160)
+@@ -510,15 +510,17 @@
+ 			const char *dir;
+ 
+ 			dir = contents->lines[pos].data;
+-			if (reg && strcmp(dir, ".") == 0)
+-				db_chdir(pkg, pkg_action, data, dir);
+-			else if (chdir_first && prefix != NULL)
+-				db_chdir(pkg, pkg_action, data, prefix);
+-			else
+-				db_chdir(pkg, pkg_action, data, dir);
+-
++			if (strcmp(dir, ".") == 0) {
++				if (reg)
++					db_chdir(pkg, pkg_action, data, dir);
++			} else {
++				if (chdir_first && prefix != NULL)
++					db_chdir(pkg, pkg_action, data, prefix);
++				else
++					db_chdir(pkg, pkg_action, data, dir);
+ 				chdir_first = 0;
+ 			}
++
+ 			break;
+ 		}
+ 		case PKG_LINE_FILE:
+
+
+
+From zxombie at mail.berlios.de  Mon Jul 24 05:23:23 2006
+From: zxombie at mail.berlios.de (zxombie at BerliOS)
+Date: Mon, 24 Jul 2006 05:23:23 +0200
+Subject: [Libpkg-svn] r161 - trunk/tools/pkg_add
+Message-ID: <200607240323.k6O3NNtM001697@sheep.berlios.de>
+
+Author: zxombie
+Date: 2006-07-24 05:23:22 +0200 (Mon, 24 Jul 2006)
+New Revision: 161
+
+Modified:
+   trunk/tools/pkg_add/main.c
+Log:
+pkg_info -P and -p are now supported
+
+
+Modified: trunk/tools/pkg_add/main.c
+===================================================================
+--- trunk/tools/pkg_add/main.c	2006-07-22 11:09:29 UTC (rev 160)
++++ trunk/tools/pkg_add/main.c	2006-07-24 03:23:22 UTC (rev 161)
+@@ -103,12 +103,10 @@
+ 		case 'P':
+ 			add.base_prefix = optarg;
+ 			add.prefix = optarg;
+-			errx(1, "Unsupported argument");
+ 			break;
+ 		case 'p':
+ 			add.base_prefix = optarg;
+ 			add.prefix = NULL;
+-			errx(1, "Unsupported argument");
+ 			break;
+ 		case 'R':
+ 			add.flags |= no_record_install_flag;
+
+
+
+From zxombie at mail.berlios.de  Mon Jul 24 09:09:12 2006
+From: zxombie at mail.berlios.de (zxombie at BerliOS)
+Date: Mon, 24 Jul 2006 09:09:12 +0200
+Subject: [Libpkg-svn] r162 - trunk/src
+Message-ID: <200607240709.k6O79CWt020057@sheep.berlios.de>
+
+Author: zxombie
+Date: 2006-07-24 09:08:55 +0200 (Mon, 24 Jul 2006)
+New Revision: 162
+
+Modified:
+   trunk/src/pkg_freebsd.c
+Log:
+Fix package registration
+
+Revision 161 changed pkg_add not pkg_info
+
+
+Modified: trunk/src/pkg_freebsd.c
+===================================================================
+--- trunk/src/pkg_freebsd.c	2006-07-24 03:23:22 UTC (rev 161)
++++ trunk/src/pkg_freebsd.c	2006-07-24 07:08:55 UTC (rev 162)
+@@ -418,7 +418,7 @@
+ 
+ 	for (pos = 0; fpkg->control[pos] != NULL; pos++) {
+ 		const char *pkg_filename = pkgfile_get_name(fpkg->control[pos]);
+-		if (strcmp(basename(pkg_filename), filename)==0)
++		if (strcmp(basename(pkg_filename), filename) == 0)
+ 			return fpkg->control[pos];
+ 	}
+ 	return NULL;
+@@ -441,6 +441,7 @@
+ 	struct pkg_freebsd_contents *contents;
+ 	char *file_data;
+ 	int chdir_first = 1;
++	int only_control_files = 0;
+ 
+ 	assert(pkg != NULL);
+ 	assert(pkg_action != NULL);
+@@ -525,12 +526,15 @@
+ 		}
+ 		case PKG_LINE_FILE:
+ 		{
+-			struct pkgfile *file;
++			struct pkgfile *file = NULL;
+ 
+-			file = pkg_get_next_file(pkg);
+-			if (file == NULL)
++			if (!only_control_files)
++				file = pkg_get_next_file(pkg);
++			if (only_control_files || file == NULL) {
++				only_control_files = ~0;
+ 				file = pkg_get_control_file(pkg,
+ 				    contents->lines[pos].line);
++			}
+ 			if (file == NULL) {
+ 				/* File not found in the package */
+ 				ret = -1;
+@@ -579,6 +583,9 @@
+ 	/* Register the package */
+ 	pkg_register(pkg, pkg_action, data, control);
+ 
++	/* Set the return to 0 as we have fully installed the package */
++	ret = 0;
++
+ exit:
+ 	if (contents != NULL)
+ 		pkg_freebsd_contents_free(contents);
+
+
+
+From zxombie at mail.berlios.de  Mon Jul 24 12:50:25 2006
+From: zxombie at mail.berlios.de (zxombie at BerliOS)
+Date: Mon, 24 Jul 2006 12:50:25 +0200
+Subject: [Libpkg-svn] r163 - trunk/src
+Message-ID: <200607241050.k6OAoPEF010135@sheep.berlios.de>
+
+Author: zxombie
+Date: 2006-07-24 12:50:18 +0200 (Mon, 24 Jul 2006)
+New Revision: 163
+
+Modified:
+   trunk/src/pkg_db_freebsd.c
+   trunk/src/pkg_freebsd.c
+   trunk/src/pkg_private.h
+Log:
+Remove extra /'s from path's
+
+
+Modified: trunk/src/pkg_db_freebsd.c
+===================================================================
+--- trunk/src/pkg_db_freebsd.c	2006-07-24 07:08:55 UTC (rev 162)
++++ trunk/src/pkg_db_freebsd.c	2006-07-24 10:50:18 UTC (rev 163)
+@@ -225,6 +225,7 @@
+ 	if (!dir) {
+ 		return -1;
+ 	}
++	pkg_remove_extra_slashes(dir);
+ 
+ 	is_installed = -1;
+ 
+@@ -269,6 +270,7 @@
+ 	asprintf(&dir, "%s" DB_LOCATION, db->db_base);
+ 	if (!dir)
+ 		return NULL;
++	pkg_remove_extra_slashes(dir);
+ 	d = opendir(dir);
+ 	free(dir);
+ 	if (!d)
+@@ -289,6 +291,7 @@
+ 			continue;
+ 		asprintf(&dir, "%s" DB_LOCATION "/%s",
+ 		    db->db_base, de->d_name);
++		pkg_remove_extra_slashes(dir);
+ 
+ 		pkg = pkg_new_freebsd_installed(de->d_name, dir);
+ 		if (match(pkg, data) == 0) {
+@@ -319,6 +322,7 @@
+ 	char dir[MAXPATHLEN + 1];
+ 
+ 	snprintf(dir, MAXPATHLEN, "%s/var/db/pkg/%s", db->db_base, pkg_name);
++	pkg_remove_extra_slashes(dir);
+ 	return pkg_new_freebsd_installed(pkg_name, dir);
+ }
+ 
+@@ -363,6 +367,7 @@
+ 		snprintf(install_data->directory, MAXPATHLEN, "%s/%s",
+ 		    db->db_base, dir);
+ 	}
++	pkg_remove_extra_slashes(install_data->directory);
+ 
+ 	pkg_action(PKG_DB_PACKAGE, "CWD to %s", install_data->directory);
+ 	if (!install_data->fake) {
+@@ -423,8 +428,10 @@
+ 	    install_data->last_file);
+ 
+ 	pkg_action(PKG_DB_PACKAGE, "execute '%s'", the_cmd);
+-	if (!install_data->fake)
++	if (!install_data->fake) {
++		printf("EXEC: %s\n", the_cmd);
+ 		return pkg_exec(the_cmd);
++	}
+ 
+ 	return 0;
+ }
+@@ -468,6 +475,7 @@
+ 
+ 		snprintf(required_by, FILENAME_MAX, "%s" DB_LOCATION
+ 		    "/%s/+REQUIRED_BY", db->db_base, pkg_get_name(deps[pos]));
++		pkg_remove_extra_slashes(required_by);
+ 
+ 		/** @todo Make pkgfile work to properly to create the file */
+ 		fd = fopen(required_by, "a");
+@@ -575,6 +583,7 @@
+ 				case 'B':
+ 					snprintf(scratch, FILENAME_MAX * 2,
+ 					    "%s/%s", dir, name);
++					pkg_remove_extra_slashes(scratch);
+ 					cp = &scratch[strlen(scratch) - 1];
+ 					while (cp != scratch && *cp != '/')
+ 						--cp;
+@@ -587,6 +596,7 @@
+ 				case 'f':
+ 					snprintf(scratch, FILENAME_MAX * 2,
+ 					    "%s/%s", dir, name);
++					pkg_remove_extra_slashes(scratch);
+ 					cp = &scratch[strlen(scratch) - 1];
+ 					while (cp != scratch && *(cp - 1) != '/')
+ 						--cp;
+
+Modified: trunk/src/pkg_freebsd.c
+===================================================================
+--- trunk/src/pkg_freebsd.c	2006-07-24 07:08:55 UTC (rev 162)
++++ trunk/src/pkg_freebsd.c	2006-07-24 10:50:18 UTC (rev 163)
+@@ -94,6 +94,7 @@
+ 	freebsd_type pkg_type;
+ };
+ 
++
+ /**
+  * @defgroup FreebsdPackage FreeBSD Package
+  * @ingroup Package
+@@ -629,7 +630,11 @@
+ 				snprintf(the_file, FILENAME_MAX, "%s/%s",
+ 				    fpkg->curdir,
+ 				    fpkg->contents->lines[fpkg->line].line);
++				/* Remove extra slashes from the path */
++				pkg_remove_extra_slashes(the_file);
++
+ 				file = pkgfile_new_from_disk(the_file, 1);
++
+ 				if (file == NULL)
+ 					return NULL;
+ 				fpkg->line++;
+@@ -973,6 +978,7 @@
+ 				FREE_CONTENTS(fpkg->control);
+ 				return -1;
+ 			}
++			pkg_remove_extra_slashes(file)
+ 			pkgfile = pkgfile_new_from_disk(file, 1);
+ 			addFile(pkgfile);
+ 			free(file);
+
+Modified: trunk/src/pkg_private.h
+===================================================================
+--- trunk/src/pkg_private.h	2006-07-24 07:08:55 UTC (rev 162)
++++ trunk/src/pkg_private.h	2006-07-24 10:50:18 UTC (rev 163)
+@@ -142,5 +142,13 @@
+ int pkg_exec(const char *, ...);
+ FILE *pkg_cached_file(FILE *, const char *);
+ 
++/* Remove extra slashes from the path */
++#define pkg_remove_extra_slashes(path) \
++	{ \
++		char *tmp_str; \
++		while((tmp_str = strstr(path, "//")) != NULL) { \
++			strcpy(tmp_str, tmp_str+1); \
++		} \
++	}
+ 
+ #endif /* __LIBPKG_PKG_PRIVATE_H__ */
+
+
+
+From zxombie at mail.berlios.de  Mon Jul 24 14:17:42 2006
+From: zxombie at mail.berlios.de (zxombie at BerliOS)
+Date: Mon, 24 Jul 2006 14:17:42 +0200
+Subject: [Libpkg-svn] r164 - trunk/src
+Message-ID: <200607241217.k6OCHged006570@sheep.berlios.de>
+
+Author: zxombie
+Date: 2006-07-24 14:17:32 +0200 (Mon, 24 Jul 2006)
+New Revision: 164
+
+Modified:
+   trunk/src/pkg_freebsd.c
+   trunk/src/pkg_private.h
+Log:
+Fix memory leaks
+Add a version of pkg_remove_extra_slashes that valgrind likes
+
+
+Modified: trunk/src/pkg_freebsd.c
+===================================================================
+--- trunk/src/pkg_freebsd.c	2006-07-24 10:50:18 UTC (rev 163)
++++ trunk/src/pkg_freebsd.c	2006-07-24 12:17:32 UTC (rev 164)
+@@ -89,6 +89,7 @@
+ 	struct pkgfile **control;
+ 	struct pkg_freebsd_contents *contents;
+ 	struct pkgfile *next_file;
++	struct pkgfile *cur_file;
+ 	unsigned int line;
+ 	char *curdir;
+ 	freebsd_type pkg_type;
+@@ -611,6 +612,12 @@
+ 	file = NULL;
+ 	if (fpkg->next_file != NULL) {
+ 		file = fpkg->next_file;
++
++		/*
++		 * Hand over the file to be free'ed from
++		 * memory when the next file is read
++		 */
++		fpkg->cur_file = fpkg->next_file;
+ 		fpkg->next_file = NULL;
+ 	} else if (fpkg->archive == NULL)  {
+ 		/* Read the file from disk */
+@@ -654,11 +661,14 @@
+ 		fpkg->line = 0;
+ 		return NULL;
+ 	} else {
++		if (fpkg->cur_file != NULL)
++			pkgfile_free(fpkg->cur_file);
+ 		file = freebsd_get_next_entry(fpkg->archive);
+ 		if (file == NULL) {
+ 			archive_read_finish(fpkg->archive);
+ 			fpkg->archive = NULL;
+ 		}
++		fpkg->cur_file = file;
+ 	}
+ 	return file;
+ }
+@@ -825,6 +835,9 @@
+ 		if (fpkg->next_file != NULL)
+ 			pkgfile_free(fpkg->next_file);
+ 
++		if (fpkg->cur_file == NULL)
++			pkgfile_free(fpkg->cur_file);
++
+ 		if (fpkg->control != NULL) {
+ 			int cur;
+ 
+@@ -891,6 +904,7 @@
+ 	fpkg->origin = NULL;
+ 	fpkg->version = NULL;
+ 	fpkg->next_file = NULL;
++	fpkg->cur_file = NULL;
+ 	fpkg->line = 0;
+ 	fpkg->curdir = NULL;
+ 	fpkg->pkg_type = fpkg_unknown;
+@@ -1038,12 +1052,10 @@
+ 		/* Create the pkgfile and return it */
+ 		file = pkgfile_new_regular(archive_entry_pathname(entry), str,
+ 		    length);
++		free(str);
+ 	} else if (S_ISLNK(sb->st_mode)) {
+-		str = strdup(archive_entry_symlink(entry));
+-		if (!str)
+-			return NULL;
+-
+-		file = pkgfile_new_symlink(archive_entry_pathname(entry), str);
++		file = pkgfile_new_symlink(archive_entry_pathname(entry),
++		    archive_entry_symlink(entry));
+ 		
+ 	}
+ 	if (file == NULL)
+
+Modified: trunk/src/pkg_private.h
+===================================================================
+--- trunk/src/pkg_private.h	2006-07-24 10:50:18 UTC (rev 163)
++++ trunk/src/pkg_private.h	2006-07-24 12:17:32 UTC (rev 164)
+@@ -142,13 +142,34 @@
+ int pkg_exec(const char *, ...);
+ FILE *pkg_cached_file(FILE *, const char *);
+ 
+-/* Remove extra slashes from the path */
++/* 
++ * Remove extra slashes from the path
++ * The first is slower
++ * Valgrind complains on the second
++ */
++#define FOR_VALGRIND
+ #define pkg_remove_extra_slashes(path) \
+ 	{ \
++		char *str_a, *str_b; \
++		str_a = path + 1; \
++		str_b = str_a; \
++		while(*str_a != '\0') { \
++			while(str_b[0] == '/' && str_b[-1] == '/') \
++				str_b++; \
++			if (str_a != str_b) \
++				str_a[0] = str_b[0]; \
++			str_a++; str_b++; \
++		} \
++	}
++#else
++#define pkg_remove_extra_slashes(path) \
++	{ \
+ 		char *tmp_str; \
+ 		while((tmp_str = strstr(path, "//")) != NULL) { \
+ 			strcpy(tmp_str, tmp_str+1); \
+ 		} \
+ 	}
++#endif
+ 
++
+ #endif /* __LIBPKG_PKG_PRIVATE_H__ */
+
+
+
+From zxombie at mail.berlios.de  Thu Jul 27 08:01:29 2006
+From: zxombie at mail.berlios.de (zxombie at BerliOS)
+Date: Thu, 27 Jul 2006 08:01:29 +0200
+Subject: [Libpkg-svn] r165 - trunk/src
+Message-ID: <200607270601.k6R61T0L013846@sheep.berlios.de>
+
+Author: zxombie
+Date: 2006-07-27 08:00:27 +0200 (Thu, 27 Jul 2006)
+New Revision: 165
+
+Modified:
+   trunk/src/pkg_private.h
+Log:
+Rename an incorrect #define to #ifdef
+
+
+Modified: trunk/src/pkg_private.h
+===================================================================
+--- trunk/src/pkg_private.h	2006-07-24 12:17:32 UTC (rev 164)
++++ trunk/src/pkg_private.h	2006-07-27 06:00:27 UTC (rev 165)
+@@ -147,7 +147,7 @@
+  * The first is slower
+  * Valgrind complains on the second
+  */
+-#define FOR_VALGRIND
++#ifdef FOR_VALGRIND
+ #define pkg_remove_extra_slashes(path) \
+ 	{ \
+ 		char *str_a, *str_b; \
+
+
+
+From zxombie at mail.berlios.de  Sun Jul 30 13:47:17 2006
+From: zxombie at mail.berlios.de (zxombie at BerliOS)
+Date: Sun, 30 Jul 2006 13:47:17 +0200
+Subject: [Libpkg-svn] r166 - in trunk: src tools/pkg_add
+Message-ID: <200607301147.k6UBlHJF021690@sheep.berlios.de>
+
+Author: zxombie
+Date: 2006-07-30 13:47:15 +0200 (Sun, 30 Jul 2006)
+New Revision: 166
+
+Modified:
+   trunk/src/pkg_repo_ftp.c
+   trunk/tools/pkg_add/main.c
+Log:
+Change the ftp repo to allow an http repo
+In the ftp repo, if the last directory in a path is All or Latest remove it and let the automagic detector select the correct one
+Adjust a comment to make it fit in an 80 char window
+
+
+Modified: trunk/src/pkg_repo_ftp.c
+===================================================================
+--- trunk/src/pkg_repo_ftp.c	2006-07-27 06:00:27 UTC (rev 165)
++++ trunk/src/pkg_repo_ftp.c	2006-07-30 11:47:15 UTC (rev 166)
+@@ -32,6 +32,7 @@
+ #include <sys/utsname.h>
+ 
+ #include <assert.h>
++#include <libgen.h>
+ #include <stdio.h>
+ #include <stdlib.h>
+ #include <string.h>
+@@ -109,8 +110,8 @@
+  * @brief Creates a pkg_repo with the given sie and path
+  * @param site The ftp site to use. If NULL will use ftp.freebsd.org
+  * @param path The path to the top level of the packages
+- * @param cached_dir The directory to save a copy of each package file in or NULL
+- *     If NULL will use the default path
++ * @param cached_dir The directory to save a copy of each package file in or
++ *     NULL. If NULL will use the default path
+  * @return A pkg_repo object or NULL
+  */
+ struct pkg_repo *
+@@ -250,7 +251,7 @@
+ 	else
+ 		ext = ".tbz";
+ 
+-	asprintf(&ftpname, "ftp://%s/%s/%s/%s%s", f_repo->site, f_repo->path,
++	asprintf(&ftpname, "%s/%s/%s/%s%s", f_repo->site, f_repo->path,
+ 	    subdir, pkg_name, ext);
+ 	if (!ftpname) {
+ 		return NULL;
+@@ -261,7 +262,7 @@
+ 	/* Try the alternate subdir if the primary one fails. */
+ 	if (fd == NULL) {
+ 		free(ftpname);
+-		asprintf(&ftpname, "ftp://%s/%s/%s/%s%s", f_repo->site,
++		asprintf(&ftpname, "%s/%s/%s/%s%s", f_repo->site,
+ 		    f_repo->path, fallback_subdir, pkg_name, ext);
+ 		if (!ftpname) {
+ 			return NULL;
+@@ -295,7 +296,7 @@
+ 
+ 	/* Figure out the site */
+ 	if (!site)
+-		f_repo->site = strdup("ftp.freebsd.org");
++		f_repo->site = strdup("ftp://ftp.freebsd.org");
+ 	else
+ 		f_repo->site = strdup(site);
+ 
+@@ -326,8 +327,17 @@
+ 			}
+ 		}
+ 
+-	} else
+-		f_repo->path = strdup(path);
++	} else {
++		/* If the path ends with Latest or All strip it out */
++		const char *last_dir;
++		last_dir = basename(path);
++		if (strcmp(last_dir, "All") == 0 ||
++		    strcmp(last_dir, "Latest") == 0) {
++			f_repo->path = strdup(dirname(path));
++			printf("%s\n", f_repo->path);
++		} else
++			f_repo->path = strdup(path);
++	}
+ 
+ 	if (!f_repo->path) {
+ 		return NULL;
+
+Modified: trunk/tools/pkg_add/main.c
+===================================================================
+--- trunk/tools/pkg_add/main.c	2006-07-27 06:00:27 UTC (rev 165)
++++ trunk/tools/pkg_add/main.c	2006-07-30 11:47:15 UTC (rev 166)
+@@ -134,11 +134,31 @@
+ 	argv += optind;
+ 
+ 	if (remote != 0) {
++		char *site, *path;
++		char *pkg_site;
++
++		site = NULL;
++		path = NULL;
++		if ((pkg_site = getenv("PACKAGESITE")) != NULL) {
++			if (strncmp("http://", pkg_site, 7) == 0 ||
++			    strncmp("ftp://", pkg_site, 6) == 0) {
++				site = pkg_site;
++			}
++			if (site != NULL) {
++				/* Find the first / after the :// */
++				path = strstr(site, "://");
++				path = strchr(path + 3, '/');
++				path[0] = '\0';
++				path++;
++			}
++			printf("%s %s\n", site, path);
++		}
++
+ 		pkg_repo_free(add.repo);
+ 		if ((add.flags & keep_file_flag) == keep_file_flag)
+-			add.repo = pkg_repo_new_ftp(NULL, NULL, NULL);
++			add.repo = pkg_repo_new_ftp(site, path, NULL);
+ 		else
+-			add.repo = pkg_repo_new_ftp(NULL, NULL, ".");
++			add.repo = pkg_repo_new_ftp(site, path, ".");
+ 	}
+ 	/* There are no packages to install. just quit now */
+ 	if (argc == 0) {
+
+
+
+From zxombie at mail.berlios.de  Mon Jul 31 05:19:09 2006
+From: zxombie at mail.berlios.de (zxombie at BerliOS)
+Date: Mon, 31 Jul 2006 05:19:09 +0200
+Subject: [Libpkg-svn] r167 - trunk/src
+Message-ID: <200607310319.k6V3J9ji018618@sheep.berlios.de>
+
+Author: zxombie
+Date: 2006-07-31 05:18:54 +0200 (Mon, 31 Jul 2006)
+New Revision: 167
+
+Modified:
+   trunk/src/pkg.h
+   trunk/src/pkg_db_freebsd.c
+   trunk/src/pkg_freebsd.c
+   trunk/src/pkg_private.h
+   trunk/src/pkg_util.c
+   trunk/src/pkgfile.c
+Log:
+Get pkgfile_compare_checksum_md5 working for regular files, symlinks and hardlinks. For hardlinks it will check against the file the link is pointing to.
+Add pkgfile_set_checksum_md5 to set a files expected MD5 checksum
+Remove pkg_checksum_md5 as pkgfile_set_checksum_md5 and pkgfile_compare_checksum_md5 does is now the correct way of checking a file's MD5 checksum
+Add support for hardlinks in pkgfile_get_size and pkgfile_get_data
+Create a pkgfile object for hard links in freebsd_get_next_entry
+If pkg_install fails return an error in freebsd_install_pkg_action. This means pkg_add fails if the install fails
+
+Libpkg can almost handle hardlinks now meaning perl can almost be installed
+
+
+Modified: trunk/src/pkg.h
+===================================================================
+--- trunk/src/pkg.h	2006-07-30 11:47:15 UTC (rev 166)
++++ trunk/src/pkg.h	2006-07-31 03:18:54 UTC (rev 167)
+@@ -65,6 +65,7 @@
+ uint64_t	 pkgfile_get_size(struct pkgfile *);
+ char		*pkgfile_get_data(struct pkgfile *, uint64_t);
+ char		*pkgfile_get_data_all(struct pkgfile *);
++int		 pkgfile_set_checksum_md5(struct pkgfile *, const char *);
+ int		 pkgfile_compare_checksum_md5(struct pkgfile *);
+ int		 pkgfile_seek(struct pkgfile *, uint64_t, int);
+ int		 pkgfile_set_mode(struct pkgfile *, mode_t);
+
+Modified: trunk/src/pkg_db_freebsd.c
+===================================================================
+--- trunk/src/pkg_db_freebsd.c	2006-07-30 11:47:15 UTC (rev 166)
++++ trunk/src/pkg_db_freebsd.c	2006-07-31 03:18:54 UTC (rev 167)
+@@ -183,9 +183,11 @@
+ 	install_data.fake = fake;
+ 	install_data.last_file[0] = '\0';
+ 	install_data.directory[0] = '\0';
+-	pkg_install(pkg, prefix, reg, pkg_action, &install_data,
++	if (pkg_install(pkg, prefix, reg, pkg_action, &install_data,
+ 	    freebsd_do_chdir, freebsd_install_file, freebsd_do_exec,
+-	    freebsd_register);
++	    freebsd_register) != 0) {
++		return -1;
++	}
+ 
+ 	/* Extract the +MTREE */
+ 	pkg_action(PKG_DB_INFO, "Running mtree for %s..", pkg_get_name(pkg));
+@@ -384,8 +386,8 @@
+  * @return 0 on success or -1 on error
+  */
+ static int
+-freebsd_install_file(struct pkg *pkg, pkg_db_action *pkg_action __unused,
+-		void *data, struct pkgfile *file)
++freebsd_install_file(struct pkg *pkg, pkg_db_action *pkg_action, void *data,
++	struct pkgfile *file)
+ {
+ 	struct pkg_install_data *install_data;
+ 
+
+Modified: trunk/src/pkg_freebsd.c
+===================================================================
+--- trunk/src/pkg_freebsd.c	2006-07-30 11:47:15 UTC (rev 166)
++++ trunk/src/pkg_freebsd.c	2006-07-31 03:18:54 UTC (rev 167)
+@@ -556,7 +556,8 @@
+ 
+ 				p = strchr(contents->lines[pos+1].data, ':');
+ 				p++;
+-				if (pkg_checksum_md5(file, p) == 0) {
++				pkgfile_set_checksum_md5(file, p);
++				if (pkgfile_compare_checksum_md5(file) == 0) {
+ 					if (!ignore) {
+ 						install_file(pkg, pkg_action,
+ 						    data, file);
+@@ -1057,9 +1058,16 @@
+ 		file = pkgfile_new_symlink(archive_entry_pathname(entry),
+ 		    archive_entry_symlink(entry));
+ 		
++	} else {
++		/* Probibly a hardlink */
++		const char *hard_link = archive_entry_hardlink(entry);
++		if (hard_link != NULL) {
++			file = pkgfile_new_hardlink(
++			    archive_entry_pathname(entry), hard_link);
++		}
+ 	}
+ 	if (file == NULL)
+-		errx(1, "File is not regular or symbolic link");
++		errx(1, "File is not regular, a hard link or a symbolic link");
+ 
+ 	pkgfile_set_mode(file, sb->st_mode);
+ 	return file;
+
+Modified: trunk/src/pkg_private.h
+===================================================================
+--- trunk/src/pkg_private.h	2006-07-30 11:47:15 UTC (rev 166)
++++ trunk/src/pkg_private.h	2006-07-31 03:18:54 UTC (rev 167)
+@@ -138,7 +138,6 @@
+ };
+ 
+ int pkg_dir_build(const char *);
+-int pkg_checksum_md5(struct pkgfile *, char *);
+ int pkg_exec(const char *, ...);
+ FILE *pkg_cached_file(FILE *, const char *);
+ 
+
+Modified: trunk/src/pkg_util.c
+===================================================================
+--- trunk/src/pkg_util.c	2006-07-30 11:47:15 UTC (rev 166)
++++ trunk/src/pkg_util.c	2006-07-31 03:18:54 UTC (rev 167)
+@@ -156,34 +156,6 @@
+ }
+ 
+ /**
+- * @brief Checks a file against a given md5 checksum
+- * @return 0 if the file matches the checksum, or -1 otherwise
+- */
+-int
+-pkg_checksum_md5(struct pkgfile *file, char *chk_sum)
+-{
+-	char sum[33];
+-	char *file_data;
+-
+-	if (!file) {
+-		return -1;
+-	}
+-
+-	if (!sum) {
+-		return -1;
+-	}
+-
+-	/* Perform a checksum on the file to install */
+-	file_data = pkgfile_get_data_all(file);
+-	MD5Data(file_data, pkgfile_get_size(file), sum);
+-	free(file_data);
+-	if (strcmp(sum, chk_sum)) {
+-		return -1;
+-	}
+-	return 0;
+-}
+-
+-/**
+  * @brief Executes a program
+  * 
+  * It will use fmt as the format to generate the execv string.
+
+Modified: trunk/src/pkgfile.c
+===================================================================
+--- trunk/src/pkgfile.c	2006-07-30 11:47:15 UTC (rev 166)
++++ trunk/src/pkgfile.c	2006-07-31 03:18:54 UTC (rev 167)
+@@ -27,6 +27,7 @@
+  *
+  */
+ 
++#include <sys/param.h>
+ #include <sys/types.h>
+ #include <sys/mman.h>
+ 
+@@ -38,6 +39,7 @@
+ #include <stdio.h>
+ #include <stdlib.h>
+ #include <string.h>
++#include <unistd.h>
+ 
+ #include "pkg.h"
+ #include "pkg_private.h"
+@@ -189,7 +191,6 @@
+ 	memcpy(file->data, contents, file->length);
+ 
+ 	return file;
+-	
+ }
+ 
+ /**
+@@ -293,13 +294,17 @@
+ 		pkgfile_open_fd(file);
+ 
+ 	assert(file->type != pkgfile_none);
+-	assert(file->type != pkgfile_hardlink);
+ 	assert(file->type != pkgfile_dir);
+ 
+ 	switch (file->type) {
+ 		case pkgfile_none:
+ 		case pkgfile_dir:
++			break;
+ 		case pkgfile_hardlink:
++			assert(file->loc == pkgfile_loc_mem);
++			if (file->loc == pkgfile_loc_mem) {
++				return file->length;
++			}
+ 			break;
+ 		case pkgfile_regular:
+ 			if (file->loc == pkgfile_loc_disk) {
+@@ -324,6 +329,7 @@
+ /**
+  * @brief Reads up to length bytes from a file
+  * @return A string containing the data or NULL
++ * @todo Change to return "const char *" and not do the strdup
+  */
+ char *
+ pkgfile_get_data(struct pkgfile *file, uint64_t length)
+@@ -337,14 +343,20 @@
+ 		pkgfile_open_fd(file);
+ 
+ 	assert(file->type != pkgfile_none);
+-	assert(file->type != pkgfile_hardlink);
+ 	assert(file->type != pkgfile_dir);
+ 
+ 	switch (file->type) {
+ 		case pkgfile_none:
+-		case pkgfile_hardlink:
+ 		case pkgfile_dir:
+ 			break;
++		case pkgfile_hardlink:
++			assert(file->loc == pkgfile_loc_mem);
++			if (file->loc == pkgfile_loc_mem) {
++				if (file->data == NULL)
++					return NULL;
++				data = strdup(file->data);
++			}
++			break;
+ 		case pkgfile_regular:
+ 			/** @todo check length < size left in file */
+ 			data = malloc(length);
+@@ -388,14 +400,31 @@
+ }
+ 
+ /**
++ * @brief Sets the expected md5 of a file
++ * @return  0 on success
++ * @return -1 on error
++ */
++int
++pkgfile_set_checksum_md5(struct pkgfile *file, const char *md5)
++{
++	if (file == NULL || md5 == NULL)
++		return -1;
++
++	strlcpy(file->md5, md5, 33);
++	return 0;
++}
++
++/**
+  * @brief Compares a file's MD5 checksum with the version on disk
+- * @return 1 if the recorded checksum is different to the disk checksum
+- * @return 0 if the recorded checksum is the same as the disk checksum
++ * @return  1 if the recorded checksum is different to the disk checksum
++ * @return  0 if the recorded checksum is the same as the disk checksum
+  * @return -1 if there is a problem with the file object
+  */
+ int
+ pkgfile_compare_checksum_md5(struct pkgfile *file)
+ {
++	char checksum[33];
++
+ 	if (file == NULL || file->md5[0] == '\0')
+ 		return -1;
+ 
+@@ -403,32 +432,38 @@
+ 		pkgfile_open_fd(file);
+ 
+ 	assert(file->type != pkgfile_none);
+-	assert(file->type != pkgfile_hardlink);
+-	assert(file->type != pkgfile_symlink);
+ 	assert(file->type != pkgfile_dir);
+ 
+ 	switch (file->type) {
+ 		case pkgfile_none:
++		case pkgfile_dir:
++			return -1;
+ 		case pkgfile_hardlink:
++		{
++			char real_file[MAXPATHLEN + 1];
++
++			getcwd(real_file, MAXPATHLEN + 1);
++			snprintf(real_file, MAXPATHLEN + 1, "%s/%s", real_file,
++			    file->data);
++			MD5File(real_file, checksum);
++			break;
++		}
+ 		case pkgfile_symlink:
+-		case pkgfile_dir:
+-			break;
+ 		case pkgfile_regular:
+ 		{
+-			char checksum[33];
++			char *file_data;
+ 
+-			if (file->name == NULL)
+-				return -1;
++			file_data = pkgfile_get_data_all(file);
++			MD5Data(file_data, pkgfile_get_size(file), checksum);
++			free(file_data);
+ 
+-			MD5File(file->name, checksum);
+-
+-			if (strncmp(checksum, file->md5, 32) == 0)
+-				return 0;
+-
+-			return 1;
++			break;
+ 		}
+ 	}
+-	return -1;
++	if (strncmp(checksum, file->md5, 32) == 0)
++		return 0;
++
++	return 1;
+ }
+ 
+ /**
+
+
+
+From zxombie at mail.berlios.de  Mon Jul 31 07:40:27 2006
+From: zxombie at mail.berlios.de (zxombie at BerliOS)
+Date: Mon, 31 Jul 2006 07:40:27 +0200
+Subject: [Libpkg-svn] r168 - trunk/src
+Message-ID: <200607310540.k6V5eRvD020357@sheep.berlios.de>
+
+Author: zxombie
+Date: 2006-07-31 07:40:07 +0200 (Mon, 31 Jul 2006)
+New Revision: 168
+
+Modified:
+   trunk/src/pkgfile.c
+Log:
+Create hard links in pkgfile_write
+
+
+Modified: trunk/src/pkgfile.c
+===================================================================
+--- trunk/src/pkgfile.c	2006-07-31 03:18:54 UTC (rev 167)
++++ trunk/src/pkgfile.c	2006-07-31 05:40:07 UTC (rev 168)
+@@ -514,7 +514,8 @@
+ 
+ /**
+  * @brief Writes a pkgfile to disk
+- * @return 0 on success or -1 on error
++ * @return  0 on success
++ * @return -1 on error
+  */
+ int
+ pkgfile_write(struct pkgfile *file)
+@@ -526,12 +527,11 @@
+ 		pkgfile_open_fd(file);
+ 
+ 	assert(file->type != pkgfile_none);
+-	assert(file->type != pkgfile_hardlink);
+ 	assert(file->type != pkgfile_dir);
+ 
+ 	switch (file->type) {
+ 	case pkgfile_none:
+-		break;
++		return -1;
+ 	case pkgfile_regular:
+ 		if (file->loc == pkgfile_loc_mem && file->data != NULL) {
+ 			uint64_t length;
+@@ -594,13 +594,15 @@
+ 		}
+ 		break;
+ 	case pkgfile_hardlink:
++		if (link(file->data, file->name) != 0)
++			return -1;
+ 		break;
+ 	case pkgfile_symlink:
+ 		if (symlink(file->data, file->name) != 0)
+ 			return -1;
+ 		break;
+ 	case pkgfile_dir:
+-		break;
++		return -1;
+ 	}
+ 
+ 	return 0;
+
+
+
+From zxombie at mail.berlios.de  Mon Jul 31 08:09:32 2006
+From: zxombie at mail.berlios.de (zxombie at BerliOS)
+Date: Mon, 31 Jul 2006 08:09:32 +0200
+Subject: [Libpkg-svn] r169 - trunk/src
+Message-ID: <200607310609.k6V69W9I027032@sheep.berlios.de>
+
+Author: zxombie
+Date: 2006-07-31 08:08:14 +0200 (Mon, 31 Jul 2006)
+New Revision: 169
+
+Modified:
+   trunk/src/pkg_db_freebsd.c
+Log:
+Remove an unneeded printf
+
+
+Modified: trunk/src/pkg_db_freebsd.c
+===================================================================
+--- trunk/src/pkg_db_freebsd.c	2006-07-31 05:40:07 UTC (rev 168)
++++ trunk/src/pkg_db_freebsd.c	2006-07-31 06:08:14 UTC (rev 169)
+@@ -372,6 +372,7 @@
+ 	pkg_remove_extra_slashes(install_data->directory);
+ 
+ 	pkg_action(PKG_DB_PACKAGE, "CWD to %s", install_data->directory);
++
+ 	if (!install_data->fake) {
+ 		pkg_dir_build(install_data->directory);
+ 		return chdir(install_data->directory);
+@@ -431,7 +432,6 @@
+ 
+ 	pkg_action(PKG_DB_PACKAGE, "execute '%s'", the_cmd);
+ 	if (!install_data->fake) {
+-		printf("EXEC: %s\n", the_cmd);
+ 		return pkg_exec(the_cmd);
+ 	}
+ 
+
+
+
+From zxombie at mail.berlios.de  Mon Jul 31 08:14:56 2006
+From: zxombie at mail.berlios.de (zxombie at BerliOS)
+Date: Mon, 31 Jul 2006 08:14:56 +0200
+Subject: [Libpkg-svn] r170 - trunk/src
+Message-ID: <200607310614.k6V6Eu83028769@sheep.berlios.de>
+
+Author: zxombie
+Date: 2006-07-31 08:14:53 +0200 (Mon, 31 Jul 2006)
+New Revision: 170
+
+Modified:
+   trunk/src/pkg_freebsd.c
+Log:
+Set the package prefix when creating a FreeBSD package object
+Rework the @cwd code to only have one call to db_chdir
+
+
+Modified: trunk/src/pkg_freebsd.c
+===================================================================
+--- trunk/src/pkg_freebsd.c	2006-07-31 06:08:14 UTC (rev 169)
++++ trunk/src/pkg_freebsd.c	2006-07-31 06:14:53 UTC (rev 170)
+@@ -145,7 +145,8 @@
+ 
+ 	freebsd_parse_contents(fpkg);
+ 	assert(fpkg->contents != NULL);
+-	if (fpkg->contents->lines[1].line_type != PKG_LINE_NAME) {
++	if (fpkg->contents->lines[1].line_type != PKG_LINE_NAME ||
++	    fpkg->contents->lines[3].line_type != PKG_LINE_CWD) {
+ 		/** @todo cleanup */
+ 		return NULL;
+ 	}
+@@ -162,6 +163,12 @@
+ 	    freebsd_run_script);
+ 	pkg->data = fpkg;
+ 
++	/*
++	 * Set the prefix to the first @cwd line.
++	 * This should be line 3 otherwise we have a bad package
++	 */
++	pkg->pkg_prefix = strdup(fpkg->contents->lines[3].data);
++
+ 	return pkg;
+ }
+ 
+@@ -510,20 +517,22 @@
+ 			break;
+ 		case PKG_LINE_CWD:
+ 		{
+-			const char *dir;
++			const char *dir = NULL;
+ 
+-			dir = contents->lines[pos].data;
+-			if (strcmp(dir, ".") == 0) {
++			if (strcmp(contents->lines[pos].data, ".") == 0) {
+ 				if (reg)
+-					db_chdir(pkg, pkg_action, data, dir);
++					dir = contents->lines[pos].data;
+ 			} else {
+ 				if (chdir_first && prefix != NULL)
+-					db_chdir(pkg, pkg_action, data, prefix);
++					dir = prefix;
+ 				else
+-					db_chdir(pkg, pkg_action, data, dir);
++					dir = contents->lines[pos].data;
+ 				chdir_first = 0;
+ 			}
++			if (dir != NULL)
++				db_chdir(pkg, pkg_action, data, dir);
+ 
++
+ 			break;
+ 		}
+ 		case PKG_LINE_FILE:
+
+
+
+From zxombie at mail.berlios.de  Mon Jul 31 08:17:16 2006
+From: zxombie at mail.berlios.de (zxombie at BerliOS)
+Date: Mon, 31 Jul 2006 08:17:16 +0200
+Subject: [Libpkg-svn] r171 - trunk/tools/pkg_add
+Message-ID: <200607310617.k6V6HGRO029463@sheep.berlios.de>
+
+Author: zxombie
+Date: 2006-07-31 08:17:03 +0200 (Mon, 31 Jul 2006)
+New Revision: 171
+
+Modified:
+   trunk/tools/pkg_add/main.c
+Log:
+Return the correct value in pkg_add
+
+
+Modified: trunk/tools/pkg_add/main.c
+===================================================================
+--- trunk/tools/pkg_add/main.c	2006-07-31 06:14:53 UTC (rev 170)
++++ trunk/tools/pkg_add/main.c	2006-07-31 06:17:03 UTC (rev 171)
+@@ -212,7 +212,7 @@
+ static int
+ pkg_add(struct pkg_add add)
+ {
+-	int i;
++	int i, ret;
+ 	assert(add.db != NULL);
+ 	assert(add.repo != NULL);
+ 	for (i=0; add.pkgs[i] != NULL; i++) {
+@@ -221,10 +221,12 @@
+ 			    pkg_get_name(add.pkgs[i]));
+ 			continue;
+ 		}
+-		install_package(add.pkgs[i], add.repo, add.db, add.base_prefix,
+-		    add.prefix, add.flags);
++		ret = install_package(add.pkgs[i], add.repo, add.db,
++		    add.base_prefix, add.prefix, add.flags);
++		if (ret != 0)
++			return 1;
+ 	}
+-	return 1;
++	return 0;
+ }
+ 
+ /*
+
+
+

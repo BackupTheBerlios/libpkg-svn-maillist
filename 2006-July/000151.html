@@ -1,0 +1,378 @@
+<!DOCTYPE HTML PUBLIC "-//W3C//DTD HTML 4.01 Transitional//EN">
+<HTML>
+ <HEAD>
+   <TITLE> [Libpkg-svn] r167 - trunk/src
+   </TITLE>
+   <LINK REL="Index" HREF="http://lists.berlios.de/pipermail/libpkg-svn/2006-July/index.html" >
+   <LINK REL="made" HREF="mailto:libpkg-svn%40lists.berlios.de?Subject=Re%3A%20%5BLibpkg-svn%5D%20r167%20-%20trunk/src&In-Reply-To=%3C200607310319.k6V3J9ji018618%40sheep.berlios.de%3E">
+   <META NAME="robots" CONTENT="index,nofollow">
+   <style type="text/css">
+       pre {
+           white-space: pre-wrap;       /* css-2.1, curent FF, Opera, Safari */
+           }
+   </style>
+   <META http-equiv="Content-Type" content="text/html; charset=us-ascii">
+   <LINK REL="Previous"  HREF="000150.html">
+   <LINK REL="Next"  HREF="000152.html">
+ </HEAD>
+ <BODY BGCOLOR="#ffffff">
+   <H1>[Libpkg-svn] r167 - trunk/src</H1>
+    <B>zxombie at BerliOS</B> 
+    <A HREF="mailto:libpkg-svn%40lists.berlios.de?Subject=Re%3A%20%5BLibpkg-svn%5D%20r167%20-%20trunk/src&In-Reply-To=%3C200607310319.k6V3J9ji018618%40sheep.berlios.de%3E"
+       TITLE="[Libpkg-svn] r167 - trunk/src">zxombie at mail.berlios.de
+       </A><BR>
+    <I>Mon Jul 31 05:19:09 CEST 2006</I>
+    <P><UL>
+        <LI>Previous message: <A HREF="000150.html">[Libpkg-svn] r166 - in trunk: src tools/pkg_add
+</A></li>
+        <LI>Next message: <A HREF="000152.html">[Libpkg-svn] r168 - trunk/src
+</A></li>
+         <LI> <B>Messages sorted by:</B> 
+              <a href="date.html#151">[ date ]</a>
+              <a href="thread.html#151">[ thread ]</a>
+              <a href="subject.html#151">[ subject ]</a>
+              <a href="author.html#151">[ author ]</a>
+         </LI>
+       </UL>
+    <HR>  
+<!--beginarticle-->
+<PRE>Author: zxombie
+Date: 2006-07-31 05:18:54 +0200 (Mon, 31 Jul 2006)
+New Revision: 167
+
+Modified:
+   trunk/src/pkg.h
+   trunk/src/pkg_db_freebsd.c
+   trunk/src/pkg_freebsd.c
+   trunk/src/pkg_private.h
+   trunk/src/pkg_util.c
+   trunk/src/pkgfile.c
+Log:
+Get pkgfile_compare_checksum_md5 working for regular files, symlinks and hardlinks. For hardlinks it will check against the file the link is pointing to.
+Add pkgfile_set_checksum_md5 to set a files expected MD5 checksum
+Remove pkg_checksum_md5 as pkgfile_set_checksum_md5 and pkgfile_compare_checksum_md5 does is now the correct way of checking a file's MD5 checksum
+Add support for hardlinks in pkgfile_get_size and pkgfile_get_data
+Create a pkgfile object for hard links in freebsd_get_next_entry
+If pkg_install fails return an error in freebsd_install_pkg_action. This means pkg_add fails if the install fails
+
+Libpkg can almost handle hardlinks now meaning perl can almost be installed
+
+
+Modified: trunk/src/pkg.h
+===================================================================
+--- trunk/src/pkg.h	2006-07-30 11:47:15 UTC (rev 166)
++++ trunk/src/pkg.h	2006-07-31 03:18:54 UTC (rev 167)
+@@ -65,6 +65,7 @@
+ uint64_t	 pkgfile_get_size(struct pkgfile *);
+ char		*pkgfile_get_data(struct pkgfile *, uint64_t);
+ char		*pkgfile_get_data_all(struct pkgfile *);
++int		 pkgfile_set_checksum_md5(struct pkgfile *, const char *);
+ int		 pkgfile_compare_checksum_md5(struct pkgfile *);
+ int		 pkgfile_seek(struct pkgfile *, uint64_t, int);
+ int		 pkgfile_set_mode(struct pkgfile *, mode_t);
+
+Modified: trunk/src/pkg_db_freebsd.c
+===================================================================
+--- trunk/src/pkg_db_freebsd.c	2006-07-30 11:47:15 UTC (rev 166)
++++ trunk/src/pkg_db_freebsd.c	2006-07-31 03:18:54 UTC (rev 167)
+@@ -183,9 +183,11 @@
+ 	install_data.fake = fake;
+ 	install_data.last_file[0] = '\0';
+ 	install_data.directory[0] = '\0';
+-	pkg_install(pkg, prefix, reg, pkg_action, &amp;install_data,
++	if (pkg_install(pkg, prefix, reg, pkg_action, &amp;install_data,
+ 	    freebsd_do_chdir, freebsd_install_file, freebsd_do_exec,
+-	    freebsd_register);
++	    freebsd_register) != 0) {
++		return -1;
++	}
+ 
+ 	/* Extract the +MTREE */
+ 	pkg_action(PKG_DB_INFO, &quot;Running mtree for %s..&quot;, pkg_get_name(pkg));
+@@ -384,8 +386,8 @@
+  * @return 0 on success or -1 on error
+  */
+ static int
+-freebsd_install_file(struct pkg *pkg, pkg_db_action *pkg_action __unused,
+-		void *data, struct pkgfile *file)
++freebsd_install_file(struct pkg *pkg, pkg_db_action *pkg_action, void *data,
++	struct pkgfile *file)
+ {
+ 	struct pkg_install_data *install_data;
+ 
+
+Modified: trunk/src/pkg_freebsd.c
+===================================================================
+--- trunk/src/pkg_freebsd.c	2006-07-30 11:47:15 UTC (rev 166)
++++ trunk/src/pkg_freebsd.c	2006-07-31 03:18:54 UTC (rev 167)
+@@ -556,7 +556,8 @@
+ 
+ 				p = strchr(contents-&gt;lines[pos+1].data, ':');
+ 				p++;
+-				if (pkg_checksum_md5(file, p) == 0) {
++				pkgfile_set_checksum_md5(file, p);
++				if (pkgfile_compare_checksum_md5(file) == 0) {
+ 					if (!ignore) {
+ 						install_file(pkg, pkg_action,
+ 						    data, file);
+@@ -1057,9 +1058,16 @@
+ 		file = pkgfile_new_symlink(archive_entry_pathname(entry),
+ 		    archive_entry_symlink(entry));
+ 		
++	} else {
++		/* Probibly a hardlink */
++		const char *hard_link = archive_entry_hardlink(entry);
++		if (hard_link != NULL) {
++			file = pkgfile_new_hardlink(
++			    archive_entry_pathname(entry), hard_link);
++		}
+ 	}
+ 	if (file == NULL)
+-		errx(1, &quot;File is not regular or symbolic link&quot;);
++		errx(1, &quot;File is not regular, a hard link or a symbolic link&quot;);
+ 
+ 	pkgfile_set_mode(file, sb-&gt;st_mode);
+ 	return file;
+
+Modified: trunk/src/pkg_private.h
+===================================================================
+--- trunk/src/pkg_private.h	2006-07-30 11:47:15 UTC (rev 166)
++++ trunk/src/pkg_private.h	2006-07-31 03:18:54 UTC (rev 167)
+@@ -138,7 +138,6 @@
+ };
+ 
+ int pkg_dir_build(const char *);
+-int pkg_checksum_md5(struct pkgfile *, char *);
+ int pkg_exec(const char *, ...);
+ FILE *pkg_cached_file(FILE *, const char *);
+ 
+
+Modified: trunk/src/pkg_util.c
+===================================================================
+--- trunk/src/pkg_util.c	2006-07-30 11:47:15 UTC (rev 166)
++++ trunk/src/pkg_util.c	2006-07-31 03:18:54 UTC (rev 167)
+@@ -156,34 +156,6 @@
+ }
+ 
+ /**
+- * @brief Checks a file against a given md5 checksum
+- * @return 0 if the file matches the checksum, or -1 otherwise
+- */
+-int
+-pkg_checksum_md5(struct pkgfile *file, char *chk_sum)
+-{
+-	char sum[33];
+-	char *file_data;
+-
+-	if (!file) {
+-		return -1;
+-	}
+-
+-	if (!sum) {
+-		return -1;
+-	}
+-
+-	/* Perform a checksum on the file to install */
+-	file_data = pkgfile_get_data_all(file);
+-	MD5Data(file_data, pkgfile_get_size(file), sum);
+-	free(file_data);
+-	if (strcmp(sum, chk_sum)) {
+-		return -1;
+-	}
+-	return 0;
+-}
+-
+-/**
+  * @brief Executes a program
+  * 
+  * It will use fmt as the format to generate the execv string.
+
+Modified: trunk/src/pkgfile.c
+===================================================================
+--- trunk/src/pkgfile.c	2006-07-30 11:47:15 UTC (rev 166)
++++ trunk/src/pkgfile.c	2006-07-31 03:18:54 UTC (rev 167)
+@@ -27,6 +27,7 @@
+  *
+  */
+ 
++#include &lt;sys/param.h&gt;
+ #include &lt;sys/types.h&gt;
+ #include &lt;sys/mman.h&gt;
+ 
+@@ -38,6 +39,7 @@
+ #include &lt;stdio.h&gt;
+ #include &lt;stdlib.h&gt;
+ #include &lt;string.h&gt;
++#include &lt;unistd.h&gt;
+ 
+ #include &quot;pkg.h&quot;
+ #include &quot;pkg_private.h&quot;
+@@ -189,7 +191,6 @@
+ 	memcpy(file-&gt;data, contents, file-&gt;length);
+ 
+ 	return file;
+-	
+ }
+ 
+ /**
+@@ -293,13 +294,17 @@
+ 		pkgfile_open_fd(file);
+ 
+ 	assert(file-&gt;type != pkgfile_none);
+-	assert(file-&gt;type != pkgfile_hardlink);
+ 	assert(file-&gt;type != pkgfile_dir);
+ 
+ 	switch (file-&gt;type) {
+ 		case pkgfile_none:
+ 		case pkgfile_dir:
++			break;
+ 		case pkgfile_hardlink:
++			assert(file-&gt;loc == pkgfile_loc_mem);
++			if (file-&gt;loc == pkgfile_loc_mem) {
++				return file-&gt;length;
++			}
+ 			break;
+ 		case pkgfile_regular:
+ 			if (file-&gt;loc == pkgfile_loc_disk) {
+@@ -324,6 +329,7 @@
+ /**
+  * @brief Reads up to length bytes from a file
+  * @return A string containing the data or NULL
++ * @todo Change to return &quot;const char *&quot; and not do the strdup
+  */
+ char *
+ pkgfile_get_data(struct pkgfile *file, uint64_t length)
+@@ -337,14 +343,20 @@
+ 		pkgfile_open_fd(file);
+ 
+ 	assert(file-&gt;type != pkgfile_none);
+-	assert(file-&gt;type != pkgfile_hardlink);
+ 	assert(file-&gt;type != pkgfile_dir);
+ 
+ 	switch (file-&gt;type) {
+ 		case pkgfile_none:
+-		case pkgfile_hardlink:
+ 		case pkgfile_dir:
+ 			break;
++		case pkgfile_hardlink:
++			assert(file-&gt;loc == pkgfile_loc_mem);
++			if (file-&gt;loc == pkgfile_loc_mem) {
++				if (file-&gt;data == NULL)
++					return NULL;
++				data = strdup(file-&gt;data);
++			}
++			break;
+ 		case pkgfile_regular:
+ 			/** @todo check length &lt; size left in file */
+ 			data = malloc(length);
+@@ -388,14 +400,31 @@
+ }
+ 
+ /**
++ * @brief Sets the expected md5 of a file
++ * @return  0 on success
++ * @return -1 on error
++ */
++int
++pkgfile_set_checksum_md5(struct pkgfile *file, const char *md5)
++{
++	if (file == NULL || md5 == NULL)
++		return -1;
++
++	strlcpy(file-&gt;md5, md5, 33);
++	return 0;
++}
++
++/**
+  * @brief Compares a file's MD5 checksum with the version on disk
+- * @return 1 if the recorded checksum is different to the disk checksum
+- * @return 0 if the recorded checksum is the same as the disk checksum
++ * @return  1 if the recorded checksum is different to the disk checksum
++ * @return  0 if the recorded checksum is the same as the disk checksum
+  * @return -1 if there is a problem with the file object
+  */
+ int
+ pkgfile_compare_checksum_md5(struct pkgfile *file)
+ {
++	char checksum[33];
++
+ 	if (file == NULL || file-&gt;md5[0] == '\0')
+ 		return -1;
+ 
+@@ -403,32 +432,38 @@
+ 		pkgfile_open_fd(file);
+ 
+ 	assert(file-&gt;type != pkgfile_none);
+-	assert(file-&gt;type != pkgfile_hardlink);
+-	assert(file-&gt;type != pkgfile_symlink);
+ 	assert(file-&gt;type != pkgfile_dir);
+ 
+ 	switch (file-&gt;type) {
+ 		case pkgfile_none:
++		case pkgfile_dir:
++			return -1;
+ 		case pkgfile_hardlink:
++		{
++			char real_file[MAXPATHLEN + 1];
++
++			getcwd(real_file, MAXPATHLEN + 1);
++			snprintf(real_file, MAXPATHLEN + 1, &quot;%s/%s&quot;, real_file,
++			    file-&gt;data);
++			MD5File(real_file, checksum);
++			break;
++		}
+ 		case pkgfile_symlink:
+-		case pkgfile_dir:
+-			break;
+ 		case pkgfile_regular:
+ 		{
+-			char checksum[33];
++			char *file_data;
+ 
+-			if (file-&gt;name == NULL)
+-				return -1;
++			file_data = pkgfile_get_data_all(file);
++			MD5Data(file_data, pkgfile_get_size(file), checksum);
++			free(file_data);
+ 
+-			MD5File(file-&gt;name, checksum);
+-
+-			if (strncmp(checksum, file-&gt;md5, 32) == 0)
+-				return 0;
+-
+-			return 1;
++			break;
+ 		}
+ 	}
+-	return -1;
++	if (strncmp(checksum, file-&gt;md5, 32) == 0)
++		return 0;
++
++	return 1;
+ }
+ 
+ /**
+
+
+</PRE>
+
+<!--endarticle-->
+    <HR>
+    <P><UL>
+        <!--threads-->
+	<LI>Previous message: <A HREF="000150.html">[Libpkg-svn] r166 - in trunk: src tools/pkg_add
+</A></li>
+	<LI>Next message: <A HREF="000152.html">[Libpkg-svn] r168 - trunk/src
+</A></li>
+         <LI> <B>Messages sorted by:</B> 
+              <a href="date.html#151">[ date ]</a>
+              <a href="thread.html#151">[ thread ]</a>
+              <a href="subject.html#151">[ subject ]</a>
+              <a href="author.html#151">[ author ]</a>
+         </LI>
+       </UL>
+
+<hr>
+<a href="https://lists.berlios.de/mailman/listinfo/libpkg-svn">More information about the Libpkg-svn
+mailing list</a><br>
+</body></html>

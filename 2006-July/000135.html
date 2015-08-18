@@ -1,0 +1,188 @@
+<!DOCTYPE HTML PUBLIC "-//W3C//DTD HTML 4.01 Transitional//EN">
+<HTML>
+ <HEAD>
+   <TITLE> [Libpkg-svn] r148 - trunk/src
+   </TITLE>
+   <LINK REL="Index" HREF="http://lists.berlios.de/pipermail/libpkg-svn/2006-July/index.html" >
+   <LINK REL="made" HREF="mailto:libpkg-svn%40lists.berlios.de?Subject=Re%3A%20%5BLibpkg-svn%5D%20r148%20-%20trunk/src&In-Reply-To=%3C200607140120.k6E1KOmW011547%40sheep.berlios.de%3E">
+   <META NAME="robots" CONTENT="index,nofollow">
+   <style type="text/css">
+       pre {
+           white-space: pre-wrap;       /* css-2.1, curent FF, Opera, Safari */
+           }
+   </style>
+   <META http-equiv="Content-Type" content="text/html; charset=us-ascii">
+   <LINK REL="Previous"  HREF="000136.html">
+   <LINK REL="Next"  HREF="000134.html">
+ </HEAD>
+ <BODY BGCOLOR="#ffffff">
+   <H1>[Libpkg-svn] r148 - trunk/src</H1>
+    <B>zxombie at BerliOS</B> 
+    <A HREF="mailto:libpkg-svn%40lists.berlios.de?Subject=Re%3A%20%5BLibpkg-svn%5D%20r148%20-%20trunk/src&In-Reply-To=%3C200607140120.k6E1KOmW011547%40sheep.berlios.de%3E"
+       TITLE="[Libpkg-svn] r148 - trunk/src">zxombie at mail.berlios.de
+       </A><BR>
+    <I>Fri Jul 14 03:20:24 CEST 2006</I>
+    <P><UL>
+        <LI>Previous message: <A HREF="000136.html">[Libpkg-svn] r147 - trunk/tools/pkg_info
+</A></li>
+        <LI>Next message: <A HREF="000134.html">[Libpkg-svn] r149 - trunk
+</A></li>
+         <LI> <B>Messages sorted by:</B> 
+              <a href="date.html#135">[ date ]</a>
+              <a href="thread.html#135">[ thread ]</a>
+              <a href="subject.html#135">[ subject ]</a>
+              <a href="author.html#135">[ author ]</a>
+         </LI>
+       </UL>
+    <HR>  
+<!--beginarticle-->
+<PRE>Author: zxombie
+Date: 2006-07-14 03:19:52 +0200 (Fri, 14 Jul 2006)
+New Revision: 148
+
+Modified:
+   trunk/src/pkg_db.c
+   trunk/src/pkg_db.h
+   trunk/src/pkg_db_freebsd.c
+   trunk/src/pkg_db_private.h
+Log:
+Add pkg_db_get_installed_match_count to retrieve upto count packages that match
+
+
+Modified: trunk/src/pkg_db.c
+===================================================================
+--- trunk/src/pkg_db.c	2006-07-14 01:11:37 UTC (rev 147)
++++ trunk/src/pkg_db.c	2006-07-14 01:19:52 UTC (rev 148)
+@@ -206,8 +206,26 @@
+  * @return A null-terminated array of packages or NULL
+  */
+ struct pkg **
+-pkg_db_get_installed_match(struct pkg_db *db, pkg_db_match *match, const void *data)
++pkg_db_get_installed_match(struct pkg_db *db, pkg_db_match *match,
++    const void *data)
+ {
++	return pkg_db_get_installed_match_count(db, match, 0, data);
++}
++
++/**
++ * @brief Retrieve a NULL terminated array of up to count installed
++ *     packages that match accepts
++ * @param db The database to get the installed packages from
++ * @param match A function that is passed each package and returns 0 if
++ *     the package is wanted in the array
++ * @param count The maximum number of packages to return or 0 to return all
++ * @param data Data to be passed to match
++ * @return A null-terminated array of packages or NULL
++ */
++struct pkg **
++pkg_db_get_installed_match_count(struct pkg_db *db, pkg_db_match *match,
++    unsigned int count, const void *data)
++{
+ 	if (!db)
+ 		return NULL;
+ 
+@@ -215,7 +233,7 @@
+ 		match = pkg_match_all;
+ 
+ 	if (db-&gt;pkg_get_installed_match)
+-		return db-&gt;pkg_get_installed_match(db, match, data);
++		return db-&gt;pkg_get_installed_match(db, match, count, data);
+ 
+ 	return NULL;
+ }
+
+Modified: trunk/src/pkg_db.h
+===================================================================
+--- trunk/src/pkg_db.h	2006-07-14 01:11:37 UTC (rev 147)
++++ trunk/src/pkg_db.h	2006-07-14 01:19:52 UTC (rev 148)
+@@ -55,6 +55,8 @@
+ struct pkg	**pkg_db_get_installed(struct pkg_db *);
+ struct pkg	**pkg_db_get_installed_match(struct pkg_db *, pkg_db_match *,
+ 			const void *);
++struct pkg	**pkg_db_get_installed_match_count(struct pkg_db *,
++			pkg_db_match *, unsigned int, const void *);
+ struct pkg	 *pkg_db_get_package(struct pkg_db *, const char *);
+ int		  pkg_db_free(struct pkg_db *);
+ 
+
+Modified: trunk/src/pkg_db_freebsd.c
+===================================================================
+--- trunk/src/pkg_db_freebsd.c	2006-07-14 01:11:37 UTC (rev 147)
++++ trunk/src/pkg_db_freebsd.c	2006-07-14 01:19:52 UTC (rev 148)
+@@ -73,7 +73,7 @@
+ 				struct pkg *, int, int, pkg_db_action *);
+ pkg_static int		  freebsd_is_installed(struct pkg_db *, struct pkg *);
+ pkg_static struct pkg	**freebsd_get_installed_match(struct pkg_db *,
+-				pkg_db_match *, const void *);
++				pkg_db_match *, unsigned int, const void *);
+ pkg_static struct pkg	 *freebsd_get_package(struct pkg_db *, const char *);	
+ 
+ /* pkg_install callbacks */
+@@ -227,7 +227,7 @@
+ 	/* Does the package have an origin and if so is that origin installed */
+ 	if (pkg_get_origin(pkg) != NULL) {
+ 		pkgs = freebsd_get_installed_match(db, pkg_match_by_origin,
+-		    (const void *)pkg_get_origin(pkg));
++		    0, (const void *)pkg_get_origin(pkg));
+ 		if (pkgs[0] != NULL)
+ 			is_installed = 0;
+ 		pkg_list_free(pkgs);
+@@ -241,7 +241,8 @@
+  *     function it returns 0. NULL on error
+  */
+ static struct pkg **
+-freebsd_get_installed_match(struct pkg_db *db, pkg_db_match *match, const void *data)
++freebsd_get_installed_match(struct pkg_db *db, pkg_db_match *match,
++    unsigned int count, const void *data)
+ {
+ 	DIR *d;
+ 	struct dirent *de;
+@@ -284,6 +285,10 @@
+ 			packages[packages_pos] = pkg;
+ 			packages_pos++;
+ 			packages[packages_pos] = NULL;
++
++			/* Stop after count packages */
++			if (count != 0 &amp;&amp; packages_pos == count + 1)
++				break;
+ 		} else
+ 			pkg_free(pkg);
+ 		free(dir);
+
+Modified: trunk/src/pkg_db_private.h
+===================================================================
+--- trunk/src/pkg_db_private.h	2006-07-14 01:11:37 UTC (rev 147)
++++ trunk/src/pkg_db_private.h	2006-07-14 01:19:52 UTC (rev 148)
+@@ -36,7 +36,7 @@
+ typedef struct pkg	 *pkg_db_get_package_callback(struct pkg_db *,
+ 				const char *);
+ typedef struct pkg	**pkg_db_get_installed_match_callback(struct pkg_db *,
+-				pkg_db_match *, const void *);
++				pkg_db_match *, unsigned int, const void *);
+ 
+ 
+ struct pkg_db	*pkg_db_open(const char *, pkg_db_install_pkg_callback *,
+
+
+</PRE>
+
+<!--endarticle-->
+    <HR>
+    <P><UL>
+        <!--threads-->
+	<LI>Previous message: <A HREF="000136.html">[Libpkg-svn] r147 - trunk/tools/pkg_info
+</A></li>
+	<LI>Next message: <A HREF="000134.html">[Libpkg-svn] r149 - trunk
+</A></li>
+         <LI> <B>Messages sorted by:</B> 
+              <a href="date.html#135">[ date ]</a>
+              <a href="thread.html#135">[ thread ]</a>
+              <a href="subject.html#135">[ subject ]</a>
+              <a href="author.html#135">[ author ]</a>
+         </LI>
+       </UL>
+
+<hr>
+<a href="https://lists.berlios.de/mailman/listinfo/libpkg-svn">More information about the Libpkg-svn
+mailing list</a><br>
+</body></html>

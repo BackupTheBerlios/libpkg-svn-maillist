@@ -1,0 +1,288 @@
+<!DOCTYPE HTML PUBLIC "-//W3C//DTD HTML 4.01 Transitional//EN">
+<HTML>
+ <HEAD>
+   <TITLE> [Libpkg-svn] r158 - in trunk: src tools/pkg_add
+   </TITLE>
+   <LINK REL="Index" HREF="http://lists.berlios.de/pipermail/libpkg-svn/2006-July/index.html" >
+   <LINK REL="made" HREF="mailto:libpkg-svn%40lists.berlios.de?Subject=Re%3A%20%5BLibpkg-svn%5D%20r158%20-%20in%20trunk%3A%20src%20tools/pkg_add&In-Reply-To=%3C200607220751.k6M7pqf9001493%40sheep.berlios.de%3E">
+   <META NAME="robots" CONTENT="index,nofollow">
+   <style type="text/css">
+       pre {
+           white-space: pre-wrap;       /* css-2.1, curent FF, Opera, Safari */
+           }
+   </style>
+   <META http-equiv="Content-Type" content="text/html; charset=us-ascii">
+   <LINK REL="Previous"  HREF="000141.html">
+   <LINK REL="Next"  HREF="000143.html">
+ </HEAD>
+ <BODY BGCOLOR="#ffffff">
+   <H1>[Libpkg-svn] r158 - in trunk: src tools/pkg_add</H1>
+    <B>zxombie at BerliOS</B> 
+    <A HREF="mailto:libpkg-svn%40lists.berlios.de?Subject=Re%3A%20%5BLibpkg-svn%5D%20r158%20-%20in%20trunk%3A%20src%20tools/pkg_add&In-Reply-To=%3C200607220751.k6M7pqf9001493%40sheep.berlios.de%3E"
+       TITLE="[Libpkg-svn] r158 - in trunk: src tools/pkg_add">zxombie at mail.berlios.de
+       </A><BR>
+    <I>Sat Jul 22 09:51:52 CEST 2006</I>
+    <P><UL>
+        <LI>Previous message: <A HREF="000141.html">[Libpkg-svn] r157 - trunk/tools/pkg_info
+</A></li>
+        <LI>Next message: <A HREF="000143.html">[Libpkg-svn] r159 - trunk/src
+</A></li>
+         <LI> <B>Messages sorted by:</B> 
+              <a href="date.html#142">[ date ]</a>
+              <a href="thread.html#142">[ thread ]</a>
+              <a href="subject.html#142">[ subject ]</a>
+              <a href="author.html#142">[ author ]</a>
+         </LI>
+       </UL>
+    <HR>  
+<!--beginarticle-->
+<PRE>Author: zxombie
+Date: 2006-07-22 09:51:51 +0200 (Sat, 22 Jul 2006)
+New Revision: 158
+
+Modified:
+   trunk/src/pkg_db.c
+   trunk/src/pkg_db.h
+   trunk/src/pkg_db_freebsd.c
+   trunk/src/pkg_db_private.h
+   trunk/tools/pkg_add/main.c
+Log:
+Allow the setting of the prefix of a package
+Use the new api to implement pkg_add -p and -P
+
+
+Modified: trunk/src/pkg_db.c
+===================================================================
+--- trunk/src/pkg_db.c	2006-07-21 06:38:23 UTC (rev 157)
++++ trunk/src/pkg_db.c	2006-07-22 07:51:51 UTC (rev 158)
+@@ -127,12 +127,17 @@
+ 
+ /**
+  * @brief Installs a package to the database
++ * @param db The database to install to
++ * @param pkg The package to install
++ * @param prefix The prefix to use to install the package or NULL
++ * @param reg If true register the package's installation
+  * @return 0 on success, -1 on error
+  */
+ int
+-pkg_db_install_pkg(struct pkg_db *db, struct pkg *pkg, int reg)
++pkg_db_install_pkg(struct pkg_db *db, struct pkg *pkg, const char *prefix,
++	int reg)
+ {
+-	return pkg_db_install_pkg_action(db, pkg, reg, 0, NULL);
++	return pkg_db_install_pkg_action(db, pkg, prefix, reg, 0, NULL);
+ }
+ 
+ /**
+@@ -147,8 +152,8 @@
+  * @return 0 if the package is installed, -1 otherwise
+  */
+ int
+-pkg_db_install_pkg_action(struct pkg_db *db, struct pkg *pkg, int reg, int fake,
+-    pkg_db_action *action)
++pkg_db_install_pkg_action(struct pkg_db *db, struct pkg *pkg,
++    const char *prefix, int reg, int fake, pkg_db_action *action)
+ {
+ 	if (!db) {
+ 		return -1;
+@@ -165,7 +170,7 @@
+ 	if (action == NULL)
+ 		action = pkg_action_null;
+ 
+-	return db-&gt;pkg_install(db, pkg, reg, fake, action);
++	return db-&gt;pkg_install(db, pkg, prefix, reg, fake, action);
+ }
+ 
+ /**
+
+Modified: trunk/src/pkg_db.h
+===================================================================
+--- trunk/src/pkg_db.h	2006-07-21 06:38:23 UTC (rev 157)
++++ trunk/src/pkg_db.h	2006-07-22 07:51:51 UTC (rev 158)
+@@ -48,9 +48,10 @@
+ typedef		  void pkg_db_action(int, const char *, ...);
+ 
+ struct pkg_db	 *pkg_db_open_freebsd(const char *);
+-int		  pkg_db_install_pkg(struct pkg_db *, struct pkg *, int);
+-int		  pkg_db_install_pkg_action(struct pkg_db *, struct pkg *, int,
+-			int, pkg_db_action *);
++int		  pkg_db_install_pkg(struct pkg_db *, struct pkg *,
++			const char *, int);
++int		  pkg_db_install_pkg_action(struct pkg_db *, struct pkg *,
++			const char *, int, int, pkg_db_action *);
+ int		  pkg_db_is_installed(struct pkg_db *, struct pkg *);
+ struct pkg	**pkg_db_get_installed(struct pkg_db *);
+ struct pkg	**pkg_db_get_installed_match(struct pkg_db *, pkg_db_match *,
+
+Modified: trunk/src/pkg_db_freebsd.c
+===================================================================
+--- trunk/src/pkg_db_freebsd.c	2006-07-21 06:38:23 UTC (rev 157)
++++ trunk/src/pkg_db_freebsd.c	2006-07-22 07:51:51 UTC (rev 158)
+@@ -70,7 +70,8 @@
+ };
+ 
+ pkg_static int		  freebsd_install_pkg_action(struct pkg_db *,
+-				struct pkg *, int, int, pkg_db_action *);
++				struct pkg *, const char *, int, int,
++				pkg_db_action *);
+ pkg_static int		  freebsd_is_installed(struct pkg_db *, struct pkg *);
+ pkg_static struct pkg	**freebsd_get_installed_match(struct pkg_db *,
+ 				pkg_db_match *, unsigned int, const void *);
+@@ -134,8 +135,8 @@
+  * @return 0 on success, -1 on error
+  */
+ static int
+-freebsd_install_pkg_action(struct pkg_db *db, struct pkg *pkg, int reg,
+-    int fake, pkg_db_action *pkg_action)
++freebsd_install_pkg_action(struct pkg_db *db, struct pkg *pkg,
++    const char *prefix __unused, int reg, int fake, pkg_db_action *pkg_action)
+ {
+ 	struct pkg_install_data install_data;
+ 	char cwd[MAXPATHLEN];
+
+Modified: trunk/src/pkg_db_private.h
+===================================================================
+--- trunk/src/pkg_db_private.h	2006-07-21 06:38:23 UTC (rev 157)
++++ trunk/src/pkg_db_private.h	2006-07-22 07:51:51 UTC (rev 158)
+@@ -30,8 +30,8 @@
+ #ifndef __LIBPKG_PKG_DB_PRIVATE_H__
+ #define __LIBPKG_PKG_DB_PRIVATE_H__
+ 
+-typedef int	 pkg_db_install_pkg_callback(struct pkg_db *, struct pkg *, int,
+-			int, pkg_db_action *);
++typedef int	 pkg_db_install_pkg_callback(struct pkg_db *, struct pkg *, 
++			const char *, int, int, pkg_db_action *);
+ typedef int 	 pkg_db_is_installed_callback(struct pkg_db *, struct pkg *);
+ typedef struct pkg	 *pkg_db_get_package_callback(struct pkg_db *,
+ 				const char *);
+
+Modified: trunk/tools/pkg_add/main.c
+===================================================================
+--- trunk/tools/pkg_add/main.c	2006-07-21 06:38:23 UTC (rev 157)
++++ trunk/tools/pkg_add/main.c	2006-07-22 07:51:51 UTC (rev 158)
+@@ -44,6 +44,8 @@
+ 	struct pkg	**pkgs;
+ 	int		  flags;
+ 	char		  chroot[PATH_MAX];
++	char		 *base_prefix;
++	char		 *prefix;
+ };
+ 
+ /* A linked list of packages that have been installed */
+@@ -58,7 +60,8 @@
+ 
+ static void usage(void);
+ static int pkg_add(struct pkg_add);
+-static int install_package(struct pkg *, struct pkg_repo *,struct pkg_db *,int);
++static int install_package(struct pkg *, struct pkg_repo *,struct pkg_db *,
++	const char *, const char *, int);
+ 
+ int
+ main (int argc, char *argv[])
+@@ -72,6 +75,8 @@
+ 	add.repo = NULL;
+ 	add.flags = 0;
+ 	add.chroot[0] = '\0';
++	add.base_prefix = NULL;
++	add.prefix = NULL;
+ 	while ((ch = getopt(argc, argv, options)) != -1) {
+ 		switch(ch) {
+ 		/* Case statements marked TODO will be supported in the next release */
+@@ -96,16 +101,19 @@
+ 			add.flags |= no_run_flag;
+ 			break;
+ 		case 'P':
++			add.base_prefix = optarg;
++			add.prefix = optarg;
+ 			errx(1, &quot;Unsupported argument&quot;);
+ 			break;
+ 		case 'p':
++			add.base_prefix = optarg;
++			add.prefix = NULL;
+ 			errx(1, &quot;Unsupported argument&quot;);
+ 			break;
+ 		case 'R':
+ 			add.flags |= no_record_install_flag;
+ 			break;
+ 		case 'r':
+-			pkg_repo_free(add.repo);
+ 			remote = 1;
+ 			break;
+ 		case 'S':
+@@ -128,6 +136,7 @@
+ 	argv += optind;
+ 
+ 	if (remote != 0) {
++		pkg_repo_free(add.repo);
+ 		if ((add.flags &amp; keep_file_flag) == keep_file_flag)
+ 			add.repo = pkg_repo_new_ftp(NULL, NULL, NULL);
+ 		else
+@@ -194,7 +203,8 @@
+ 			    pkg_get_name(add.pkgs[i]));
+ 			continue;
+ 		}
+-		install_package(add.pkgs[i], add.repo, add.db, add.flags);
++		install_package(add.pkgs[i], add.repo, add.db, add.base_prefix,
++		    add.prefix, add.flags);
+ 	}
+ 	return 1;
+ }
+@@ -221,7 +231,7 @@
+  */
+ static int
+ install_package(struct pkg *pkg, struct pkg_repo *repo, struct pkg_db *db,
+-		int flags)
++		const char *base_prefix, const char *prefix, int flags)
+ {
+ 	unsigned int i;
+ 	int ret;
+@@ -266,8 +276,8 @@
+ 		deps[i] = new_pkg;
+ 
+ 		/* Install the dependency */
+-		if (install_package(deps[i], repo, db, flags) != 0 &amp;&amp;
+-		    (flags &amp; force_flag) != force_flag) {
++		if (install_package(deps[i], repo, db, prefix, prefix, flags)
++		    != 0 &amp;&amp; (flags &amp; force_flag) != force_flag) {
+ 			pkg_list_free(deps);
+ 			return -1;
+ 		}
+@@ -279,11 +289,11 @@
+ 	if ((flags &amp; verbosity_flag) == verbosity_flag) {
+ 		/* Install with a verbose output */
+ 		printf(&quot;extract: Package name is %s\n&quot;, pkg_get_name(pkg));
+-		ret = pkg_db_install_pkg_action(db, pkg,
++		ret = pkg_db_install_pkg_action(db, pkg, base_prefix,
+ 		    ((flags &amp; no_record_install_flag)!= no_record_install_flag),
+ 		    ((flags &amp; no_run_flag) == no_run_flag), pkg_action);
+ 	} else if ((flags &amp; no_run_flag) == 0) {
+-		ret = pkg_db_install_pkg(db, pkg,
++		ret = pkg_db_install_pkg(db, pkg, base_prefix,
+ 		    ((flags &amp; no_record_install_flag)!=no_record_install_flag));
+ 	}
+ 	/*
+
+
+</PRE>
+
+<!--endarticle-->
+    <HR>
+    <P><UL>
+        <!--threads-->
+	<LI>Previous message: <A HREF="000141.html">[Libpkg-svn] r157 - trunk/tools/pkg_info
+</A></li>
+	<LI>Next message: <A HREF="000143.html">[Libpkg-svn] r159 - trunk/src
+</A></li>
+         <LI> <B>Messages sorted by:</B> 
+              <a href="date.html#142">[ date ]</a>
+              <a href="thread.html#142">[ thread ]</a>
+              <a href="subject.html#142">[ subject ]</a>
+              <a href="author.html#142">[ author ]</a>
+         </LI>
+       </UL>
+
+<hr>
+<a href="https://lists.berlios.de/mailman/listinfo/libpkg-svn">More information about the Libpkg-svn
+mailing list</a><br>
+</body></html>

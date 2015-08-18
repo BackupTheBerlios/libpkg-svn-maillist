@@ -1,0 +1,1178 @@
+From zxombie at users.berlios.de  Sat Oct 27 00:09:24 2007
+From: zxombie at users.berlios.de (zxombie at users.berlios.de)
+Date: Sat, 27 Oct 2007 00:09:24 +0200
+Subject: r308 - trunk/src
+Message-ID: <200710262209.l9QM9ODj004895@sheep.berlios.de>
+
+Author: zxombie
+Date: 2007-10-27 00:09:23 +0200 (Sat, 27 Oct 2007)
+New Revision: 308
+
+Modified:
+   trunk/src/pkg_freebsd_contents.c
+Log:
+Make pkg_freebsd_contents_line_str non-static to allow other's to use it
+
+Modified: trunk/src/pkg_freebsd_contents.c
+===================================================================
+--- trunk/src/pkg_freebsd_contents.c	2007-07-02 07:09:28 UTC (rev 307)
++++ trunk/src/pkg_freebsd_contents.c	2007-10-26 22:09:23 UTC (rev 308)
+@@ -47,7 +47,7 @@
+ /**
+  * @brief All possible line types in a +CONTENTS file
+  */
+-static const char *pkg_freebsd_contents_line_str[] = {
++const char *pkg_freebsd_contents_line_str[] = {
+ 	"",
+ 	"",
+ 	"@comment",
+
+
+
+From zxombie at users.berlios.de  Sat Oct 27 00:11:00 2007
+From: zxombie at users.berlios.de (zxombie at users.berlios.de)
+Date: Sat, 27 Oct 2007 00:11:00 +0200
+Subject: r309 - trunk/src
+Message-ID: <200710262211.l9QMB0Eu005427@sheep.berlios.de>
+
+Author: zxombie
+Date: 2007-10-27 00:11:00 +0200 (Sat, 27 Oct 2007)
+New Revision: 309
+
+Modified:
+   trunk/src/pkg_manifest.c
+Log:
+Fix a memory leek in pkg_manifest_set_manifest_version when it is called twice
+
+Modified: trunk/src/pkg_manifest.c
+===================================================================
+--- trunk/src/pkg_manifest.c	2007-10-26 22:09:23 UTC (rev 308)
++++ trunk/src/pkg_manifest.c	2007-10-26 22:11:00 UTC (rev 309)
+@@ -152,12 +152,19 @@
+ pkg_manifest_set_manifest_version(struct pkg_manifest *manifest,
+     const char *version)
+ {
+-	if (manifest == NULL)
++	char *new_version;
++
++	if (manifest == NULL || version == NULL)
+ 		return -1;
+-	
+-	manifest->manifest_version = strdup(version);
+-	if (manifest->manifest_version == NULL)
++
++	new_version = strdup(version);
++	if (new_version == NULL)
+ 		return -1;
++
++	if (manifest->manifest_version != NULL)
++		free(manifest->manifest_version);
++
++	manifest->manifest_version = new_version;
+ 	
+ 	return 0;
+ }
+
+
+
+From zxombie at users.berlios.de  Sat Oct 27 00:12:16 2007
+From: zxombie at users.berlios.de (zxombie at users.berlios.de)
+Date: Sat, 27 Oct 2007 00:12:16 +0200
+Subject: r310 - trunk/src
+Message-ID: <200710262212.l9QMCGHY005572@sheep.berlios.de>
+
+Author: zxombie
+Date: 2007-10-27 00:12:16 +0200 (Sat, 27 Oct 2007)
+New Revision: 310
+
+Modified:
+   trunk/src/pkg_freebsd.c
+Log:
+Fix a typo in what function a callback is for
+
+Modified: trunk/src/pkg_freebsd.c
+===================================================================
+--- trunk/src/pkg_freebsd.c	2007-10-26 22:11:00 UTC (rev 309)
++++ trunk/src/pkg_freebsd.c	2007-10-26 22:12:16 UTC (rev 310)
+@@ -369,7 +369,7 @@
+ }
+ 
+ /**
+- * @brief Callback for pkg_get_origin()
++ * @brief Callback for pkg_set_origin()
+  * @param pkg The package to set the origin for
+  * @param origin The new origin to set
+  * @return  0 on success
+
+
+
+From zxombie at users.berlios.de  Sat Oct 27 00:20:00 2007
+From: zxombie at users.berlios.de (zxombie at users.berlios.de)
+Date: Sat, 27 Oct 2007 00:20:00 +0200
+Subject: r311 - trunk/src
+Message-ID: <200710262220.l9QMK0dP006002@sheep.berlios.de>
+
+Author: zxombie
+Date: 2007-10-27 00:20:00 +0200 (Sat, 27 Oct 2007)
+New Revision: 311
+
+Modified:
+   trunk/src/
+Log:
+Add files that may be generated to the ignore list
+
+
+Property changes on: trunk/src
+___________________________________________________________________
+Name: svn:ignore
+   + *.po
+*.a
+.depend
+*.swp
+pkg_freebsd_lexer.c
+pkg_freebsd_parser.c
+pkg_freebsd_parser.h
+pkg_freebsd_parser.output
+
+
+
+
+From zxombie at users.berlios.de  Sat Oct 27 00:51:33 2007
+From: zxombie at users.berlios.de (zxombie at users.berlios.de)
+Date: Sat, 27 Oct 2007 00:51:33 +0200
+Subject: r312 - trunk/tests
+Message-ID: <200710262251.l9QMpXTM012454@sheep.berlios.de>
+
+Author: zxombie
+Date: 2007-10-27 00:51:28 +0200 (Sat, 27 Oct 2007)
+New Revision: 312
+
+Modified:
+   trunk/tests/pkg_freebsd_contents.c
+Log:
+Use the libpkg copy of pkg_freebsd_contents_line_str now it is global
+
+Modified: trunk/tests/pkg_freebsd_contents.c
+===================================================================
+--- trunk/tests/pkg_freebsd_contents.c	2007-10-26 22:20:00 UTC (rev 311)
++++ trunk/tests/pkg_freebsd_contents.c	2007-10-26 22:51:28 UTC (rev 312)
+@@ -89,23 +89,6 @@
+ }
+ END_TEST
+ 
+-static const char *pkg_freebsd_contents_line_str[] = {
+-	"",
+-	"",
+-	"@comment",
+-	"@name",
+-	"@cwd",
+-	"@pkgdep",
+-	"@conflicts",
+-	"@exec",
+-	"@unexec",
+-	"@ignore",
+-	"@dirrm",
+-	"@mtree",
+-	"@display",
+-	NULL
+-};
+-
+ static void
+ check_good_command(struct pkg_freebsd_contents *contents, int line_type)
+ {
+
+
+
+From zxombie at users.berlios.de  Sat Oct 27 00:59:47 2007
+From: zxombie at users.berlios.de (zxombie at users.berlios.de)
+Date: Sat, 27 Oct 2007 00:59:47 +0200
+Subject: r313 - trunk/tests
+Message-ID: <200710262259.l9QMxlrI018044@sheep.berlios.de>
+
+Author: zxombie
+Date: 2007-10-27 00:59:46 +0200 (Sat, 27 Oct 2007)
+New Revision: 313
+
+Added:
+   trunk/tests/pkg_manifest_item.c
+Log:
+Add tests for a pkg manifest item
+
+Added: trunk/tests/pkg_manifest_item.c
+===================================================================
+--- trunk/tests/pkg_manifest_item.c	2007-10-26 22:51:28 UTC (rev 312)
++++ trunk/tests/pkg_manifest_item.c	2007-10-26 22:59:46 UTC (rev 313)
+@@ -0,0 +1,299 @@
++/*
++ * Copyright (C) 2007, Andrew Turner, All rights reserved.
++ *
++ * Redistribution and use in source and binary forms, with or without
++ * modification, are permitted provided that the following conditions
++ * are met:
++ * 1. Redistributions of source code must retain the above copyright
++ *    notice, this list of conditions and the following disclaimer.
++ * 2. Redistributions in binary form must reproduce the above copyright
++ *    notice, this list of conditions and the following disclaimer in the
++ *    documentation and/or other materials provided with the distribution.
++ *
++ * THIS SOFTWARE IS PROVIDED BY THE AUTHOR AND CONTRIBUTORS ``AS IS'' AND
++ * ANY EXPRESS OR IMPLIED WARRANTIES, INCLUDING, BUT NOT LIMITED TO, THE
++ * IMPLIED WARRANTIES OF MERCHANTABILITY AND FITNESS FOR A PARTICULAR PURPOSE
++ * ARE DISCLAIMED.  IN NO EVENT SHALL THE AUTHOR OR CONTRIBUTORS BE LIABLE
++ * FOR ANY DIRECT, INDIRECT, INCIDENTAL, SPECIAL, EXEMPLARY, OR CONSEQUENTIAL
++ * DAMAGES (INCLUDING, BUT NOT LIMITED TO, PROCUREMENT OF SUBSTITUTE GOODS
++ * OR SERVICES; LOSS OF USE, DATA, OR PROFITS; OR BUSINESS INTERRUPTION)
++ * HOWEVER CAUSED AND ON ANY THEORY OF LIABILITY, WHETHER IN CONTRACT, STRICT
++ * LIABILITY, OR TORT (INCLUDING NEGLIGENCE OR OTHERWISE) ARISING IN ANY WAY
++ * OUT OF THE USE OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF
++ * SUCH DAMAGE.
++ *
++ */
++
++#include "test.h"
++
++#include <string.h>
++
++#include <pkg.h>
++#include <pkg_private.h>
++
++static const pkg_manifest_item_attr all_attrs[] =
++	{ pmia_other, pmia_ignore, pmia_deinstall, pmia_md5, pmia_max };
++
++void test_manifest_item(pkg_manifest_item_type, const char *);
++
++void
++test_manifest_item(pkg_manifest_item_type type, const char *init_data)
++{
++	struct pkg_manifest_item *item;
++	unsigned int i;
++
++	item = pkg_manifest_item_new(type, init_data);
++	fail_unless(item != NULL, NULL);
++	fail_unless(pkg_manifest_item_get_type(item) == type, NULL);
++
++	/*
++	 * First test the data
++	 */
++	if (init_data == NULL) {
++		fail_unless(pkg_manifest_item_get_data(item) == NULL, NULL);
++		fail_unless(item->data == NULL, NULL);
++	} else {
++		fail_unless(strcmp(pkg_manifest_item_get_data(item), init_data)
++		    == 0, NULL);
++		fail_unless(strcmp(item->data, init_data) == 0, NULL);
++	}
++
++	/* Check if setting data works */
++	fail_unless(pkg_manifest_item_set_data(item, "data") == 0, NULL);
++	fail_unless(strcmp(pkg_manifest_item_get_data(item), "data") == 0,NULL);
++	fail_unless(strcmp(item->data, "data") == 0, NULL);
++
++	/* Check if clearing data works */
++	fail_unless(pkg_manifest_item_set_data(item, NULL) == 0, NULL);
++	fail_unless(pkg_manifest_item_get_data(item) == NULL, NULL);
++	fail_unless(item->data == NULL, NULL);
++
++	/* Check each attribute */
++	for (i = 0; all_attrs[i] != pmia_max; i++) {
++		/* Test if the attribute is empty to begin with */
++		fail_unless(pkg_manifest_item_get_attr(item, all_attrs[i]) ==
++		    NULL, NULL);
++
++		/* Test if setting attributes works */
++		fail_unless(pkg_manifest_item_set_attr(item, all_attrs[i],
++		    "data") == 0, NULL);
++		fail_unless(strcmp(pkg_manifest_item_get_attr(item,
++		    all_attrs[i]), "data") == 0, NULL);
++
++		/* Test if clearing the attributes works */
++		fail_unless(pkg_manifest_item_set_attr(item, all_attrs[i], NULL)
++		    == 0, NULL);
++		fail_unless(pkg_manifest_item_get_attr(item, all_attrs[i]) ==
++		    NULL, NULL);
++	}
++
++	fail_unless(pkg_manifest_item_free(item) == 0, NULL);
++}
++
++START_TEST(pkg_manifest_item_bad)
++{
++	fail_unless(pkg_manifest_item_free(NULL) == -1, NULL);
++	fail_unless(pkg_manifest_item_get_type(NULL) == pmt_error, NULL);
++	fail_unless(pkg_manifest_item_get_data(NULL) == NULL, NULL);
++
++	fail_unless(pkg_manifest_item_set_attr(NULL, pmia_other, NULL) == -1,
++	    NULL);
++	fail_unless(pkg_manifest_item_set_attr(NULL, pmia_ignore, NULL) == -1,
++	    NULL);
++	fail_unless(pkg_manifest_item_set_attr(NULL, pmia_deinstall, NULL) ==-1,
++	    NULL);
++	fail_unless(pkg_manifest_item_set_attr(NULL, pmia_md5, NULL) == -1,
++	    NULL);
++	fail_unless(pkg_manifest_item_set_attr(NULL, pmia_max, NULL) == -1,
++	    NULL);
++
++	fail_unless(pkg_manifest_item_set_attr(NULL, pmia_other, "data") == -1,
++	    NULL);
++	fail_unless(pkg_manifest_item_set_attr(NULL, pmia_ignore, "data") == -1,
++	    NULL);
++	fail_unless(pkg_manifest_item_set_attr(NULL, pmia_deinstall, "data")
++	    == -1, NULL);
++	fail_unless(pkg_manifest_item_set_attr(NULL, pmia_md5, "data") == -1,
++	    NULL);
++	fail_unless(pkg_manifest_item_set_attr(NULL, pmia_max, "data") == -1,
++	    NULL);
++
++	fail_unless(pkg_manifest_item_get_attr(NULL, pmia_other) == NULL, NULL);
++	fail_unless(pkg_manifest_item_get_attr(NULL, pmia_ignore) == NULL,NULL);
++	fail_unless(pkg_manifest_item_get_attr(NULL, pmia_deinstall) == NULL,
++	    NULL);
++	fail_unless(pkg_manifest_item_get_attr(NULL, pmia_md5) == NULL, NULL);
++	fail_unless(pkg_manifest_item_get_attr(NULL, pmia_max) == NULL, NULL);
++
++	fail_unless(pkg_manifest_item_set_data(NULL, NULL) == -1, NULL);
++	fail_unless(pkg_manifest_item_set_data(NULL, "data") == -1, NULL);
++}
++END_TEST
++
++START_TEST(pkg_manifest_item_other_null)
++{
++	test_manifest_item(pmt_other, NULL);
++}
++END_TEST
++
++START_TEST(pkg_manifest_item_other_data)
++{
++	test_manifest_item(pmt_other, "init data");
++}
++END_TEST
++
++
++START_TEST(pkg_manifest_item_file_null)
++{
++	test_manifest_item(pmt_file, NULL);
++}
++END_TEST
++
++START_TEST(pkg_manifest_item_file_data)
++{
++	test_manifest_item(pmt_file, "init data");
++}
++END_TEST
++
++
++START_TEST(pkg_manifest_item_dir_null)
++{
++	test_manifest_item(pmt_dir, NULL);
++}
++END_TEST
++
++START_TEST(pkg_manifest_item_dir_data)
++{
++	test_manifest_item(pmt_dir, "init data");
++}
++END_TEST
++
++
++START_TEST(pkg_manifest_item_dirlist_null)
++{
++	test_manifest_item(pmt_dirlist, NULL);
++}
++END_TEST
++
++START_TEST(pkg_manifest_item_dirlist_data)
++{
++	test_manifest_item(pmt_dirlist, "init data");
++}
++END_TEST
++
++
++START_TEST(pkg_manifest_item_chdir_null)
++{
++	test_manifest_item(pmt_chdir, NULL);
++}
++END_TEST
++
++START_TEST(pkg_manifest_item_chdir_data)
++{
++	test_manifest_item(pmt_chdir, "init data");
++}
++END_TEST
++
++
++START_TEST(pkg_manifest_item_output_null)
++{
++	test_manifest_item(pmt_output, NULL);
++}
++END_TEST
++
++START_TEST(pkg_manifest_item_output_data)
++{
++	test_manifest_item(pmt_output, "init data");
++}
++END_TEST
++
++
++START_TEST(pkg_manifest_item_comment_null)
++{
++	test_manifest_item(pmt_comment, NULL);
++}
++END_TEST
++
++START_TEST(pkg_manifest_item_comment_data)
++{
++	test_manifest_item(pmt_comment, "init data");
++}
++END_TEST
++
++
++START_TEST(pkg_manifest_item_execute_null)
++{
++	test_manifest_item(pmt_execute, NULL);
++}
++END_TEST
++
++START_TEST(pkg_manifest_item_execute_data)
++{
++	test_manifest_item(pmt_execute, "init data");
++}
++END_TEST
++
++Suite *
++pkg_manifest_item_suite()
++{
++	Suite *s;
++	TCase *tc;
++
++	s = suite_create("pkg_manifest_item");
++
++	tc = tcase_create("bad");
++	tcase_add_test(tc, pkg_manifest_item_bad);
++	suite_add_tcase(s, tc);
++
++
++	tc = tcase_create("other");
++	tcase_add_test(tc, pkg_manifest_item_other_null);
++	tcase_add_test(tc, pkg_manifest_item_other_data);
++	suite_add_tcase(s, tc);
++
++
++	tc = tcase_create("file");
++	tcase_add_test(tc, pkg_manifest_item_file_null);
++	tcase_add_test(tc, pkg_manifest_item_file_data);
++	suite_add_tcase(s, tc);
++
++
++	tc = tcase_create("dir");
++	tcase_add_test(tc, pkg_manifest_item_dir_null);
++	tcase_add_test(tc, pkg_manifest_item_dir_data);
++	suite_add_tcase(s, tc);
++
++
++	tc = tcase_create("dirlist");
++	tcase_add_test(tc, pkg_manifest_item_dirlist_null);
++	tcase_add_test(tc, pkg_manifest_item_dirlist_data);
++	suite_add_tcase(s, tc);
++
++
++	tc = tcase_create("chdir");
++	tcase_add_test(tc, pkg_manifest_item_chdir_null);
++	tcase_add_test(tc, pkg_manifest_item_chdir_data);
++	suite_add_tcase(s, tc);
++
++
++	tc = tcase_create("output");
++	tcase_add_test(tc, pkg_manifest_item_output_null);
++	tcase_add_test(tc, pkg_manifest_item_output_data);
++	suite_add_tcase(s, tc);
++
++
++	tc = tcase_create("comment");
++	tcase_add_test(tc, pkg_manifest_item_comment_null);
++	tcase_add_test(tc, pkg_manifest_item_comment_data);
++	suite_add_tcase(s, tc);
++
++
++	tc = tcase_create("execute");
++	tcase_add_test(tc, pkg_manifest_item_execute_null);
++	tcase_add_test(tc, pkg_manifest_item_execute_data);
++	suite_add_tcase(s, tc);
++
++	return s;
++}
++
++
+
+
+
+From zxombie at users.berlios.de  Sat Oct 27 06:10:27 2007
+From: zxombie at users.berlios.de (zxombie at users.berlios.de)
+Date: Sat, 27 Oct 2007 06:10:27 +0200
+Subject: r314 - trunk/tests
+Message-ID: <200710270410.l9R4AR3C013497@sheep.berlios.de>
+
+Author: zxombie
+Date: 2007-10-27 06:10:27 +0200 (Sat, 27 Oct 2007)
+New Revision: 314
+
+Added:
+   trunk/tests/pkg_manifest.c
+Log:
+Add tests for pkg_manifest
+
+Added: trunk/tests/pkg_manifest.c
+===================================================================
+--- trunk/tests/pkg_manifest.c	2007-10-26 22:59:46 UTC (rev 313)
++++ trunk/tests/pkg_manifest.c	2007-10-27 04:10:27 UTC (rev 314)
+@@ -0,0 +1,233 @@
++/*
++ * Copyright (C) 2007, Andrew Turner, All rights reserved.
++ *
++ * Redistribution and use in source and binary forms, with or without
++ * modification, are permitted provided that the following conditions
++ * are met:
++ * 1. Redistributions of source code must retain the above copyright
++ *    notice, this list of conditions and the following disclaimer.
++ * 2. Redistributions in binary form must reproduce the above copyright
++ *    notice, this list of conditions and the following disclaimer in the
++ *    documentation and/or other materials provided with the distribution.
++ *
++ * THIS SOFTWARE IS PROVIDED BY THE AUTHOR AND CONTRIBUTORS ``AS IS'' AND
++ * ANY EXPRESS OR IMPLIED WARRANTIES, INCLUDING, BUT NOT LIMITED TO, THE
++ * IMPLIED WARRANTIES OF MERCHANTABILITY AND FITNESS FOR A PARTICULAR PURPOSE
++ * ARE DISCLAIMED.  IN NO EVENT SHALL THE AUTHOR OR CONTRIBUTORS BE LIABLE
++ * FOR ANY DIRECT, INDIRECT, INCIDENTAL, SPECIAL, EXEMPLARY, OR CONSEQUENTIAL
++ * DAMAGES (INCLUDING, BUT NOT LIMITED TO, PROCUREMENT OF SUBSTITUTE GOODS
++ * OR SERVICES; LOSS OF USE, DATA, OR PROFITS; OR BUSINESS INTERRUPTION)
++ * HOWEVER CAUSED AND ON ANY THEORY OF LIABILITY, WHETHER IN CONTRACT, STRICT
++ * LIABILITY, OR TORT (INCLUDING NEGLIGENCE OR OTHERWISE) ARISING IN ANY WAY
++ * OUT OF THE USE OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF
++ * SUCH DAMAGE.
++ *
++ */
++
++#include "test.h"
++
++#include <pkg.h>
++#include <pkg_private.h>
++
++#include <string.h>
++
++START_TEST(pkg_manifest_empty)
++{
++	fail_unless(pkg_manifest_free(NULL) == -1);
++	fail_unless(pkg_manifest_set_manifest_version(NULL, NULL) == -1);
++	fail_unless(pkg_manifest_set_manifest_version(NULL, "str") == -1);
++	fail_unless(pkg_manifest_get_manifest_version(NULL) == NULL);
++	fail_unless(pkg_manifest_add_dependency(NULL, NULL) == -1);
++	fail_unless(pkg_manifest_get_dependencies(NULL) == NULL);
++	fail_unless(pkg_manifest_add_conflict(NULL, NULL) == -1);
++	fail_unless(pkg_manifest_add_conflict(NULL, "str") == -1);
++	fail_unless(pkg_manifest_set_name(NULL, NULL) == -1);
++	fail_unless(pkg_manifest_set_name(NULL, "str") == -1);
++	fail_unless(pkg_manifest_get_name(NULL) == NULL);
++	fail_unless(pkg_manifest_set_attr(NULL, pkgm_other, NULL) == -1);
++	fail_unless(pkg_manifest_set_attr(NULL, pkgm_other, "str") == -1);
++	fail_unless(pkg_manifest_get_attrs(NULL) == NULL);
++	fail_unless(pkg_manifest_append_item(NULL, NULL) == -1);
++	fail_unless(pkg_manifest_get_conflicts(NULL) == NULL);
++	fail_unless(pkg_manifest_get_file(NULL) == NULL);
++	fail_unless(pkg_manifest_get_items(NULL) == NULL);
++}
++END_TEST
++
++START_TEST(pkg_manifest_bad)
++{
++	struct pkg_manifest *manifest;
++
++	fail_unless((manifest = pkg_manifest_new()) != NULL);
++
++	fail_unless(pkg_manifest_set_manifest_version(manifest, NULL) == -1);
++	fail_unless(pkg_manifest_add_dependency(manifest, NULL) == -1);
++	fail_unless(pkg_manifest_add_conflict(manifest, NULL) == -1);
++	fail_unless(pkg_manifest_set_name(manifest, NULL) == -1);
++	fail_unless(pkg_manifest_get_name(manifest) == NULL);
++	fail_unless(pkg_manifest_append_item(manifest, NULL) == -1);
++
++	fail_unless(pkg_manifest_free(manifest) == 0);
++}
++END_TEST
++
++START_TEST(pkg_manifest_version)
++{
++	struct pkg_manifest *manifest;
++
++	fail_unless((manifest = pkg_manifest_new()) != NULL);
++
++	fail_unless(pkg_manifest_get_manifest_version(manifest) == NULL);
++	fail_unless(pkg_manifest_set_manifest_version(manifest, "version") ==0);
++	fail_unless(strcmp(pkg_manifest_get_manifest_version(manifest),
++	    "version") == 0);
++	fail_unless(pkg_manifest_set_manifest_version(manifest, "new") == 0);
++	fail_unless(strcmp(pkg_manifest_get_manifest_version(manifest), "new")
++	    == 0);
++
++	fail_unless(pkg_manifest_free(manifest) == 0);
++}
++END_TEST
++
++START_TEST(pkg_manifest_dependency)
++{
++	struct pkg_manifest *manifest;
++	struct pkg *pkg1, *pkg2, **pkg_list;
++
++	fail_unless((manifest = pkg_manifest_new()) != NULL);
++	fail_unless((pkg1 = pkg_new_freebsd_empty("foo")) != NULL);
++	fail_unless((pkg2 = pkg_new_freebsd_empty("bar")) != NULL);
++
++	fail_unless(pkg_manifest_get_dependencies(manifest) == NULL);
++	fail_unless(pkg_manifest_add_dependency(manifest, pkg1) == 0);
++	fail_unless((pkg_list = pkg_manifest_get_dependencies(manifest)) !=
++	    NULL);
++	fail_unless(pkg_list[0] == pkg1);
++
++	pkg_list = NULL;
++	fail_unless(pkg_manifest_add_dependency(manifest, pkg2) == 0);
++	fail_unless((pkg_list = pkg_manifest_get_dependencies(manifest)) !=
++	    NULL);
++	fail_unless(pkg_list[0] == pkg1);
++	fail_unless(pkg_list[1] == pkg2);
++
++	fail_unless(pkg_manifest_free(manifest) == 0);
++}
++END_TEST
++
++START_TEST(pkg_manifest_conflict)
++{
++	struct pkg_manifest *manifest;
++	const char **pkg_list;
++
++	fail_unless((manifest = pkg_manifest_new()) != NULL);
++
++	fail_unless(pkg_manifest_get_conflicts(manifest) == NULL);
++	fail_unless(pkg_manifest_add_conflict(manifest, "foo") == 0);
++	fail_unless((pkg_list = pkg_manifest_get_conflicts(manifest)) != NULL);
++	fail_unless(strcmp(pkg_list[0], "foo") == 0);
++
++	fail_unless(pkg_manifest_add_conflict(manifest, "bar") == 0);
++	fail_unless((pkg_list = pkg_manifest_get_conflicts(manifest)) != NULL);
++	fail_unless(strcmp(pkg_list[0], "foo") == 0);
++	fail_unless(strcmp(pkg_list[1], "bar") == 0);
++
++	fail_unless(pkg_manifest_free(manifest) == 0);
++}
++END_TEST
++
++START_TEST(pkg_manifest_name)
++{
++	struct pkg_manifest *manifest;
++
++	fail_unless((manifest = pkg_manifest_new()) != NULL);
++
++	fail_unless(pkg_manifest_set_name(manifest, "foo") == 0);
++	fail_unless(strcmp(pkg_manifest_get_name(manifest), "foo") == 0);
++	fail_unless(pkg_manifest_set_name(manifest, "bar") == 0);
++	fail_unless(strcmp(pkg_manifest_get_name(manifest), "bar") == 0);
++
++	fail_unless(pkg_manifest_free(manifest) == 0);
++}
++END_TEST
++
++START_TEST(pkg_manifest_attrib)
++{
++	struct pkg_manifest *manifest;
++	const char **attrs;
++
++	fail_unless((manifest = pkg_manifest_new()) != NULL);
++
++	fail_unless(pkg_manifest_set_attr(manifest, pkgm_other, "attr") == 0);
++	fail_unless((attrs = pkg_manifest_get_attrs(manifest)) != NULL);
++	fail_unless(strcmp(attrs[pkgm_other], "attr") == 0);
++	fail_unless(attrs[pkgm_origin] == NULL);
++	fail_unless(attrs[pkgm_prefix] == NULL);
++
++	fail_unless(pkg_manifest_set_attr(manifest, pkgm_origin, "foo") == 0);
++	fail_unless((attrs = pkg_manifest_get_attrs(manifest)) != NULL);
++	fail_unless(strcmp(attrs[pkgm_other], "attr") == 0);
++	fail_unless(strcmp(attrs[pkgm_origin], "foo") == 0);
++	fail_unless(attrs[pkgm_prefix] == NULL);
++
++	fail_unless(pkg_manifest_set_attr(manifest, pkgm_other, NULL) == 0);
++	fail_unless((attrs = pkg_manifest_get_attrs(manifest)) != NULL);
++	fail_unless(attrs[pkgm_other] == NULL);
++	fail_unless(strcmp(attrs[pkgm_origin], "foo") == 0);
++	fail_unless(attrs[pkgm_prefix] == NULL);
++
++	fail_unless(pkg_manifest_free(manifest) == 0);
++}
++END_TEST
++
++START_TEST(pkg_manifest_item)
++{
++	struct pkg_manifest *manifest;
++	struct pkg_manifest_item *item1, *item2, **item_list;
++
++	fail_unless((manifest = pkg_manifest_new()) != NULL);
++
++	fail_unless((item1 = pkg_manifest_item_new(pmia_ignore, "ignore"))
++	    != NULL);
++	fail_unless((item2 = pkg_manifest_item_new(pmia_md5, "md5")) != NULL);
++
++	fail_unless(pkg_manifest_append_item(manifest, item1) == 0);
++	fail_unless((item_list = pkg_manifest_get_items(manifest)) != NULL);
++	fail_unless(item_list[0] == item1);
++
++	fail_unless(pkg_manifest_append_item(manifest, item2) == 0);
++	fail_unless((item_list = pkg_manifest_get_items(manifest)) != NULL);
++	fail_unless(item_list[0] == item1);
++	fail_unless(item_list[1] == item2);
++
++	fail_unless(pkg_manifest_free(manifest) == 0);
++}
++END_TEST
++
++/*
++ * TODO: Test pkg_manifest_get_file()
++ */
++
++Suite *
++pkg_manifest_suite()
++{
++	Suite *s;
++	TCase *tc;
++
++	s = suite_create("pkg_manifest");
++
++	tc = tcase_create("bad");
++	tcase_add_test(tc, pkg_manifest_empty);
++	tcase_add_test(tc, pkg_manifest_bad);
++	tcase_add_test(tc, pkg_manifest_version);
++	tcase_add_test(tc, pkg_manifest_dependency);
++	tcase_add_test(tc, pkg_manifest_conflict);
++	tcase_add_test(tc, pkg_manifest_name);
++	tcase_add_test(tc, pkg_manifest_attrib);
++	tcase_add_test(tc, pkg_manifest_item);
++	suite_add_tcase(s, tc);
++
++	return s;
++}
++
++
+
+
+
+From zxombie at users.berlios.de  Sat Oct 27 06:12:09 2007
+From: zxombie at users.berlios.de (zxombie at users.berlios.de)
+Date: Sat, 27 Oct 2007 06:12:09 +0200
+Subject: r315 - trunk/tests
+Message-ID: <200710270412.l9R4C9vD013640@sheep.berlios.de>
+
+Author: zxombie
+Date: 2007-10-27 06:12:09 +0200 (Sat, 27 Oct 2007)
+New Revision: 315
+
+Modified:
+   trunk/tests/Makefile
+   trunk/tests/main.c
+   trunk/tests/test.h
+Log:
+Attach the pkg_manifest_item and pkg_manifest to the test build
+
+Modified: trunk/tests/Makefile
+===================================================================
+--- trunk/tests/Makefile	2007-10-27 04:10:27 UTC (rev 314)
++++ trunk/tests/Makefile	2007-10-27 04:12:09 UTC (rev 315)
+@@ -1,16 +1,18 @@
+ PROG=		tests
+ 
+-SRCS=		main.c pkgfile.c pkg_freebsd_contents.c
++SRCS=		main.c pkgfile.c pkg_freebsd_contents.c pkg_manifest_item.c
++SRCS+=		pkg_manifest.c
+ CFLAGS+=	-I/usr/local/include -I${.CURDIR}/../src
+ LDADD+=		-L/usr/local/lib -lcheck
+-LDADD+=		${.OBJDIR}/../src/libpkg.a /usr/lib/libmd.a
++LDADD+=		${.OBJDIR}/../src/libpkg.a
++LDADD+=		-larchive -lmd
+ 
+ MAN=
+ WARNS=	6
+ 
+ CLEANFILES=	tests.core
+ 
+-test: all
++test: tests
+ 	cd ${.OBJDIR} && MALLOC_OPTIONS=AJ ./tests
+ 
+ SUBDIR=		fbsd_contents
+
+Modified: trunk/tests/main.c
+===================================================================
+--- trunk/tests/main.c	2007-10-27 04:10:27 UTC (rev 314)
++++ trunk/tests/main.c	2007-10-27 04:12:09 UTC (rev 315)
+@@ -5,25 +5,22 @@
+  * modification, are permitted provided that the following conditions
+  * are met:
+  * 1. Redistributions of source code must retain the above copyright
+- *    notice, this list of conditions and the following disclaimer
+- *    in this position and unchanged.
++ *    notice, this list of conditions and the following disclaimer.
+  * 2. Redistributions in binary form must reproduce the above copyright
+  *    notice, this list of conditions and the following disclaimer in the
+  *    documentation and/or other materials provided with the distribution.
+- * 3. The name(s) of the author(s) may not be used to endorse or promote
+- *    products derived from this software without specific prior written
+- *    permission.
+  *
+- * THIS SOFTWARE IS PROVIDED BY THE AUTHOR(S) ``AS IS'' AND ANY EXPRESS OR
+- * IMPLIED WARRANTIES, INCLUDING, BUT NOT LIMITED TO, THE IMPLIED WARRANTIES
+- * OF MERCHANTABILITY AND FITNESS FOR A PARTICULAR PURPOSE ARE DISCLAIMED.
+- * IN NO EVENT SHALL THE AUTHOR(S) BE LIABLE FOR ANY DIRECT, INDIRECT,
+- * INCIDENTAL, SPECIAL, EXEMPLARY, OR CONSEQUENTIAL DAMAGES (INCLUDING, BUT
+- * NOT LIMITED TO, PROCUREMENT OF SUBSTITUTE GOODS OR SERVICES; LOSS OF USE,
+- * DATA, OR PROFITS; OR BUSINESS INTERRUPTION) HOWEVER CAUSED AND ON ANY
+- * THEORY OF LIABILITY, WHETHER IN CONTRACT, STRICT LIABILITY, OR TORT
+- * (INCLUDING NEGLIGENCE OR OTHERWISE) ARISING IN ANY WAY OUT OF THE USE OF
+- * THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
++ * THIS SOFTWARE IS PROVIDED BY THE AUTHOR AND CONTRIBUTORS ``AS IS'' AND
++ * ANY EXPRESS OR IMPLIED WARRANTIES, INCLUDING, BUT NOT LIMITED TO, THE
++ * IMPLIED WARRANTIES OF MERCHANTABILITY AND FITNESS FOR A PARTICULAR PURPOSE
++ * ARE DISCLAIMED.  IN NO EVENT SHALL THE AUTHOR OR CONTRIBUTORS BE LIABLE
++ * FOR ANY DIRECT, INDIRECT, INCIDENTAL, SPECIAL, EXEMPLARY, OR CONSEQUENTIAL
++ * DAMAGES (INCLUDING, BUT NOT LIMITED TO, PROCUREMENT OF SUBSTITUTE GOODS
++ * OR SERVICES; LOSS OF USE, DATA, OR PROFITS; OR BUSINESS INTERRUPTION)
++ * HOWEVER CAUSED AND ON ANY THEORY OF LIABILITY, WHETHER IN CONTRACT, STRICT
++ * LIABILITY, OR TORT (INCLUDING NEGLIGENCE OR OTHERWISE) ARISING IN ANY WAY
++ * OUT OF THE USE OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF
++ * SUCH DAMAGE.
+  *
+  */
+ 
+@@ -55,6 +52,8 @@
+ 
+ 	sr = srunner_create(pkgfile_suite());
+ 	srunner_add_suite(sr, pkg_freebsd_contents_suite());
++	srunner_add_suite(sr, pkg_manifest_item_suite());
++	srunner_add_suite(sr, pkg_manifest_suite());
+ 
+ 	srunner_run_all(sr, CK_NORMAL);
+ 	fail_count = srunner_ntests_failed(sr);
+
+Modified: trunk/tests/test.h
+===================================================================
+--- trunk/tests/test.h	2007-10-27 04:10:27 UTC (rev 314)
++++ trunk/tests/test.h	2007-10-27 04:12:09 UTC (rev 315)
+@@ -7,4 +7,6 @@
+ 
+ Suite *pkgfile_suite(void);
+ Suite *pkg_freebsd_contents_suite(void);
++Suite *pkg_manifest_suite(void);
++Suite *pkg_manifest_item_suite(void);
+ 
+
+
+
+From zxombie at users.berlios.de  Sat Oct 27 06:14:22 2007
+From: zxombie at users.berlios.de (zxombie at users.berlios.de)
+Date: Sat, 27 Oct 2007 06:14:22 +0200
+Subject: r316 - in trunk/tests: . fbsd_contents
+Message-ID: <200710270414.l9R4EMaD013688@sheep.berlios.de>
+
+Author: zxombie
+Date: 2007-10-27 06:14:22 +0200 (Sat, 27 Oct 2007)
+New Revision: 316
+
+Modified:
+   trunk/tests/fbsd_contents/fbsd_test.c
+   trunk/tests/pkg_freebsd_contents.c
+   trunk/tests/pkgfile.c
+   trunk/tests/test.h
+Log:
+Update the license's for the tests
+
+Modified: trunk/tests/fbsd_contents/fbsd_test.c
+===================================================================
+--- trunk/tests/fbsd_contents/fbsd_test.c	2007-10-27 04:12:09 UTC (rev 315)
++++ trunk/tests/fbsd_contents/fbsd_test.c	2007-10-27 04:14:22 UTC (rev 316)
+@@ -5,25 +5,22 @@
+  * modification, are permitted provided that the following conditions
+  * are met:
+  * 1. Redistributions of source code must retain the above copyright
+- *    notice, this list of conditions and the following disclaimer
+- *    in this position and unchanged.
++ *    notice, this list of conditions and the following disclaimer.
+  * 2. Redistributions in binary form must reproduce the above copyright
+  *    notice, this list of conditions and the following disclaimer in the
+  *    documentation and/or other materials provided with the distribution.
+- * 3. The name(s) of the author(s) may not be used to endorse or promote
+- *    products derived from this software without specific prior written
+- *    permission.
+  *
+- * THIS SOFTWARE IS PROVIDED BY THE AUTHOR(S) ``AS IS'' AND ANY EXPRESS OR
+- * IMPLIED WARRANTIES, INCLUDING, BUT NOT LIMITED TO, THE IMPLIED WARRANTIES
+- * OF MERCHANTABILITY AND FITNESS FOR A PARTICULAR PURPOSE ARE DISCLAIMED.
+- * IN NO EVENT SHALL THE AUTHOR(S) BE LIABLE FOR ANY DIRECT, INDIRECT,
+- * INCIDENTAL, SPECIAL, EXEMPLARY, OR CONSEQUENTIAL DAMAGES (INCLUDING, BUT
+- * NOT LIMITED TO, PROCUREMENT OF SUBSTITUTE GOODS OR SERVICES; LOSS OF USE,
+- * DATA, OR PROFITS; OR BUSINESS INTERRUPTION) HOWEVER CAUSED AND ON ANY
+- * THEORY OF LIABILITY, WHETHER IN CONTRACT, STRICT LIABILITY, OR TORT
+- * (INCLUDING NEGLIGENCE OR OTHERWISE) ARISING IN ANY WAY OUT OF THE USE OF
+- * THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
++ * THIS SOFTWARE IS PROVIDED BY THE AUTHOR AND CONTRIBUTORS ``AS IS'' AND
++ * ANY EXPRESS OR IMPLIED WARRANTIES, INCLUDING, BUT NOT LIMITED TO, THE
++ * IMPLIED WARRANTIES OF MERCHANTABILITY AND FITNESS FOR A PARTICULAR PURPOSE
++ * ARE DISCLAIMED.  IN NO EVENT SHALL THE AUTHOR OR CONTRIBUTORS BE LIABLE
++ * FOR ANY DIRECT, INDIRECT, INCIDENTAL, SPECIAL, EXEMPLARY, OR CONSEQUENTIAL
++ * DAMAGES (INCLUDING, BUT NOT LIMITED TO, PROCUREMENT OF SUBSTITUTE GOODS
++ * OR SERVICES; LOSS OF USE, DATA, OR PROFITS; OR BUSINESS INTERRUPTION)
++ * HOWEVER CAUSED AND ON ANY THEORY OF LIABILITY, WHETHER IN CONTRACT, STRICT
++ * LIABILITY, OR TORT (INCLUDING NEGLIGENCE OR OTHERWISE) ARISING IN ANY WAY
++ * OUT OF THE USE OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF
++ * SUCH DAMAGE.
+  *
+  */
+ 
+
+Modified: trunk/tests/pkg_freebsd_contents.c
+===================================================================
+--- trunk/tests/pkg_freebsd_contents.c	2007-10-27 04:12:09 UTC (rev 315)
++++ trunk/tests/pkg_freebsd_contents.c	2007-10-27 04:14:22 UTC (rev 316)
+@@ -5,25 +5,22 @@
+  * modification, are permitted provided that the following conditions
+  * are met:
+  * 1. Redistributions of source code must retain the above copyright
+- *    notice, this list of conditions and the following disclaimer
+- *    in this position and unchanged.
++ *    notice, this list of conditions and the following disclaimer.
+  * 2. Redistributions in binary form must reproduce the above copyright
+  *    notice, this list of conditions and the following disclaimer in the
+  *    documentation and/or other materials provided with the distribution.
+- * 3. The name(s) of the author(s) may not be used to endorse or promote
+- *    products derived from this software without specific prior written
+- *    permission.
+  *
+- * THIS SOFTWARE IS PROVIDED BY THE AUTHOR(S) ``AS IS'' AND ANY EXPRESS OR
+- * IMPLIED WARRANTIES, INCLUDING, BUT NOT LIMITED TO, THE IMPLIED WARRANTIES
+- * OF MERCHANTABILITY AND FITNESS FOR A PARTICULAR PURPOSE ARE DISCLAIMED.
+- * IN NO EVENT SHALL THE AUTHOR(S) BE LIABLE FOR ANY DIRECT, INDIRECT,
+- * INCIDENTAL, SPECIAL, EXEMPLARY, OR CONSEQUENTIAL DAMAGES (INCLUDING, BUT
+- * NOT LIMITED TO, PROCUREMENT OF SUBSTITUTE GOODS OR SERVICES; LOSS OF USE,
+- * DATA, OR PROFITS; OR BUSINESS INTERRUPTION) HOWEVER CAUSED AND ON ANY
+- * THEORY OF LIABILITY, WHETHER IN CONTRACT, STRICT LIABILITY, OR TORT
+- * (INCLUDING NEGLIGENCE OR OTHERWISE) ARISING IN ANY WAY OUT OF THE USE OF
+- * THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
++ * THIS SOFTWARE IS PROVIDED BY THE AUTHOR AND CONTRIBUTORS ``AS IS'' AND
++ * ANY EXPRESS OR IMPLIED WARRANTIES, INCLUDING, BUT NOT LIMITED TO, THE
++ * IMPLIED WARRANTIES OF MERCHANTABILITY AND FITNESS FOR A PARTICULAR PURPOSE
++ * ARE DISCLAIMED.  IN NO EVENT SHALL THE AUTHOR OR CONTRIBUTORS BE LIABLE
++ * FOR ANY DIRECT, INDIRECT, INCIDENTAL, SPECIAL, EXEMPLARY, OR CONSEQUENTIAL
++ * DAMAGES (INCLUDING, BUT NOT LIMITED TO, PROCUREMENT OF SUBSTITUTE GOODS
++ * OR SERVICES; LOSS OF USE, DATA, OR PROFITS; OR BUSINESS INTERRUPTION)
++ * HOWEVER CAUSED AND ON ANY THEORY OF LIABILITY, WHETHER IN CONTRACT, STRICT
++ * LIABILITY, OR TORT (INCLUDING NEGLIGENCE OR OTHERWISE) ARISING IN ANY WAY
++ * OUT OF THE USE OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF
++ * SUCH DAMAGE.
+  *
+  */
+ 
+
+Modified: trunk/tests/pkgfile.c
+===================================================================
+--- trunk/tests/pkgfile.c	2007-10-27 04:12:09 UTC (rev 315)
++++ trunk/tests/pkgfile.c	2007-10-27 04:14:22 UTC (rev 316)
+@@ -5,25 +5,22 @@
+  * modification, are permitted provided that the following conditions
+  * are met:
+  * 1. Redistributions of source code must retain the above copyright
+- *    notice, this list of conditions and the following disclaimer
+- *    in this position and unchanged.
++ *    notice, this list of conditions and the following disclaimer.
+  * 2. Redistributions in binary form must reproduce the above copyright
+  *    notice, this list of conditions and the following disclaimer in the
+  *    documentation and/or other materials provided with the distribution.
+- * 3. The name(s) of the author(s) may not be used to endorse or promote
+- *    products derived from this software without specific prior written
+- *    permission.
+  *
+- * THIS SOFTWARE IS PROVIDED BY THE AUTHOR(S) ``AS IS'' AND ANY EXPRESS OR
+- * IMPLIED WARRANTIES, INCLUDING, BUT NOT LIMITED TO, THE IMPLIED WARRANTIES
+- * OF MERCHANTABILITY AND FITNESS FOR A PARTICULAR PURPOSE ARE DISCLAIMED.
+- * IN NO EVENT SHALL THE AUTHOR(S) BE LIABLE FOR ANY DIRECT, INDIRECT,
+- * INCIDENTAL, SPECIAL, EXEMPLARY, OR CONSEQUENTIAL DAMAGES (INCLUDING, BUT
+- * NOT LIMITED TO, PROCUREMENT OF SUBSTITUTE GOODS OR SERVICES; LOSS OF USE,
+- * DATA, OR PROFITS; OR BUSINESS INTERRUPTION) HOWEVER CAUSED AND ON ANY
+- * THEORY OF LIABILITY, WHETHER IN CONTRACT, STRICT LIABILITY, OR TORT
+- * (INCLUDING NEGLIGENCE OR OTHERWISE) ARISING IN ANY WAY OUT OF THE USE OF
+- * THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
++ * THIS SOFTWARE IS PROVIDED BY THE AUTHOR AND CONTRIBUTORS ``AS IS'' AND
++ * ANY EXPRESS OR IMPLIED WARRANTIES, INCLUDING, BUT NOT LIMITED TO, THE
++ * IMPLIED WARRANTIES OF MERCHANTABILITY AND FITNESS FOR A PARTICULAR PURPOSE
++ * ARE DISCLAIMED.  IN NO EVENT SHALL THE AUTHOR OR CONTRIBUTORS BE LIABLE
++ * FOR ANY DIRECT, INDIRECT, INCIDENTAL, SPECIAL, EXEMPLARY, OR CONSEQUENTIAL
++ * DAMAGES (INCLUDING, BUT NOT LIMITED TO, PROCUREMENT OF SUBSTITUTE GOODS
++ * OR SERVICES; LOSS OF USE, DATA, OR PROFITS; OR BUSINESS INTERRUPTION)
++ * HOWEVER CAUSED AND ON ANY THEORY OF LIABILITY, WHETHER IN CONTRACT, STRICT
++ * LIABILITY, OR TORT (INCLUDING NEGLIGENCE OR OTHERWISE) ARISING IN ANY WAY
++ * OUT OF THE USE OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF
++ * SUCH DAMAGE.
+  *
+  */
+ 
+
+Modified: trunk/tests/test.h
+===================================================================
+--- trunk/tests/test.h	2007-10-27 04:12:09 UTC (rev 315)
++++ trunk/tests/test.h	2007-10-27 04:14:22 UTC (rev 316)
+@@ -1,3 +1,29 @@
++/*
++ * Copyright (C) 2006, 2007 Andrew Turner, All rights reserved.
++ *
++ * Redistribution and use in source and binary forms, with or without
++ * modification, are permitted provided that the following conditions
++ * are met:
++ * 1. Redistributions of source code must retain the above copyright
++ *    notice, this list of conditions and the following disclaimer.
++ * 2. Redistributions in binary form must reproduce the above copyright
++ *    notice, this list of conditions and the following disclaimer in the
++ *    documentation and/or other materials provided with the distribution.
++ *
++ * THIS SOFTWARE IS PROVIDED BY THE AUTHOR AND CONTRIBUTORS ``AS IS'' AND
++ * ANY EXPRESS OR IMPLIED WARRANTIES, INCLUDING, BUT NOT LIMITED TO, THE
++ * IMPLIED WARRANTIES OF MERCHANTABILITY AND FITNESS FOR A PARTICULAR PURPOSE
++ * ARE DISCLAIMED.  IN NO EVENT SHALL THE AUTHOR OR CONTRIBUTORS BE LIABLE
++ * FOR ANY DIRECT, INDIRECT, INCIDENTAL, SPECIAL, EXEMPLARY, OR CONSEQUENTIAL
++ * DAMAGES (INCLUDING, BUT NOT LIMITED TO, PROCUREMENT OF SUBSTITUTE GOODS
++ * OR SERVICES; LOSS OF USE, DATA, OR PROFITS; OR BUSINESS INTERRUPTION)
++ * HOWEVER CAUSED AND ON ANY THEORY OF LIABILITY, WHETHER IN CONTRACT, STRICT
++ * LIABILITY, OR TORT (INCLUDING NEGLIGENCE OR OTHERWISE) ARISING IN ANY WAY
++ * OUT OF THE USE OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF
++ * SUCH DAMAGE.
++ *
++ */
++
+ #include <check.h>
+ int setup_testdir(void);
+ int cleanup_testdir(void);
+
+
+
+From zxombie at users.berlios.de  Sat Oct 27 06:24:35 2007
+From: zxombie at users.berlios.de (zxombie at users.berlios.de)
+Date: Sat, 27 Oct 2007 06:24:35 +0200
+Subject: r317 - trunk/src
+Message-ID: <200710270424.l9R4OZFg014099@sheep.berlios.de>
+
+Author: zxombie
+Date: 2007-10-27 06:24:35 +0200 (Sat, 27 Oct 2007)
+New Revision: 317
+
+Modified:
+   trunk/src/pkg.h
+   trunk/src/pkg_manifest.c
+Log:
+Add pkg_manifest_get_attrs and pkg_manifest_get_name
+Fix pkg_manifest_add_dependency, pkg_manifest_add_conflict and pkg_manifest_append_item to reee the cached value
+
+
+Modified: trunk/src/pkg.h
+===================================================================
+--- trunk/src/pkg.h	2007-10-27 04:14:22 UTC (rev 316)
++++ trunk/src/pkg.h	2007-10-27 04:24:35 UTC (rev 317)
+@@ -224,8 +224,10 @@
+ 			    const char *);
+ int			  pkg_manifest_set_name(struct pkg_manifest *,
+ 			    const char *);
++const char		 *pkg_manifest_get_name(struct pkg_manifest *);
+ int			  pkg_manifest_set_attr(struct pkg_manifest *,
+ 			    pkg_manifest_attr, const char *);
++const char		**pkg_manifest_get_attrs(struct pkg_manifest *);
+ int			  pkg_manifest_append_item(struct pkg_manifest *,
+ 			    struct pkg_manifest_item *);
+ const char		**pkg_manifest_get_conflicts(struct pkg_manifest *);
+
+Modified: trunk/src/pkg_manifest.c
+===================================================================
+--- trunk/src/pkg_manifest.c	2007-10-27 04:14:22 UTC (rev 316)
++++ trunk/src/pkg_manifest.c	2007-10-27 04:24:35 UTC (rev 317)
+@@ -199,6 +199,11 @@
+ 	if (manifest == NULL || dep == NULL)
+ 		return -1;
+ 
++	if (manifest->deps_list != NULL) {
++		free(manifest->deps_list);
++		manifest->deps_list = NULL;
++	}
++
+ 	/* Create the new dependency */
+ 	the_dep = malloc(sizeof(struct pkgm_deps));
+ 	if (the_dep == NULL)
+@@ -268,6 +273,11 @@
+ 	if (manifest == NULL || conflict == NULL)
+ 		return -1;
+ 
++	if (manifest->conflict_list != NULL) {
++		free(manifest->conflict_list);
++		manifest->conflict_list = NULL;
++	}
++
+ 	/* Create the new conflict */
+ 	the_conflict = malloc(sizeof(struct pkgm_conflicts));
+ 	if (the_conflict == NULL)
+@@ -306,6 +316,21 @@
+ }
+ 
+ /**
++ * @brief Gets the package's name
++ * @param manifest the package manifest
++ * @return The pakage's name
++ * @return NULL on error or no name set
++ */
++const char *
++pkg_manifest_get_name(struct pkg_manifest *manifest)
++{
++	if (manifest == NULL)
++		return NULL;
++
++	return manifest->name;
++}
++
++/**
+  * @brief Adds an attribute to the package manifest
+  * @param manifest The manifest to add attribute to
+  * @param attr The attribute to add
+@@ -345,6 +370,21 @@
+ }
+ 
+ /**
++ * @brief Gets the package manifest's attributes
++ * @param manifest The manifest to get the attributes from
++ * @return An array of size pkgm_max containing the attributes
++ * @return NULL on error
++ */
++const char **
++pkg_manifest_get_attrs(struct pkg_manifest *manifest)
++{
++	if (manifest == NULL)
++		return NULL;
++
++	return manifest->attrs;
++}
++
++/**
+  * @brief Adds a manifest item to a package manifest
+  * @param manifest The manifest to append the item to
+  * @param item The item to append to the manifest
+@@ -360,6 +400,11 @@
+ 	if (manifest == NULL || item == NULL)
+ 		return -1;
+ 
++	if (manifest->item_list) {
++		free(manifest->item_list);
++		manifest->item_list = NULL;
++	}
++
+ 	/* Create the new item */
+ 	the_item = malloc(sizeof(struct pkgm_items));
+ 	if (the_item == NULL)
+
+
+

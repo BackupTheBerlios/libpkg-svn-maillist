@@ -1,0 +1,159 @@
+<!DOCTYPE HTML PUBLIC "-//W3C//DTD HTML 4.01 Transitional//EN">
+<HTML>
+ <HEAD>
+   <TITLE> [Libpkg-svn] r117 - trunk/src
+   </TITLE>
+   <LINK REL="Index" HREF="http://lists.berlios.de/pipermail/libpkg-svn/2006-May/index.html" >
+   <LINK REL="made" HREF="mailto:libpkg-svn%40lists.berlios.de?Subject=Re%3A%20%5BLibpkg-svn%5D%20r117%20-%20trunk/src&In-Reply-To=%3C200605011117.k41BHBBP010562%40sheep.berlios.de%3E">
+   <META NAME="robots" CONTENT="index,nofollow">
+   <style type="text/css">
+       pre {
+           white-space: pre-wrap;       /* css-2.1, curent FF, Opera, Safari */
+           }
+   </style>
+   <META http-equiv="Content-Type" content="text/html; charset=us-ascii">
+   
+   <LINK REL="Next"  HREF="000102.html">
+ </HEAD>
+ <BODY BGCOLOR="#ffffff">
+   <H1>[Libpkg-svn] r117 - trunk/src</H1>
+    <B>zxombie at BerliOS</B> 
+    <A HREF="mailto:libpkg-svn%40lists.berlios.de?Subject=Re%3A%20%5BLibpkg-svn%5D%20r117%20-%20trunk/src&In-Reply-To=%3C200605011117.k41BHBBP010562%40sheep.berlios.de%3E"
+       TITLE="[Libpkg-svn] r117 - trunk/src">zxombie at berlios.de
+       </A><BR>
+    <I>Mon May  1 13:17:11 CEST 2006</I>
+    <P><UL>
+        
+        <LI>Next message: <A HREF="000102.html">[Libpkg-svn] r118 - trunk/src
+</A></li>
+         <LI> <B>Messages sorted by:</B> 
+              <a href="date.html#101">[ date ]</a>
+              <a href="thread.html#101">[ thread ]</a>
+              <a href="subject.html#101">[ subject ]</a>
+              <a href="author.html#101">[ author ]</a>
+         </LI>
+       </UL>
+    <HR>  
+<!--beginarticle-->
+<PRE>Author: zxombie
+Date: 2006-05-01 13:17:09 +0200 (Mon, 01 May 2006)
+New Revision: 117
+
+Modified:
+   trunk/src/pkg_util.c
+Log:
+Add a FILE object creator to cache the output of another FILE object
+
+
+Modified: trunk/src/pkg_util.c
+===================================================================
+--- trunk/src/pkg_util.c	2006-04-29 07:16:19 UTC (rev 116)
++++ trunk/src/pkg_util.c	2006-05-01 11:17:09 UTC (rev 117)
+@@ -36,12 +36,17 @@
+ #include &lt;errno.h&gt;
+ #include &lt;md5.h&gt;
+ #include &lt;stdarg.h&gt;
++#include &lt;stdio.h&gt;
+ #include &lt;stdlib.h&gt;
+ #include &lt;string.h&gt;
+ 
+ #include &quot;pkg.h&quot;
+ #include &quot;pkg_private.h&quot;
+ 
++static int	 pkg_cached_readfn(void *, char *, int);
++static int	 pkg_cached_closefn(void *);
++
++FILE		*pkg_cached_file(FILE *, const char *);
+ /**
+  * @defgroup PackageUtil Miscellaneous utilities
+  *
+@@ -150,6 +155,66 @@
+ 	return ret;
+ }
+ 
++struct cached_read {
++	FILE *fd;
++	FILE *cache;
++};
++
++static int
++pkg_cached_readfn(void *c, char *buf, int len)
++{
++	struct cached_read *cr;
++	int ret, left, count;
++	char *b;
++
++	cr = c;
++
++	/* Check we are not at the end of the input file */
++	if (feof(cr-&gt;fd))
++		return 0;
++
++	ret = fread(buf, 1, len, cr-&gt;fd);
++
++	if (ret == -1)
++		return ret;
++
++	/* Write the entire buffer to the file */
++	left = ret;
++	b = buf;
++	while (left &gt; 0) {
++		count = fwrite(b, 1, left, cr-&gt;cache);
++		b += count;
++		left -= count;
++	}
++	return ret;
++}
++
++static int
++pkg_cached_closefn(void *c)
++{
++	struct cached_read *cr;
++
++	cr  = c;
++	fclose(cr-&gt;cache);
++	free(cr);
++	return 0;
++}
++
++FILE *
++pkg_cached_file(FILE *fd, const char *file)
++{
++	struct cached_read *cr;
++	
++	cr = malloc(sizeof(struct cached_read));
++	if (cr == NULL)
++		return NULL;
++
++	cr-&gt;fd = fd;
++	/* Create the file and write to it when caching */
++	cr-&gt;cache = fopen(file, &quot;w&quot;);
++	return funopen(cr, pkg_cached_readfn, NULL, NULL, pkg_cached_closefn);
++}
++
+ /**
+  * @}
+  */
+
+
+</PRE>
+
+<!--endarticle-->
+    <HR>
+    <P><UL>
+        <!--threads-->
+	
+	<LI>Next message: <A HREF="000102.html">[Libpkg-svn] r118 - trunk/src
+</A></li>
+         <LI> <B>Messages sorted by:</B> 
+              <a href="date.html#101">[ date ]</a>
+              <a href="thread.html#101">[ thread ]</a>
+              <a href="subject.html#101">[ subject ]</a>
+              <a href="author.html#101">[ author ]</a>
+         </LI>
+       </UL>
+
+<hr>
+<a href="https://lists.berlios.de/mailman/listinfo/libpkg-svn">More information about the Libpkg-svn
+mailing list</a><br>
+</body></html>

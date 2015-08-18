@@ -1,0 +1,206 @@
+<!DOCTYPE HTML PUBLIC "-//W3C//DTD HTML 4.01 Transitional//EN">
+<HTML>
+ <HEAD>
+   <TITLE> [Libpkg-svn] r163 - trunk/src
+   </TITLE>
+   <LINK REL="Index" HREF="http://lists.berlios.de/pipermail/libpkg-svn/2006-July/index.html" >
+   <LINK REL="made" HREF="mailto:libpkg-svn%40lists.berlios.de?Subject=Re%3A%20%5BLibpkg-svn%5D%20r163%20-%20trunk/src&In-Reply-To=%3C200607241050.k6OAoPEF010135%40sheep.berlios.de%3E">
+   <META NAME="robots" CONTENT="index,nofollow">
+   <style type="text/css">
+       pre {
+           white-space: pre-wrap;       /* css-2.1, curent FF, Opera, Safari */
+           }
+   </style>
+   <META http-equiv="Content-Type" content="text/html; charset=us-ascii">
+   <LINK REL="Previous"  HREF="000146.html">
+   <LINK REL="Next"  HREF="000148.html">
+ </HEAD>
+ <BODY BGCOLOR="#ffffff">
+   <H1>[Libpkg-svn] r163 - trunk/src</H1>
+    <B>zxombie at BerliOS</B> 
+    <A HREF="mailto:libpkg-svn%40lists.berlios.de?Subject=Re%3A%20%5BLibpkg-svn%5D%20r163%20-%20trunk/src&In-Reply-To=%3C200607241050.k6OAoPEF010135%40sheep.berlios.de%3E"
+       TITLE="[Libpkg-svn] r163 - trunk/src">zxombie at mail.berlios.de
+       </A><BR>
+    <I>Mon Jul 24 12:50:25 CEST 2006</I>
+    <P><UL>
+        <LI>Previous message: <A HREF="000146.html">[Libpkg-svn] r162 - trunk/src
+</A></li>
+        <LI>Next message: <A HREF="000148.html">[Libpkg-svn] r164 - trunk/src
+</A></li>
+         <LI> <B>Messages sorted by:</B> 
+              <a href="date.html#147">[ date ]</a>
+              <a href="thread.html#147">[ thread ]</a>
+              <a href="subject.html#147">[ subject ]</a>
+              <a href="author.html#147">[ author ]</a>
+         </LI>
+       </UL>
+    <HR>  
+<!--beginarticle-->
+<PRE>Author: zxombie
+Date: 2006-07-24 12:50:18 +0200 (Mon, 24 Jul 2006)
+New Revision: 163
+
+Modified:
+   trunk/src/pkg_db_freebsd.c
+   trunk/src/pkg_freebsd.c
+   trunk/src/pkg_private.h
+Log:
+Remove extra /'s from path's
+
+
+Modified: trunk/src/pkg_db_freebsd.c
+===================================================================
+--- trunk/src/pkg_db_freebsd.c	2006-07-24 07:08:55 UTC (rev 162)
++++ trunk/src/pkg_db_freebsd.c	2006-07-24 10:50:18 UTC (rev 163)
+@@ -225,6 +225,7 @@
+ 	if (!dir) {
+ 		return -1;
+ 	}
++	pkg_remove_extra_slashes(dir);
+ 
+ 	is_installed = -1;
+ 
+@@ -269,6 +270,7 @@
+ 	asprintf(&amp;dir, &quot;%s&quot; DB_LOCATION, db-&gt;db_base);
+ 	if (!dir)
+ 		return NULL;
++	pkg_remove_extra_slashes(dir);
+ 	d = opendir(dir);
+ 	free(dir);
+ 	if (!d)
+@@ -289,6 +291,7 @@
+ 			continue;
+ 		asprintf(&amp;dir, &quot;%s&quot; DB_LOCATION &quot;/%s&quot;,
+ 		    db-&gt;db_base, de-&gt;d_name);
++		pkg_remove_extra_slashes(dir);
+ 
+ 		pkg = pkg_new_freebsd_installed(de-&gt;d_name, dir);
+ 		if (match(pkg, data) == 0) {
+@@ -319,6 +322,7 @@
+ 	char dir[MAXPATHLEN + 1];
+ 
+ 	snprintf(dir, MAXPATHLEN, &quot;%s/var/db/pkg/%s&quot;, db-&gt;db_base, pkg_name);
++	pkg_remove_extra_slashes(dir);
+ 	return pkg_new_freebsd_installed(pkg_name, dir);
+ }
+ 
+@@ -363,6 +367,7 @@
+ 		snprintf(install_data-&gt;directory, MAXPATHLEN, &quot;%s/%s&quot;,
+ 		    db-&gt;db_base, dir);
+ 	}
++	pkg_remove_extra_slashes(install_data-&gt;directory);
+ 
+ 	pkg_action(PKG_DB_PACKAGE, &quot;CWD to %s&quot;, install_data-&gt;directory);
+ 	if (!install_data-&gt;fake) {
+@@ -423,8 +428,10 @@
+ 	    install_data-&gt;last_file);
+ 
+ 	pkg_action(PKG_DB_PACKAGE, &quot;execute '%s'&quot;, the_cmd);
+-	if (!install_data-&gt;fake)
++	if (!install_data-&gt;fake) {
++		printf(&quot;EXEC: %s\n&quot;, the_cmd);
+ 		return pkg_exec(the_cmd);
++	}
+ 
+ 	return 0;
+ }
+@@ -468,6 +475,7 @@
+ 
+ 		snprintf(required_by, FILENAME_MAX, &quot;%s&quot; DB_LOCATION
+ 		    &quot;/%s/+REQUIRED_BY&quot;, db-&gt;db_base, pkg_get_name(deps[pos]));
++		pkg_remove_extra_slashes(required_by);
+ 
+ 		/** @todo Make pkgfile work to properly to create the file */
+ 		fd = fopen(required_by, &quot;a&quot;);
+@@ -575,6 +583,7 @@
+ 				case 'B':
+ 					snprintf(scratch, FILENAME_MAX * 2,
+ 					    &quot;%s/%s&quot;, dir, name);
++					pkg_remove_extra_slashes(scratch);
+ 					cp = &amp;scratch[strlen(scratch) - 1];
+ 					while (cp != scratch &amp;&amp; *cp != '/')
+ 						--cp;
+@@ -587,6 +596,7 @@
+ 				case 'f':
+ 					snprintf(scratch, FILENAME_MAX * 2,
+ 					    &quot;%s/%s&quot;, dir, name);
++					pkg_remove_extra_slashes(scratch);
+ 					cp = &amp;scratch[strlen(scratch) - 1];
+ 					while (cp != scratch &amp;&amp; *(cp - 1) != '/')
+ 						--cp;
+
+Modified: trunk/src/pkg_freebsd.c
+===================================================================
+--- trunk/src/pkg_freebsd.c	2006-07-24 07:08:55 UTC (rev 162)
++++ trunk/src/pkg_freebsd.c	2006-07-24 10:50:18 UTC (rev 163)
+@@ -94,6 +94,7 @@
+ 	freebsd_type pkg_type;
+ };
+ 
++
+ /**
+  * @defgroup FreebsdPackage FreeBSD Package
+  * @ingroup Package
+@@ -629,7 +630,11 @@
+ 				snprintf(the_file, FILENAME_MAX, &quot;%s/%s&quot;,
+ 				    fpkg-&gt;curdir,
+ 				    fpkg-&gt;contents-&gt;lines[fpkg-&gt;line].line);
++				/* Remove extra slashes from the path */
++				pkg_remove_extra_slashes(the_file);
++
+ 				file = pkgfile_new_from_disk(the_file, 1);
++
+ 				if (file == NULL)
+ 					return NULL;
+ 				fpkg-&gt;line++;
+@@ -973,6 +978,7 @@
+ 				FREE_CONTENTS(fpkg-&gt;control);
+ 				return -1;
+ 			}
++			pkg_remove_extra_slashes(file)
+ 			pkgfile = pkgfile_new_from_disk(file, 1);
+ 			addFile(pkgfile);
+ 			free(file);
+
+Modified: trunk/src/pkg_private.h
+===================================================================
+--- trunk/src/pkg_private.h	2006-07-24 07:08:55 UTC (rev 162)
++++ trunk/src/pkg_private.h	2006-07-24 10:50:18 UTC (rev 163)
+@@ -142,5 +142,13 @@
+ int pkg_exec(const char *, ...);
+ FILE *pkg_cached_file(FILE *, const char *);
+ 
++/* Remove extra slashes from the path */
++#define pkg_remove_extra_slashes(path) \
++	{ \
++		char *tmp_str; \
++		while((tmp_str = strstr(path, &quot;//&quot;)) != NULL) { \
++			strcpy(tmp_str, tmp_str+1); \
++		} \
++	}
+ 
+ #endif /* __LIBPKG_PKG_PRIVATE_H__ */
+
+
+</PRE>
+
+<!--endarticle-->
+    <HR>
+    <P><UL>
+        <!--threads-->
+	<LI>Previous message: <A HREF="000146.html">[Libpkg-svn] r162 - trunk/src
+</A></li>
+	<LI>Next message: <A HREF="000148.html">[Libpkg-svn] r164 - trunk/src
+</A></li>
+         <LI> <B>Messages sorted by:</B> 
+              <a href="date.html#147">[ date ]</a>
+              <a href="thread.html#147">[ thread ]</a>
+              <a href="subject.html#147">[ subject ]</a>
+              <a href="author.html#147">[ author ]</a>
+         </LI>
+       </UL>
+
+<hr>
+<a href="https://lists.berlios.de/mailman/listinfo/libpkg-svn">More information about the Libpkg-svn
+mailing list</a><br>
+</body></html>

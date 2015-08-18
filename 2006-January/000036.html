@@ -1,0 +1,92 @@
+<!DOCTYPE HTML PUBLIC "-//W3C//DTD HTML 4.01 Transitional//EN">
+<HTML>
+ <HEAD>
+   <TITLE> [Libpkg-svn] r51 - trunk/src
+   </TITLE>
+   <LINK REL="Index" HREF="http://lists.berlios.de/pipermail/libpkg-svn/2006-January/index.html" >
+   <LINK REL="made" HREF="mailto:libpkg-svn%40lists.berlios.de?Subject=Re%3A%20%5BLibpkg-svn%5D%20r51%20-%20trunk/src&In-Reply-To=%3C200601170344.k0H3iNIb027682%40sheep.berlios.de%3E">
+   <META NAME="robots" CONTENT="index,nofollow">
+   <style type="text/css">
+       pre {
+           white-space: pre-wrap;       /* css-2.1, curent FF, Opera, Safari */
+           }
+   </style>
+   <META http-equiv="Content-Type" content="text/html; charset=us-ascii">
+   <LINK REL="Previous"  HREF="000035.html">
+   <LINK REL="Next"  HREF="000037.html">
+ </HEAD>
+ <BODY BGCOLOR="#ffffff">
+   <H1>[Libpkg-svn] r51 - trunk/src</H1>
+    <B>zxombie at BerliOS</B> 
+    <A HREF="mailto:libpkg-svn%40lists.berlios.de?Subject=Re%3A%20%5BLibpkg-svn%5D%20r51%20-%20trunk/src&In-Reply-To=%3C200601170344.k0H3iNIb027682%40sheep.berlios.de%3E"
+       TITLE="[Libpkg-svn] r51 - trunk/src">zxombie at berlios.de
+       </A><BR>
+    <I>Tue Jan 17 04:44:23 CET 2006</I>
+    <P><UL>
+        <LI>Previous message: <A HREF="000035.html">[Libpkg-svn] r50 - trunk/src
+</A></li>
+        <LI>Next message: <A HREF="000037.html">[Libpkg-svn] r52 - in trunk: . tools tools/pkg_info
+</A></li>
+         <LI> <B>Messages sorted by:</B> 
+              <a href="date.html#36">[ date ]</a>
+              <a href="thread.html#36">[ thread ]</a>
+              <a href="subject.html#36">[ subject ]</a>
+              <a href="author.html#36">[ author ]</a>
+         </LI>
+       </UL>
+    <HR>  
+<!--beginarticle-->
+<PRE>Author: zxombie
+Date: 2006-01-17 04:43:56 +0100 (Tue, 17 Jan 2006)
+New Revision: 51
+
+Modified:
+   trunk/src/pkg_db.3
+Log:
+Fix return values for pkg_db_install_pkg in man page
+
+
+Modified: trunk/src/pkg_db.3
+===================================================================
+--- trunk/src/pkg_db.3	2006-01-16 07:58:16 UTC (rev 50)
++++ trunk/src/pkg_db.3	2006-01-17 03:43:56 UTC (rev 51)
+@@ -1,5 +1,5 @@
+ .\&quot; Copyright (c) 2003 Tim Kientzle
+-.\&quot; Copyright (c) 2005 Andrew Turner
++.\&quot; Copyright (c) 2005, 2006 Andrew Turner
+ .\&quot; All rights reserved.
+ .\&quot;
+ .\&quot; Redistribution and use in source and binary forms, with or without
+@@ -63,7 +63,7 @@
+ .It Fn pkg_db_install_pkg
+ Runs the package install callback to install a package.
+ .It Fn pkg_db_is_installed
+-Checks if the named package is installed. Returns PKG_YES if it is installed, PKG_NO if it is uninstalled or PKG_FAIL if there was an error.
++Checks if the named package is installed. Returns 0 if it is installed, -1 otherwise.
+ .It Fn pkg_db_get_packages
+ Returns a NULL terminated array of packages installed in
+ the database
+
+
+</PRE>
+
+<!--endarticle-->
+    <HR>
+    <P><UL>
+        <!--threads-->
+	<LI>Previous message: <A HREF="000035.html">[Libpkg-svn] r50 - trunk/src
+</A></li>
+	<LI>Next message: <A HREF="000037.html">[Libpkg-svn] r52 - in trunk: . tools tools/pkg_info
+</A></li>
+         <LI> <B>Messages sorted by:</B> 
+              <a href="date.html#36">[ date ]</a>
+              <a href="thread.html#36">[ thread ]</a>
+              <a href="subject.html#36">[ subject ]</a>
+              <a href="author.html#36">[ author ]</a>
+         </LI>
+       </UL>
+
+<hr>
+<a href="https://lists.berlios.de/mailman/listinfo/libpkg-svn">More information about the Libpkg-svn
+mailing list</a><br>
+</body></html>

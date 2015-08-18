@@ -1,0 +1,250 @@
+<!DOCTYPE HTML PUBLIC "-//W3C//DTD HTML 4.01 Transitional//EN">
+<HTML>
+ <HEAD>
+   <TITLE> [Libpkg-svn] r47 - in trunk: demo src
+   </TITLE>
+   <LINK REL="Index" HREF="http://lists.berlios.de/pipermail/libpkg-svn/2006-January/index.html" >
+   <LINK REL="made" HREF="mailto:libpkg-svn%40lists.berlios.de?Subject=Re%3A%20%5BLibpkg-svn%5D%20r47%20-%20in%20trunk%3A%20demo%20src&In-Reply-To=%3C200601090228.k092STV9024151%40sheep.berlios.de%3E">
+   <META NAME="robots" CONTENT="index,nofollow">
+   <style type="text/css">
+       pre {
+           white-space: pre-wrap;       /* css-2.1, curent FF, Opera, Safari */
+           }
+   </style>
+   <META http-equiv="Content-Type" content="text/html; charset=us-ascii">
+   <LINK REL="Previous"  HREF="000031.html">
+   <LINK REL="Next"  HREF="000033.html">
+ </HEAD>
+ <BODY BGCOLOR="#ffffff">
+   <H1>[Libpkg-svn] r47 - in trunk: demo src</H1>
+    <B>zxombie at BerliOS</B> 
+    <A HREF="mailto:libpkg-svn%40lists.berlios.de?Subject=Re%3A%20%5BLibpkg-svn%5D%20r47%20-%20in%20trunk%3A%20demo%20src&In-Reply-To=%3C200601090228.k092STV9024151%40sheep.berlios.de%3E"
+       TITLE="[Libpkg-svn] r47 - in trunk: demo src">zxombie at berlios.de
+       </A><BR>
+    <I>Mon Jan  9 03:28:29 CET 2006</I>
+    <P><UL>
+        <LI>Previous message: <A HREF="000031.html">[Libpkg-svn] r46 - trunk/src
+</A></li>
+        <LI>Next message: <A HREF="000033.html">[Libpkg-svn] r48 - trunk/src
+</A></li>
+         <LI> <B>Messages sorted by:</B> 
+              <a href="date.html#32">[ date ]</a>
+              <a href="thread.html#32">[ thread ]</a>
+              <a href="subject.html#32">[ subject ]</a>
+              <a href="author.html#32">[ author ]</a>
+         </LI>
+       </UL>
+    <HR>  
+<!--beginarticle-->
+<PRE>Author: zxombie
+Date: 2006-01-09 03:28:22 +0100 (Mon, 09 Jan 2006)
+New Revision: 47
+
+Modified:
+   trunk/demo/demo.c
+   trunk/src/pkg_repo.c
+   trunk/src/pkg_repo.h
+   trunk/src/pkg_repo_files.c
+   trunk/src/pkg_repo_ftp.c
+   trunk/src/pkg_repo_private.h
+Log:
+Remove pkg_repo_find_pkg as it is unneeded
+
+
+Modified: trunk/demo/demo.c
+===================================================================
+--- trunk/demo/demo.c	2006-01-09 01:17:04 UTC (rev 46)
++++ trunk/demo/demo.c	2006-01-09 02:28:22 UTC (rev 47)
+@@ -60,11 +60,10 @@
+ 	if (repo_ftp == NULL)
+ 		repo_ftp = pkg_repo_new_ftp(NULL, NULL);
+ 
+-	pkg = pkg_repo_find_pkg(repo_ftp, pkg_name);
+-	
+-	is_installed = pkg_db_is_installed(db, pkg_get_name(pkg));
+-	if (is_installed != 0)
++	if (pkg_db_is_installed(db, pkg_get_name(pkg)) != 0)
+ 		return 0;
++
++	pkg = pkg_repo_get_pkg(repo_ftp, pkg_name);
+ 	
+ 	pkg_deps = pkg_get_dependencies(pkg);
+ 	if (pkg_deps != NULL) {
+@@ -133,6 +132,7 @@
+ 		if (pkg == NULL) {
+ 			fprintf(stderr, &quot;Package %s could not be found\n&quot;,
+ 			    *argv);
++			argv++;
+ 			continue;
+ 		}
+ 		/* Check if the package is installed */
+@@ -140,6 +140,7 @@
+ 		if (is_installed == 0) {
+ 			fprintf(stderr, &quot;Package %s is already installed\n&quot;,
+ 			    *argv);
++			argv++;
+ 			continue;
+ 		} else {
+ 			/* Install the package */
+
+Modified: trunk/src/pkg_repo.c
+===================================================================
+--- trunk/src/pkg_repo.c	2006-01-09 01:17:04 UTC (rev 46)
++++ trunk/src/pkg_repo.c	2006-01-09 02:28:22 UTC (rev 47)
+@@ -39,7 +39,6 @@
+  */
+ struct pkg_repo *
+ pkg_repo_new(pkg_repo_get_pkg_callback *pkg_get,
+-	     pkg_repo_find_pkg_callback *pkg_find,
+ 	     pkg_repo_free_callback *pfree)
+ {
+ 	struct pkg_repo *repo;
+@@ -50,7 +49,6 @@
+ 	}
+ 
+ 	repo-&gt;pkg_get = pkg_get;
+-	repo-&gt;pkg_find = pkg_find;
+ 	repo-&gt;pkg_free = pfree;
+ 
+ 	repo-&gt;data = NULL;
+@@ -80,21 +78,6 @@
+ }
+ 
+ /*
+- * Finds a package in a repo and sets the appropriate callbacks and data
+- */
+-struct pkg *
+-pkg_repo_find_pkg(struct pkg_repo *repo, const char *pkg_name)
+-{
+-	if (!repo || !pkg_name)
+-		return NULL;
+-
+-	if (!repo-&gt;pkg_find)
+-		return NULL;
+-
+-	return repo-&gt;pkg_find(repo, pkg_name);
+-}
+-
+-/*
+  * Frees the struct pkg_repo
+  */
+ int
+
+Modified: trunk/src/pkg_repo.h
+===================================================================
+--- trunk/src/pkg_repo.h	2006-01-09 01:17:04 UTC (rev 46)
++++ trunk/src/pkg_repo.h	2006-01-09 02:28:22 UTC (rev 47)
+@@ -39,7 +39,6 @@
+ struct pkg_repo	*pkg_repo_new_files(void);
+ struct pkg_repo	*pkg_repo_new_ftp(const char *, const char *);
+ struct pkg	*pkg_repo_get_pkg(struct pkg_repo *, const char *);
+-struct pkg	*pkg_repo_find_pkg(struct pkg_repo *, const char *);
+ int		 pkg_repo_free(struct pkg_repo *);
+ 
+ #endif /* __LIBPKG_PKG_REPO_H__ */
+
+Modified: trunk/src/pkg_repo_files.c
+===================================================================
+--- trunk/src/pkg_repo_files.c	2006-01-09 01:17:04 UTC (rev 46)
++++ trunk/src/pkg_repo_files.c	2006-01-09 02:28:22 UTC (rev 47)
+@@ -46,7 +46,7 @@
+ struct pkg_repo *
+ pkg_repo_new_files()
+ {
+-	return pkg_repo_new(file_get_pkg, NULL, NULL);
++	return pkg_repo_new(file_get_pkg, NULL);
+ }
+ 
+ /*
+
+Modified: trunk/src/pkg_repo_ftp.c
+===================================================================
+--- trunk/src/pkg_repo_ftp.c	2006-01-09 01:17:04 UTC (rev 46)
++++ trunk/src/pkg_repo_ftp.c	2006-01-09 02:28:22 UTC (rev 47)
+@@ -88,7 +88,6 @@
+ 
+ /* Callbacks */
+ static struct pkg	*ftp_get_pkg(struct pkg_repo *, const char *);
+-static struct pkg	*ftp_find_pkg(struct pkg_repo *, const char *);
+ static int		 ftp_free(struct pkg_repo *);
+ /* Internal */
+ static FILE		*ftp_get_fd(const char *, struct ftp_repo *);
+@@ -104,7 +103,7 @@
+ {
+ 	struct pkg_repo *repo;
+ 
+-	repo = pkg_repo_new(ftp_get_pkg, ftp_find_pkg, ftp_free);
++	repo = pkg_repo_new(ftp_get_pkg, ftp_free);
+ 	if (!repo) {
+ 		/* pkg_null will contain the error string */
+ 		return NULL;
+@@ -146,21 +145,6 @@
+ 	return pkg;
+ }
+ 
+-static struct pkg *
+-ftp_find_pkg(struct pkg_repo *repo, const char *pkg_name)
+-{
+-	FILE *fd;
+-
+-	if (repo == NULL || pkg_name == NULL)
+-		return NULL;
+-
+-	fd = ftp_get_fd(pkg_name, repo-&gt;data);
+-	if (fd == NULL)
+-		return NULL;
+-
+-	return pkg_new_freebsd_from_file(fd);
+-}
+-
+ /*
+  * Free the struct ftp_repo
+  */
+
+Modified: trunk/src/pkg_repo_private.h
+===================================================================
+--- trunk/src/pkg_repo_private.h	2006-01-09 01:17:04 UTC (rev 46)
++++ trunk/src/pkg_repo_private.h	2006-01-09 02:28:22 UTC (rev 47)
+@@ -31,17 +31,15 @@
+ #define __LIBPKG_PKG_REPO_PRIVATE_H__
+ 
+ typedef struct pkg *pkg_repo_get_pkg_callback(struct pkg_repo *, const char *);
+-typedef struct pkg *pkg_repo_find_pkg_callback(struct pkg_repo *, const char *);
+ typedef int	 pkg_repo_free_callback(struct pkg_repo *);
+ 
+ struct pkg_repo	*pkg_repo_new(pkg_repo_get_pkg_callback *,
+-			pkg_repo_find_pkg_callback *, pkg_repo_free_callback *);
++			pkg_repo_free_callback *);
+ 
+ struct pkg_repo {
+ 	void	*data;
+ 
+ 	pkg_repo_get_pkg_callback	*pkg_get;
+-	pkg_repo_find_pkg_callback	*pkg_find;
+ 	pkg_repo_free_callback		*pkg_free;
+ };
+ 
+
+
+</PRE>
+
+<!--endarticle-->
+    <HR>
+    <P><UL>
+        <!--threads-->
+	<LI>Previous message: <A HREF="000031.html">[Libpkg-svn] r46 - trunk/src
+</A></li>
+	<LI>Next message: <A HREF="000033.html">[Libpkg-svn] r48 - trunk/src
+</A></li>
+         <LI> <B>Messages sorted by:</B> 
+              <a href="date.html#32">[ date ]</a>
+              <a href="thread.html#32">[ thread ]</a>
+              <a href="subject.html#32">[ subject ]</a>
+              <a href="author.html#32">[ author ]</a>
+         </LI>
+       </UL>
+
+<hr>
+<a href="https://lists.berlios.de/mailman/listinfo/libpkg-svn">More information about the Libpkg-svn
+mailing list</a><br>
+</body></html>

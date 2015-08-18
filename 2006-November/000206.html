@@ -1,0 +1,157 @@
+<!DOCTYPE HTML PUBLIC "-//W3C//DTD HTML 4.01 Transitional//EN">
+<HTML>
+ <HEAD>
+   <TITLE> [Libpkg-svn] r222 - trunk/src
+   </TITLE>
+   <LINK REL="Index" HREF="http://lists.berlios.de/pipermail/libpkg-svn/2006-November/index.html" >
+   <LINK REL="made" HREF="mailto:libpkg-svn%40lists.berlios.de?Subject=Re%3A%20%5BLibpkg-svn%5D%20r222%20-%20trunk/src&In-Reply-To=%3C200611091213.kA9CDUSh019906%40sheep.berlios.de%3E">
+   <META NAME="robots" CONTENT="index,nofollow">
+   <style type="text/css">
+       pre {
+           white-space: pre-wrap;       /* css-2.1, curent FF, Opera, Safari */
+           }
+   </style>
+   <META http-equiv="Content-Type" content="text/html; charset=us-ascii">
+   <LINK REL="Previous"  HREF="000205.html">
+   <LINK REL="Next"  HREF="000207.html">
+ </HEAD>
+ <BODY BGCOLOR="#ffffff">
+   <H1>[Libpkg-svn] r222 - trunk/src</H1>
+    <B>zxombie at BerliOS</B> 
+    <A HREF="mailto:libpkg-svn%40lists.berlios.de?Subject=Re%3A%20%5BLibpkg-svn%5D%20r222%20-%20trunk/src&In-Reply-To=%3C200611091213.kA9CDUSh019906%40sheep.berlios.de%3E"
+       TITLE="[Libpkg-svn] r222 - trunk/src">zxombie at mail.berlios.de
+       </A><BR>
+    <I>Thu Nov  9 13:13:30 CET 2006</I>
+    <P><UL>
+        <LI>Previous message: <A HREF="000205.html">[Libpkg-svn] r221 - trunk/src
+</A></li>
+        <LI>Next message: <A HREF="000207.html">[Libpkg-svn] r223 - trunk/tools/pkg_delete
+</A></li>
+         <LI> <B>Messages sorted by:</B> 
+              <a href="date.html#206">[ date ]</a>
+              <a href="thread.html#206">[ thread ]</a>
+              <a href="subject.html#206">[ subject ]</a>
+              <a href="author.html#206">[ author ]</a>
+         </LI>
+       </UL>
+    <HR>  
+<!--beginarticle-->
+<PRE>Author: zxombie
+Date: 2006-11-09 13:13:27 +0100 (Thu, 09 Nov 2006)
+New Revision: 222
+
+Modified:
+   trunk/src/pkg_db_freebsd.c
+Log:
+Save the current directory and compare it to the new directory in freebsd_do_chdir
+When the new directory's name is &quot;.&quot; just print that instead of real name
+Tell the user what is happening when removing reverse dependencies
+
+
+Modified: trunk/src/pkg_db_freebsd.c
+===================================================================
+--- trunk/src/pkg_db_freebsd.c	2006-11-09 11:41:42 UTC (rev 221)
++++ trunk/src/pkg_db_freebsd.c	2006-11-09 12:13:27 UTC (rev 222)
+@@ -51,6 +51,7 @@
+ struct pkg_install_data {
+ 	int fake;
+ 	struct pkg_db *db;
++	const char *last_dir;
+ 	char last_file[FILENAME_MAX];
+ 	char directory[MAXPATHLEN];
+ };
+@@ -227,6 +228,7 @@
+ 	/* Do the Install */
+ 	install_data.db = db;
+ 	install_data.fake = fake;
++	install_data.last_dir = NULL;
+ 	install_data.last_file[0] = '\0';
+ 	install_data.directory[0] = '\0';
+ 	if (pkg_install(pkg, prefix, reg, pkg_action, &amp;install_data,
+@@ -459,7 +461,6 @@
+ 		}
+ 	}
+ 
+-	if (!fake) {
+ 	/* Remove the reverse dependencies */
+ 	deps = pkg_db_get_installed_match(db, pkg_db_freebsd_match_rdep,
+ 	    pkg_get_name(real_pkg));
+@@ -468,15 +469,22 @@
+ 		for (pos = 0; deps[pos] != NULL; pos++) {
+ 			struct pkgfile *file;
+ 
+-			file = pkg_get_control_file(deps[pos], &quot;+REQUIRED_BY&quot;);
+-			pkgfile_remove_line(file, pkg_get_name(real_pkg));
++			pkg_action(PKG_DB_INFO, &quot;Trying to remove dependency &quot;
++			    &quot;on package '%s' with '%s' origin.&quot;,
++			    pkg_get_name(deps[pos]), pkg_get_origin(deps[pos]));
++			if (!fake) {
++				file = pkg_get_control_file(deps[pos],
++				    &quot;+REQUIRED_BY&quot;);
++				pkgfile_remove_line(file,
++				    pkg_get_name(real_pkg));
++			}
+ 		}
+ 	}
+-	}
+ 
+ 	/* Do the deinstall */
+ 	deinstall_data.db = db;
+ 	deinstall_data.fake = fake;
++	deinstall_data.last_dir = NULL;
+ 	deinstall_data.last_file[0] = '\0';
+ 	deinstall_data.directory[0] = '\0';
+ 	if (pkg_deinstall(real_pkg, pkg_action, &amp;deinstall_data,
+@@ -530,6 +538,13 @@
+ 	assert(db != NULL);
+ 	assert(db-&gt;db_base != NULL);
+ 
++	/* If we are currently in the correct dir don't attempt to change */
++	if (install_data-&gt;last_dir != NULL &amp;&amp;
++	    strcmp(dir, install_data-&gt;last_dir) == 0) {
++		return 0;
++	}
++	install_data-&gt;last_dir = dir;
++
+ 	if (strcmp(dir, &quot;.&quot;) == 0) {
+ 		snprintf(install_data-&gt;directory, MAXPATHLEN,
+ 		    &quot;%s&quot; DB_LOCATION &quot;/%s&quot;, db-&gt;db_base, pkg_get_name(pkg));
+@@ -539,8 +554,12 @@
+ 	}
+ 	pkg_remove_extra_slashes(install_data-&gt;directory);
+ 
+-	pkg_action(PKG_DB_PACKAGE, &quot;Change working directory to %s&quot;,
+-	    install_data-&gt;directory);
++	if (strcmp(dir, &quot;.&quot;) == 0) {
++		pkg_action(PKG_DB_PACKAGE, &quot;Change working directory to .&quot;);
++	} else {
++		pkg_action(PKG_DB_PACKAGE, &quot;Change working directory to %s&quot;,
++		    install_data-&gt;directory);
++	}
+ 
+ 	if (!install_data-&gt;fake) {
+ 		pkg_dir_build(install_data-&gt;directory, 0);
+
+
+</PRE>
+
+<!--endarticle-->
+    <HR>
+    <P><UL>
+        <!--threads-->
+	<LI>Previous message: <A HREF="000205.html">[Libpkg-svn] r221 - trunk/src
+</A></li>
+	<LI>Next message: <A HREF="000207.html">[Libpkg-svn] r223 - trunk/tools/pkg_delete
+</A></li>
+         <LI> <B>Messages sorted by:</B> 
+              <a href="date.html#206">[ date ]</a>
+              <a href="thread.html#206">[ thread ]</a>
+              <a href="subject.html#206">[ subject ]</a>
+              <a href="author.html#206">[ author ]</a>
+         </LI>
+       </UL>
+
+<hr>
+<a href="https://lists.berlios.de/mailman/listinfo/libpkg-svn">More information about the Libpkg-svn
+mailing list</a><br>
+</body></html>

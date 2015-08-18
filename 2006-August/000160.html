@@ -1,0 +1,1084 @@
+<!DOCTYPE HTML PUBLIC "-//W3C//DTD HTML 4.01 Transitional//EN">
+<HTML>
+ <HEAD>
+   <TITLE> [Libpkg-svn] r176 - trunk/src
+   </TITLE>
+   <LINK REL="Index" HREF="http://lists.berlios.de/pipermail/libpkg-svn/2006-August/index.html" >
+   <LINK REL="made" HREF="mailto:libpkg-svn%40lists.berlios.de?Subject=Re%3A%20%5BLibpkg-svn%5D%20r176%20-%20trunk/src&In-Reply-To=%3C200608221103.k7MB3mG8012570%40sheep.berlios.de%3E">
+   <META NAME="robots" CONTENT="index,nofollow">
+   <style type="text/css">
+       pre {
+           white-space: pre-wrap;       /* css-2.1, curent FF, Opera, Safari */
+           }
+   </style>
+   <META http-equiv="Content-Type" content="text/html; charset=us-ascii">
+   <LINK REL="Previous"  HREF="000159.html">
+   <LINK REL="Next"  HREF="000161.html">
+ </HEAD>
+ <BODY BGCOLOR="#ffffff">
+   <H1>[Libpkg-svn] r176 - trunk/src</H1>
+    <B>zxombie at BerliOS</B> 
+    <A HREF="mailto:libpkg-svn%40lists.berlios.de?Subject=Re%3A%20%5BLibpkg-svn%5D%20r176%20-%20trunk/src&In-Reply-To=%3C200608221103.k7MB3mG8012570%40sheep.berlios.de%3E"
+       TITLE="[Libpkg-svn] r176 - trunk/src">zxombie at mail.berlios.de
+       </A><BR>
+    <I>Tue Aug 22 13:03:48 CEST 2006</I>
+    <P><UL>
+        <LI>Previous message: <A HREF="000159.html">[Libpkg-svn] r175 - trunk/src
+</A></li>
+        <LI>Next message: <A HREF="000161.html">[Libpkg-svn] r177 - trunk/src
+</A></li>
+         <LI> <B>Messages sorted by:</B> 
+              <a href="date.html#160">[ date ]</a>
+              <a href="thread.html#160">[ thread ]</a>
+              <a href="subject.html#160">[ subject ]</a>
+              <a href="author.html#160">[ author ]</a>
+         </LI>
+       </UL>
+    <HR>  
+<!--beginarticle-->
+<PRE>Author: zxombie
+Date: 2006-08-22 13:03:36 +0200 (Tue, 22 Aug 2006)
+New Revision: 176
+
+Modified:
+   trunk/src/pkg.c
+   trunk/src/pkg.h
+   trunk/src/pkg_db.c
+   trunk/src/pkg_db.h
+   trunk/src/pkg_db_freebsd.c
+   trunk/src/pkg_db_private.h
+   trunk/src/pkg_freebsd.c
+   trunk/src/pkg_private.h
+   trunk/src/pkgfile.c
+Log:
+Add the start of package removal
+Add pkg_get_reverse_dependencies
+Allow package scripts to be run on installed packages
+Move some functions from pkg_static to static as doxygen will create the documentation for them now
+Add pkgfile_unlink
+
+
+Modified: trunk/src/pkg.c
+===================================================================
+--- trunk/src/pkg.c	2006-08-02 08:48:48 UTC (rev 175)
++++ trunk/src/pkg.c	2006-08-22 11:03:36 UTC (rev 176)
+@@ -27,6 +27,7 @@
+  *
+  */
+ 
++#include &lt;assert.h&gt;
+ #include &lt;stdlib.h&gt;
+ #include &lt;string.h&gt;
+ 
+@@ -58,6 +59,7 @@
+ 		pkg_get_control_files_callback *control_files,
+ 		pkg_get_control_file_callback *control_file,
+ 		pkg_get_dependencies_callback *get_deps,
++		pkg_get_dependencies_callback *get_rdeps,
+ 		pkg_free_callback *free_pkg)
+ {
+ 	struct pkg *pkg;
+@@ -81,6 +83,7 @@
+ 	pkg-&gt;pkg_get_control_files = control_files;
+ 	pkg-&gt;pkg_get_control_file = control_file;
+ 	pkg-&gt;pkg_get_deps = get_deps;
++	pkg-&gt;pkg_get_rdeps = get_rdeps;
+ 	pkg-&gt;pkg_free = free_pkg;
+ 
+ 	/* Set the other callbacks to NULL */
+@@ -91,6 +94,7 @@
+ 	pkg-&gt;pkg_get_next_file = NULL;
+ 	pkg-&gt;pkg_run_script = NULL;
+ 	pkg-&gt;pkg_install = NULL;
++	pkg-&gt;pkg_deinstall = NULL;
+ 
+ 	/* The data is unknown so set to NULL */
+ 	pkg-&gt;pkg_prefix = NULL;
+@@ -153,6 +157,7 @@
+ int
+ pkg_add_callbacks_install (struct pkg *pkg,
+ 		pkg_install_callback *install,
++		pkg_deinstall_callback *deinstall,
+ 		pkg_get_next_file_callback *next_file,
+ 		pkg_run_script_callback *run_script)
+ {
+@@ -160,6 +165,7 @@
+ 		return -1;
+ 
+ 	pkg-&gt;pkg_install = install;
++	pkg-&gt;pkg_deinstall = deinstall;
+ 	pkg-&gt;pkg_get_next_file = next_file;
+ 	pkg-&gt;pkg_run_script = run_script;
+ 	return 0;
+@@ -191,7 +197,7 @@
+ struct pkg*
+ pkg_new_empty(const char *pkg_name)
+ {
+-	return pkg_new(pkg_name, NULL, NULL, NULL, NULL);
++	return pkg_new(pkg_name, NULL, NULL, NULL, NULL, NULL);
+ }
+ 
+ /**
+@@ -308,12 +314,39 @@
+ 	if (!pkg)
+ 		return NULL;
+ 
++	assert(pkg-&gt;pkg_get_deps == NULL ||
++	    pkg-&gt;pkg_get_deps != pkg-&gt;pkg_get_rdeps);
+ 	if (pkg-&gt;pkg_get_deps)
+ 		return pkg-&gt;pkg_get_deps(pkg);
+ 	return NULL;
+ }
+ 
+ /**
++ * @brief Gets all the packages that depend on the named package
++ * @param pkg The package
++ *
++ * This retrieves a list of packages that depend on the
++ * given package.
++ * If no packages depend on the given package the array
++ * will only contain a NULL
++ * @return A NULL terminated array of packages
++ * @return NULL on error
++ */
++struct pkg **
++pkg_get_reverse_dependencies(struct pkg *pkg)
++{
++	if (!pkg)
++		return NULL;
++
++	assert(pkg-&gt;pkg_get_rdeps == NULL ||
++	    pkg-&gt;pkg_get_deps != pkg-&gt;pkg_get_rdeps);
++	if (pkg-&gt;pkg_get_rdeps != NULL)
++		return pkg-&gt;pkg_get_rdeps(pkg);
++
++	return NULL;
++}
++
++/**
+  * @brief Gets the name of a package
+  * @param pkg The package
+  *
+@@ -480,7 +513,42 @@
+ 	    install_file, do_exec, pkg_register);
+ }
+ 
++/**
++ * @brief Deinstalls a package using the given callbacks
++ * @param pkg The package to deinstall
++ * @param pkg_action A callback to display a message to the user
++ * @param data A pointer to pass to pkg_db_* callbacks
++ * @param db_chdir A callback to change to a new directory
++ * @param deinstall_file A callback to install a file in a database
++ * @param do_exec A callback to execute a script
++ * @param pkg_deregister A callback to register a package
++ *
++ * pkg_deinstall() is an internal function to the library.
++ * It is designed to seperate the knowledge of packages and
++ * package databases apart.
++ * The package database now only knows how to deinstall the
++ * parts of a package it is given, not the internals of a
++ * given package.
++ * 
++ * @return  0 on success
++ * @return -1 or error
++ */
++int
++pkg_deinstall(struct pkg *pkg, pkg_db_action *pkg_action, void *data,
++		pkg_db_chdir *db_chdir,	pkg_db_install_file *deinstall_file,
++		pkg_db_exec *do_exec, pkg_db_register *pkg_deregister)
++{
++	if (pkg == NULL || data == NULL || db_chdir == NULL ||
++	    deinstall_file == NULL || do_exec == NULL || pkg_deregister == NULL)
++		return -1;
+ 
++	if (pkg-&gt;pkg_deinstall == NULL)
++		return -1;
++
++	return pkg-&gt;pkg_deinstall(pkg, pkg_action, data, db_chdir,
++	    deinstall_file, do_exec, pkg_deregister);
++}
++
+ /**
+  * @brief Frees a NULL terminated array of packages
+  * @param pkgs A NULL terminated array of pkg objects
+
+Modified: trunk/src/pkg.h
+===================================================================
+--- trunk/src/pkg.h	2006-08-02 08:48:48 UTC (rev 175)
++++ trunk/src/pkg.h	2006-08-22 11:03:36 UTC (rev 176)
+@@ -69,6 +69,7 @@
+ int		 pkgfile_seek(struct pkgfile *, uint64_t, int);
+ int		 pkgfile_set_mode(struct pkgfile *, mode_t);
+ int		 pkgfile_write(struct pkgfile *);
++int		 pkgfile_unlink(struct pkgfile *);
+ int		 pkgfile_free(struct pkgfile *);
+ 
+ /**
+@@ -91,7 +92,11 @@
+ 	pkg_script_pre,
+ 	pkg_script_post,
+ 	pkg_script_mtree,
+-	pkg_script_require
++	pkg_script_require,
++	pkg_script_require_deinstall,
++	pkg_script_deinstall,
++	pkg_script_pre_deinstall,
++	pkg_script_post_deinstall
+ } pkg_script;
+ 
+ struct pkg		 *pkg_new_empty(const char *);
+@@ -104,6 +109,7 @@
+ struct pkgfile		**pkg_get_control_files(struct pkg *);
+ struct pkgfile		 *pkg_get_control_file(struct pkg *, const char *);
+ struct pkg		**pkg_get_dependencies(struct pkg *);
++struct pkg		**pkg_get_reverse_dependencies(struct pkg *);
+ const char		 *pkg_get_name(struct pkg *);
+ struct pkgfile		 *pkg_get_next_file(struct pkg *);
+ const char		 *pkg_get_origin(struct pkg *);
+
+Modified: trunk/src/pkg_db.c
+===================================================================
+--- trunk/src/pkg_db.c	2006-08-02 08:48:48 UTC (rev 175)
++++ trunk/src/pkg_db.c	2006-08-22 11:03:36 UTC (rev 176)
+@@ -51,13 +51,15 @@
+  * @param get_installed_match The callback to be used by
+  *     pkg_db_get_installed_match()
+  * @param get_package The callback to be used by pkg_db_get_package()
++ * @param pkg_deinstall The callback to be used by pkg_db_deinstall_package()
+  * @returns A pkg_db object or NULL
+  */
+ struct pkg_db*
+ pkg_db_open(const char *base, pkg_db_install_pkg_callback *install_pkg,
+ 		pkg_db_is_installed_callback *is_installed,
+ 		pkg_db_get_installed_match_callback *get_installed_match,
+-		pkg_db_get_package_callback *get_package)
++		pkg_db_get_package_callback *get_package,
++		pkg_db_deinstall_pkg_callback* deinstall)
+ {
+ 	struct pkg_db *db;
+ 	struct stat sb;
+@@ -99,6 +101,7 @@
+ 	db-&gt;pkg_is_installed = is_installed;
+ 	db-&gt;pkg_get_installed_match = get_installed_match;
+ 	db-&gt;pkg_get_package = get_package;
++	db-&gt;pkg_deinstall = deinstall;
+ 
+ 	db-&gt;data = NULL;
+ 
+@@ -259,7 +262,37 @@
+ 	return NULL;
+ }
+ 
++int
++pkg_db_delete_package(struct pkg_db *db, struct pkg *pkg, int scripts, int fake)
++{
++	return pkg_db_delete_package_action(db, pkg, scripts, fake, NULL);
++}
++
+ /**
++ * @brief Removes a package and it's files from a database
++ * @param db The database to deinstall from
++ * @param pkg The package to deinstall
++ * @param action A callback that is used to inform the user the status
++ *     of the installation
++ * @return  0 on success
++ * @return -1 on error
++ */
++int
++pkg_db_delete_package_action(struct pkg_db *db, struct pkg *pkg, int scripts,
++	int fake, pkg_db_action *action)
++{
++	if (db == NULL || pkg == NULL)
++		return -1;
++
++	if (action == NULL)
++		action = pkg_action_null;
++
++	if (db-&gt;pkg_deinstall != NULL)
++		return db-&gt;pkg_deinstall(db, pkg, scripts, fake, action);
++	return -1;
++}
++
++/**
+  * @brief Frees the database
+  * @return 0 on success, -1 on error
+  */
+
+Modified: trunk/src/pkg_db.h
+===================================================================
+--- trunk/src/pkg_db.h	2006-08-02 08:48:48 UTC (rev 175)
++++ trunk/src/pkg_db.h	2006-08-22 11:03:36 UTC (rev 176)
+@@ -59,6 +59,9 @@
+ struct pkg	**pkg_db_get_installed_match_count(struct pkg_db *,
+ 			pkg_db_match *, unsigned int, const void *);
+ struct pkg	 *pkg_db_get_package(struct pkg_db *, const char *);
++int		  pkg_db_delete_package(struct pkg_db *, struct pkg *, int,int);
++int		  pkg_db_delete_package_action(struct pkg_db *, struct pkg *,
++			int, int, pkg_db_action *);
+ int		  pkg_db_free(struct pkg_db *);
+ 
+ int		  pkg_match_all(struct pkg *, const void *);
+
+Modified: trunk/src/pkg_db_freebsd.c
+===================================================================
+--- trunk/src/pkg_db_freebsd.c	2006-08-02 08:48:48 UTC (rev 175)
++++ trunk/src/pkg_db_freebsd.c	2006-08-22 11:03:36 UTC (rev 176)
+@@ -69,25 +69,31 @@
+ 	{ -1, -1, -1, -1, -1,  6, -1, -1, -1, -1, -1, -1 }  /* p6 */
+ };
+ 
+-pkg_static int		  freebsd_install_pkg_action(struct pkg_db *,
++static int		  freebsd_install_pkg_action(struct pkg_db *,
+ 				struct pkg *, const char *, int, int, int,
+ 				pkg_db_action *);
+-pkg_static int		  freebsd_is_installed(struct pkg_db *, struct pkg *);
+-pkg_static struct pkg	**freebsd_get_installed_match(struct pkg_db *,
++static int		  freebsd_is_installed(struct pkg_db *, struct pkg *);
++static struct pkg	**freebsd_get_installed_match(struct pkg_db *,
+ 				pkg_db_match *, unsigned int, const void *);
+-pkg_static struct pkg	 *freebsd_get_package(struct pkg_db *, const char *);	
++static struct pkg	 *freebsd_get_package(struct pkg_db *, const char *);
++static int		  freebsd_deinstall_pkg(struct pkg_db *, struct pkg *,
++				int, int, pkg_db_action *);
+ 
+-/* pkg_install callbacks */
+-pkg_static int	freebsd_do_chdir(struct pkg *, pkg_db_action *, void *,
++/* pkg_(install|deinstall) callbacks */
++static int	freebsd_do_chdir(struct pkg *, pkg_db_action *, void *,
+ 				const char *);
+-pkg_static int	freebsd_install_file(struct pkg *, pkg_db_action *, void *,
++static int	freebsd_install_file(struct pkg *, pkg_db_action *, void *,
+ 				struct pkgfile *);
+-pkg_static int	freebsd_do_exec(struct pkg *, pkg_db_action *, void *,
++static int	freebsd_deinstall_file(struct pkg *, pkg_db_action *, void *,
++				struct pkgfile *);
++static int	freebsd_do_exec(struct pkg *, pkg_db_action *, void *,
+ 				const char *);
+-pkg_static int	freebsd_register(struct pkg *, pkg_db_action *, void *,
++static int	freebsd_register(struct pkg *, pkg_db_action *, void *,
+ 				struct pkgfile **);
++static int	freebsd_deregister(struct pkg *, pkg_db_action *, void *,
++				struct pkgfile **);
+ /* Internal */
+-pkg_static void			 freebsd_format_cmd(char *, int, const char *,
++static void			 freebsd_format_cmd(char *, int, const char *,
+ 				const char *, const char *);
+ 
+ /**
+@@ -106,7 +112,7 @@
+ {
+ 	return pkg_db_open(base, freebsd_install_pkg_action,
+ 	    freebsd_is_installed, freebsd_get_installed_match,
+-	    freebsd_get_package);
++	    freebsd_get_package, freebsd_deinstall_pkg);
+ }
+ 
+ /**
+@@ -330,6 +336,102 @@
+ }
+ 
+ /**
++ * @brief Callback for pkg_db_deinstall_package()
++ * @return  0 on success
++ * @return -1 on fatal error
++ */
++static int
++freebsd_deinstall_pkg(struct pkg_db *db, struct pkg *pkg, int scripts __unused, int fake,
++	pkg_db_action *pkg_action)
++{
++	struct pkg_install_data deinstall_data;
++	struct pkg *real_pkg;
++//	struct pkg **rdeps;
++
++	assert(db != NULL);
++	assert(pkg != NULL);
++
++	/* Get the real package. The one supplyed may be an empty one */
++	/** @todo Check if the package suplyed is a valid package or not */
++	real_pkg = freebsd_get_package(db, pkg_get_name(pkg));
++# if 0
++	/* Check if the package is installed */
++	if (real_pkg == NULL) {
++		pkg_action(PKG_DB_INFO, &quot;No such package '%s' installed&quot;,
++		    pkg_get_name(pkg));
++		return -1;
++	}
++
++	/** @todo Check if package is dependended on */
++	rdeps = pkg_get_reverse_dependencies(pkg);
++	if (rdeps == NULL) {
++		return -1;
++	} else if (rdeps[0] != NULL) {
++		unsigned int pos, buf_size, buf_used;
++		char *buf;
++		/* XXX */
++		buf_used = 0;
++		buf_size = 1024;
++		buf = malloc(buf_size);
++		if (buf == NULL) {
++			pkg_action(PKG_DB_INFO,
++			    &quot;package '%s' is required by other packages and &quot;
++			    &quot;may not be deinstalled however an error occured &quot;
++			    &quot;while retrieving the list of packages&quot;,
++			    pkg_get_name(real_pkg));
++			return -1;
++		}
++		/* Load the names of the packages into a buffer */
++		for (pos = 0; rdeps[pos] != NULL; pos++) {
++			size_t len;
++
++			len = strlen(pkg_get_name(rdeps[pos]));
++			if (buf_used + len &gt;= buf_size) {
++				buf_size += 1024;
++				buf = realloc(buf, buf_size);
++			}
++			strlcat(buf, pkg_get_name(rdeps[pos]), buf_size);
++			strlcat(buf, &quot;\n&quot;, buf_size);
++			buf_used += len + 1;
++		}
++		pkg_action(PKG_DB_INFO,
++		    &quot;package '%s' is required by these other packages &quot;
++		    &quot;and may not be deinstalled:\n%s&quot;,
++		    pkg_get_name(real_pkg), buf);
++		free(buf);
++		return -1;
++	}
++
++	if (pkg_run_script(real_pkg, NULL, pkg_script_require_deinstall) != 0) {
++		/* XXX */
++		return -1;
++	}
++
++	/** @todo Run +DEINSTALL &lt;pkg-name&gt; DEINSTALL, check if return value == 0 */
++	if (pkg_run_script(real_pkg, NULL, pkg_script_pre_deinstall) != 0) {
++		/* XXX */
++		return -1;
++	}
++
++	/** @todo Remove this package from other packages reverse dependencies */
++
++#endif
++	/* Do the deinstall */
++	deinstall_data.db = db;
++	deinstall_data.fake = fake;
++	deinstall_data.last_file[0] = '\0';
++	deinstall_data.directory[0] = '\0';
++	if (pkg_deinstall(pkg, pkg_action, &amp;deinstall_data,
++	    freebsd_do_chdir, freebsd_deinstall_file,
++	    freebsd_do_exec, freebsd_deregister) != 0) {
++		return -1;
++	}
++
++	/** @todo Run +POST-DEINSTALL &lt;pkg-name&gt;/+DEINSTALL &lt;pkg-name&gt; POST-DEINSTALL */
++
++	return -1;
++}
++/**
+  * @}
+  */
+ 
+@@ -385,7 +487,8 @@
+ /**
+  * @brief The install_file callback of pkg_install() for the FreeBSD package
+  *     database
+- * @return 0 on success or -1 on error
++ * @return  0 on success
++ * @return -1 on error
+  */
+ static int
+ freebsd_install_file(struct pkg *pkg, pkg_db_action *pkg_action, void *data,
+@@ -410,6 +513,19 @@
+ }
+ 
+ /**
++ * @brief The deinstall_file callback of pkg_deinstall() for the FreeBSD
++ *     package database
++ * @return  0 on success
++ * @return -1 on error
++ */
++static int
++freebsd_deinstall_file(struct pkg *pkg __unused, pkg_db_action *pkg_action __unused, void *data __unused,
++	struct pkgfile *file)
++{
++	assert(file != NULL);
++	return pkgfile_unlink(file);
++}
++/**
+  * @brief The do_chdir callback of pkg_install() for the FreeBSD package
+  *     database
+  * @return 0 on success or -1 on error
+@@ -494,6 +610,19 @@
+ 	return -1;
+ }
+ 
++/**
++ * @brief The pkg_deregister callback of pkg_deinstall() for the FreeBSD
++ *     package database
++ * @return  0 on success
++ * @return -1 on error
++ */
++static int
++freebsd_deregister(struct pkg *pkg __unused, pkg_db_action *pkg_action __unused, void *data __unused,
++		struct pkgfile **control __unused)
++{
++	return -1;
++}
++
+ #ifdef DEAD
+ /**
+  * @brief Checks the start of a contents file
+
+Modified: trunk/src/pkg_db_private.h
+===================================================================
+--- trunk/src/pkg_db_private.h	2006-08-02 08:48:48 UTC (rev 175)
++++ trunk/src/pkg_db_private.h	2006-08-22 11:03:36 UTC (rev 176)
+@@ -37,12 +37,15 @@
+ 				const char *);
+ typedef struct pkg	**pkg_db_get_installed_match_callback(struct pkg_db *,
+ 				pkg_db_match *, unsigned int, const void *);
++typedef int	pkg_db_deinstall_pkg_callback(struct pkg_db *, struct pkg *,
++			int, int, pkg_db_action *);
+ 
+ 
+ struct pkg_db	*pkg_db_open(const char *, pkg_db_install_pkg_callback *,
+ 			pkg_db_is_installed_callback *,
+ 			pkg_db_get_installed_match_callback *,
+-			pkg_db_get_package_callback *);
++			pkg_db_get_package_callback *,
++			pkg_db_deinstall_pkg_callback *);
+ struct pkg_db {
+ 	void	*data;
+ 
+@@ -52,6 +55,7 @@
+ 	pkg_db_is_installed_callback		*pkg_is_installed;
+ 	pkg_db_get_installed_match_callback	*pkg_get_installed_match;
+ 	pkg_db_get_package_callback		*pkg_get_package;
++	pkg_db_deinstall_pkg_callback		*pkg_deinstall;
+ };
+ 
+ #endif /* __LIBPKG_PKG_DB_PRIVATE_H__ */
+
+Modified: trunk/src/pkg_freebsd.c
+===================================================================
+--- trunk/src/pkg_freebsd.c	2006-08-02 08:48:48 UTC (rev 175)
++++ trunk/src/pkg_freebsd.c	2006-08-22 11:03:36 UTC (rev 176)
+@@ -32,6 +32,7 @@
+ #include &quot;pkg_freebsd.h&quot;
+ #include &quot;pkg_freebsd_private.h&quot;
+ 
++#include &lt;sys/param.h&gt;
+ #include &lt;sys/types.h&gt;
+ 
+ #include &lt;assert.h&gt;
+@@ -45,25 +46,30 @@
+ #include &lt;string.h&gt;
+ 
+ /* Callbacks */
+-pkg_static const char		 *freebsd_get_version(struct pkg *);
+-pkg_static const char		 *freebsd_get_origin(struct pkg *);
++static const char	 *freebsd_get_version(struct pkg *);
++static const char	 *freebsd_get_origin(struct pkg *);
+ #ifdef NOT_YET
+-pkg_static int			  freebsd_add_depend(struct pkg *,struct pkg *);
+-pkg_static int			  freebsd_add_file(struct pkg *,
+-					struct pkgfile *);
++static int		  freebsd_add_depend(struct pkg *,struct pkg *);
++static int		  freebsd_add_file(struct pkg *,
++				struct pkgfile *);
+ #endif
+-pkg_static struct pkgfile	**freebsd_get_control_files(struct pkg *);
+-pkg_static struct pkgfile	 *freebsd_get_control_file(struct pkg *,
++static struct pkgfile	**freebsd_get_control_files(struct pkg *);
++static struct pkgfile	 *freebsd_get_control_file(struct pkg *,
+ 					const char *);
+-pkg_static struct pkgfile	 *freebsd_get_next_file(struct pkg *);
+-pkg_static int			  freebsd_install(struct pkg *, const char *,
+-					int, pkg_db_action *, void *,
+-					pkg_db_chdir *, pkg_db_install_file *,
+-					pkg_db_exec *, pkg_db_register *);
+-pkg_static struct pkg		**freebsd_get_deps(struct pkg *);
+-pkg_static int			  freebsd_run_script(struct pkg *, const char *,
+-					pkg_script);
+-pkg_static int			  freebsd_free(struct pkg *);
++static struct pkgfile	 *freebsd_get_next_file(struct pkg *);
++static int		  freebsd_install(struct pkg *, const char *,
++				int, pkg_db_action *, void *,
++				pkg_db_chdir *, pkg_db_install_file *,
++				pkg_db_exec *, pkg_db_register *);
++static int		  freebsd_deinstall(struct pkg *,
++				pkg_db_action *, void *,
++				pkg_db_chdir *, pkg_db_install_file *,
++				pkg_db_exec *, pkg_db_register *);
++static struct pkg	**freebsd_get_deps(struct pkg *);
++static struct pkg	**freebsd_get_rdeps(struct pkg *);
++static int		  freebsd_run_script(struct pkg *, const char *,
++				pkg_script);
++static int		  freebsd_free(struct pkg *);
+ 
+ /* Internal functions */
+ pkg_static struct freebsd_package *freebsd_package_new(void);
+@@ -153,14 +159,14 @@
+ 
+ 	pkg_name = fpkg-&gt;contents-&gt;lines[1].data;
+ 	pkg = pkg_new(pkg_name, freebsd_get_control_files,
+-	    freebsd_get_control_file, freebsd_get_deps, freebsd_free);
++	    freebsd_get_control_file, freebsd_get_deps, NULL, freebsd_free);
+ 	if (pkg == NULL) {
+ 		/** @todo cleanup */
+ 		return NULL;
+ 	}
+ 	pkg_add_callbacks_data(pkg, freebsd_get_version, freebsd_get_origin);
+-	pkg_add_callbacks_install(pkg, freebsd_install, freebsd_get_next_file,
+-	    freebsd_run_script);
++	pkg_add_callbacks_install(pkg, freebsd_install, NULL,
++	    freebsd_get_next_file, freebsd_run_script);
+ 	pkg-&gt;data = fpkg;
+ 
+ 	/*
+@@ -199,11 +205,12 @@
+ 		return NULL;
+ 
+ 	pkg = pkg_new(pkg_name, freebsd_get_control_files,
+-	    freebsd_get_control_file, NULL, freebsd_free);
++	    freebsd_get_control_file, NULL, freebsd_get_rdeps, freebsd_free);
+ 	if (pkg == NULL)
+ 		return NULL;
+ 	pkg_add_callbacks_data(pkg, freebsd_get_version, freebsd_get_origin);
+-	pkg_add_callbacks_install(pkg, NULL, freebsd_get_next_file, NULL);
++	pkg_add_callbacks_install(pkg, NULL, freebsd_deinstall,
++	   freebsd_get_next_file, freebsd_run_script);
+ 
+ 	fpkg = freebsd_package_new();
+ 	if (fpkg == NULL) {
+@@ -247,7 +254,7 @@
+  * @return The contents struct
+  */
+ struct pkg_freebsd_contents *
+-pkg_freebsd_get_contents(struct pkg *pkg __unused)
++pkg_freebsd_get_contents(struct pkg *pkg)
+ {
+ 	struct freebsd_package *fpkg;
+ 
+@@ -605,6 +612,123 @@
+ }
+ 
+ /**
++ * @brief Callback for pkg_deinstall()
++ * @return  0 on success
++ * @return -1 on error
++ */
++static int
++freebsd_deinstall(struct pkg *pkg, pkg_db_action *pkg_action, void *data,
++		pkg_db_chdir *db_chdir, pkg_db_install_file *deinstall_file,
++		pkg_db_exec *do_exec, pkg_db_register *pkg_deregister)
++{
++	int ret;
++	unsigned int pos;
++	struct pkgfile **control;
++	struct pkgfile *contents_file;
++	struct pkg_freebsd_contents *contents;
++	const char *file_data;
++
++	assert(pkg != NULL);
++	assert(pkg_action != NULL);
++	assert(data != NULL);
++	assert(db_chdir != NULL);
++	assert(deinstall_file != NULL);
++	assert(do_exec != NULL);
++	assert(pkg_deregister != NULL);
++
++	ret = -1;
++	contents = NULL;
++
++	/* Get the control files from the package */
++	control = pkg_get_control_files(pkg);
++	assert(control != NULL);
++	if (control == NULL) {
++		return -1;
++	}
++
++	/* Find the +CONTENTS file in the control files */
++	for (pos = 0; control[pos] != NULL; pos++) {
++		const char *pkg_filename = pkgfile_get_name(control[pos]);
++		if (!strcmp(basename(pkg_filename), &quot;+CONTENTS&quot;))
++			break;
++		printf(&quot;%u %s\n&quot;, pos, pkg_filename);
++	}
++	contents_file = control[pos];
++	assert(contents_file != NULL);
++	if (contents_file == NULL) {
++		return -1;
++	}
++
++	file_data = pkgfile_get_data(contents_file);
++	contents = pkg_freebsd_contents_new(file_data,
++	    pkgfile_get_size(contents_file));
++	assert(contents != NULL);
++	if (contents == NULL) {
++		return -1;
++	}
++
++	for (pos = 0; pos &lt; contents-&gt;line_count; pos++) {
++		switch (contents-&gt;lines[pos].line_type) {
++		case PKG_LINE_IGNORE:
++			/* Error in contents file */
++			ret = -1;
++			goto exit;
++		case PKG_LINE_COMMENT:
++		case PKG_LINE_EXEC:
++		case PKG_LINE_MTREE:
++		case PKG_LINE_PKGDEP:
++		case PKG_LINE_CONFLICTS:
++		case PKG_LINE_NAME:
++			/* These are not used when removing packages */
++			break;
++		case PKG_LINE_CWD:
++		{
++			const char *dir = contents-&gt;lines[pos].data;
++
++			if (dir != NULL)
++				db_chdir(pkg, pkg_action, data, dir);
++			break;
++		}
++		case PKG_LINE_FILE:
++		{
++			struct pkgfile *file;
++
++			/*
++			 * This will give us the correct file as
++			 * it is reading from the same list as us
++			 */
++			file = pkgfile_new_from_disk(contents-&gt;lines[pos].line,
++			    0);
++			deinstall_file(pkg, pkg_action, data, file);
++			break;
++		}
++		case PKG_LINE_UNEXEC:
++			do_exec(pkg, pkg_action, data,
++			    contents-&gt;lines[pos].data);
++			break;
++		case PKG_LINE_DIRRM:
++			printf(&quot;Dir rm: %s\n&quot;, contents-&gt;lines[pos].data);
++			break;
++		default:
++			warnx(&quot;ERROR: Incorrect line in +CONTENTS file &quot;
++			    &quot;\&quot;%s %s\&quot;\n&quot;, contents-&gt;lines[pos].line,
++			    contents-&gt;lines[pos].data);
++		}
++	}
++	/* Register the package */
++	pkg_deregister(pkg, pkg_action, data, control);
++
++	/* Set the return to 0 as we have fully installed the package */
++	ret = 0;
++
++exit:
++	if (contents != NULL)
++		pkg_freebsd_contents_free(contents);
++
++	return ret;
++}
++
++/**
+  * @brief Callback for pkg_get_next_file()
+  * @return The next non-control pkgfile or NULL
+  */
+@@ -730,6 +854,85 @@
+ 	return pkgs;
+ }
+ 
++static struct pkg **
++freebsd_get_rdeps(struct pkg *pkg)
++{
++	struct freebsd_package *fpkg;
++
++	assert(pkg != NULL);
++
++	fpkg = pkg-&gt;data;
++	assert(fpkg != NULL);
++	assert(fpkg-&gt;pkg_type != fpkg_unknown);
++	assert(fpkg-&gt;pkg_type != fpkg_from_file);
++	assert(fpkg-&gt;pkg_type != fpkg_from_empty);
++
++	if (fpkg-&gt;pkg_type == fpkg_from_installed) {
++		unsigned int pos, size;
++		struct pkgfile **control;
++		struct pkg **ret;
++		unsigned int ret_size, ret_count;
++		const char *data, *str1, *str2;
++		char pkg_name[MAXPATHLEN];
++
++		ret = malloc(sizeof(struct pkg *));
++		if (ret == NULL)
++			return NULL;
++		ret[0] = NULL;
++
++		/* Open the control files and find the +REQUIRED_BY file */
++		freebsd_open_control_files(fpkg);
++		control = fpkg-&gt;control;
++		for (pos = 0; control[pos] != NULL; pos++) {
++			const char *pkg_filename=pkgfile_get_name(control[pos]);
++			if (strcmp(basename(pkg_filename), &quot;+REQUIRED_BY&quot;) == 0)
++				break;
++		}
++		/*
++		 * If there is no +REQUIRED_BY file
++		 * there are no reverse dependencies
++		 */
++		if (control[pos] == NULL)
++			return ret;
++
++		ret_count = 0;
++		ret_size = 0;
++/** @todo make this general enough to remove the repeated code */
++#define addPkg(pkg_name) \
++	{ \
++		struct pkg *dep; \
++		dep = pkg_new_empty(pkg_name); \
++		ret_size += sizeof(struct pkg **); \
++		ret = realloc(ret, ret_size); \
++		ret[ret_count] = dep; \
++		ret_count++; \
++		ret[ret_count] = NULL; \
++	}
++
++		data = pkgfile_get_data(control[pos]);
++		str1 = data;
++		while ((str2 = strchr(str1, '\n')) != NULL) {
++			unsigned int len = str2-str1;
++			strncpy(pkg_name, str1, len);
++			pkg_name[len] = '\0';
++			addPkg(pkg_name);
++			str1 = str2+1;
++		}
++
++		size = pkgfile_get_size(control[pos]);
++		if ((unsigned int)(str1 - data) != size) {
++			unsigned int len = data + size - str1;
++			strncpy(pkg_name, str1, len);
++			pkg_name[len] = '\0';
++			addPkg(pkg_name);
++		}
++#undef addPkg
++		return ret;
++	}
++
++	return NULL;
++}
++
+ /**
+  * @brief Callback for pkg_run_script()
+  * @return 0
+@@ -742,14 +945,13 @@
+ 	char arg[FILENAME_MAX];
+ 	char dir[FILENAME_MAX];
+ 	char *cwd;
+-	int ret;
++	int ret = -1;
+ 
+ 	assert(pkg != NULL);
+ 
+ 	fpkg = pkg-&gt;data;
+ 	assert(fpkg != NULL);
+ 	assert(fpkg-&gt;pkg_type != fpkg_unknown);
+-	assert(fpkg-&gt;pkg_type != fpkg_from_installed);
+ 	assert(fpkg-&gt;pkg_type != fpkg_from_empty);
+ 
+ 	script_file = NULL;
+@@ -769,29 +971,49 @@
+ 			snprintf(arg, FILENAME_MAX, &quot;POST-INSTALL&quot;);
+ 		}
+ 		break;
++	case pkg_script_pre_deinstall:
++	case pkg_script_post_deinstall:
++		break;
+ 	case pkg_script_mtree:
+ 		assert(script_file == NULL);
+ 		script_file = pkg_get_control_file(pkg, &quot;+MTREE_DIRS&quot;);
+ 		break;
+ 	case pkg_script_require:
++	case pkg_script_require_deinstall:
+ 		script_file = pkg_get_control_file(pkg, &quot;+REQUIRE&quot;);
++		if (script == pkg_script_require) {
++			snprintf(arg, FILENAME_MAX, &quot;INSTALL&quot;);
++		} else if (script == pkg_script_require_deinstall) {
++			snprintf(arg, FILENAME_MAX, &quot;DEINSTALL&quot;);
++		}
+ 		break;
+-	default:
++	case pkg_script_deinstall:
++		script_file = pkg_get_control_file(pkg, &quot;+DEINSTALL&quot;);
++		break;
++	case pkg_script_noop:
+ 		return -1;
+ 	}
++
++	/* The script was not found so ignore it */
+ 	if (script_file == NULL)
+ 		return 0;
+ 
+-	/** @todo Add a lock around mkdtemp as arc4random is not thread safe */
+-	snprintf(dir, FILENAME_MAX, &quot;/tmp/libpkg_XXXXXXX&quot;);
+-	mkdtemp(dir);
++	if (fpkg-&gt;pkg_type == fpkg_from_file) {
++		/**
++		 * @todo Add a lock around mkdtemp as
++		 * arc4random is not thread safe
++		 */
++		snprintf(dir, FILENAME_MAX, &quot;/tmp/libpkg_XXXXXXX&quot;);
++		mkdtemp(dir);
+ 
+-	/* Change to the temp dir and back up the current dir to return here */
+-	cwd = getcwd(NULL, 0);
+-	chdir(dir);
++		/* Change to the temp dir and back up the current dir to return here */
++		cwd = getcwd(NULL, 0);
++		chdir(dir);
+ 
+-	/* Extract the script */
+-	pkgfile_write(script_file);
++		/* Extract the script */
++		pkgfile_write(script_file);
++	}
++
+ 	switch(script) {
+ 	case pkg_script_mtree:
+ 	{
+@@ -810,11 +1032,16 @@
+ 		    pkgfile_get_name(script_file), pkg_get_name(pkg), arg);
+ 		break;
+ 	case pkg_script_require:
++	case pkg_script_require_deinstall:
+ 		pkg_exec(&quot;chmod u+x %s&quot;, pkgfile_get_name(script_file));
+ 
+-		ret = pkg_exec(&quot;%s/%s %s INSTALL&quot;, dir,
+-		    pkgfile_get_name(script_file), pkg_get_name(pkg));
++		ret = pkg_exec(&quot;%s/%s %s %s&quot;, dir,
++		    pkgfile_get_name(script_file), pkg_get_name(pkg), arg);
+ 		break;
++	case pkg_script_pre_deinstall:
++	case pkg_script_post_deinstall:
++	case pkg_script_deinstall:
++		assert(0);
+ 	case pkg_script_noop:
+ 		break;
+ 	}
+
+Modified: trunk/src/pkg_private.h
+===================================================================
+--- trunk/src/pkg_private.h	2006-08-02 08:48:48 UTC (rev 175)
++++ trunk/src/pkg_private.h	2006-08-22 11:03:36 UTC (rev 176)
+@@ -69,6 +69,7 @@
+ 				pkg_get_control_files_callback *,
+ 				pkg_get_control_file_callback *,
+ 				pkg_get_dependencies_callback *,
++				pkg_get_dependencies_callback *,
+ 				pkg_free_callback *);
+ 
+ /* Callbacks to get data from a package, eg. the description */
+@@ -100,17 +101,26 @@
+ 				pkg_db_action *, void *, pkg_db_chdir *,
+ 				pkg_db_install_file *, pkg_db_exec *,
+ 				pkg_db_register *);
++typedef int		  pkg_deinstall_callback(struct pkg *, pkg_db_action *,
++				void *, pkg_db_chdir *, pkg_db_install_file *,
++				pkg_db_exec *, pkg_db_register *);
+ typedef struct pkgfile	 *pkg_get_next_file_callback(struct pkg *);
+ typedef int		  pkg_run_script_callback(struct pkg *, const char *,
+ 				pkg_script);
++
+ int			  pkg_add_callbacks_install(struct pkg *,
+ 				pkg_install_callback *,
++				pkg_deinstall_callback *,
+ 				pkg_get_next_file_callback *,
+ 				pkg_run_script_callback *);
+ int			  pkg_install(struct pkg *, const char *, int,
+ 				pkg_db_action *, void *, pkg_db_chdir *,
+ 				pkg_db_install_file *, pkg_db_exec *,
+ 				pkg_db_register *);
++int			  pkg_deinstall(struct pkg *,
++				pkg_db_action *, void *, pkg_db_chdir *,
++				pkg_db_install_file *, pkg_db_exec *,
++				pkg_db_register *);
+ 
+ struct pkg {
+ 	void	*data;
+@@ -122,6 +132,7 @@
+ 	pkg_get_control_files_callback	*pkg_get_control_files;
+ 	pkg_get_control_file_callback	*pkg_get_control_file;
+ 	pkg_get_dependencies_callback	*pkg_get_deps;
++	pkg_get_dependencies_callback	*pkg_get_rdeps;
+ 	pkg_free_callback		*pkg_free;
+ 
+ 	pkg_get_version_callback	*pkg_get_version;
+@@ -131,8 +142,9 @@
+ 	pkg_add_dependency_callback	*pkg_add_depend;
+ 	pkg_add_file_callback		*pkg_add_file;
+ 
+-	/* Callbacks used with installing packages */
++	/* Callbacks used with (de)installing packages */
+ 	pkg_install_callback		*pkg_install;
++	pkg_deinstall_callback		*pkg_deinstall;
+ 	pkg_get_next_file_callback	*pkg_get_next_file;
+ 	pkg_run_script_callback		*pkg_run_script;
+ };
+
+Modified: trunk/src/pkgfile.c
+===================================================================
+--- trunk/src/pkgfile.c	2006-08-02 08:48:48 UTC (rev 175)
++++ trunk/src/pkgfile.c	2006-08-22 11:03:36 UTC (rev 176)
+@@ -96,7 +96,6 @@
+ 	/* Consistancy check */
+ 	assert(file != NULL);
+ 	assert(file-&gt;loc == pkgfile_loc_disk);
+-	assert(file-&gt;data == NULL);
+ 
+ 	/* Find the file type */
+ 	if (file-&gt;type == pkgfile_none) {
+@@ -447,6 +446,21 @@
+ }
+ 
+ /**
++ * @brief Unlinkes the given file
++ * @return  0 on success
++ * @return -1 on error
++ */
++int
++pkgfile_unlink(struct pkgfile *file)
++{
++	if (file == NULL)
++		return -1;
++
++	assert(file-&gt;loc == pkgfile_loc_disk);
++	return unlink(file-&gt;name);
++}
++
++/**
+  * @brief Seeks to a given position in a file
+  * @return 0 on success or -1 on error
+  */
+
+
+</PRE>
+
+<!--endarticle-->
+    <HR>
+    <P><UL>
+        <!--threads-->
+	<LI>Previous message: <A HREF="000159.html">[Libpkg-svn] r175 - trunk/src
+</A></li>
+	<LI>Next message: <A HREF="000161.html">[Libpkg-svn] r177 - trunk/src
+</A></li>
+         <LI> <B>Messages sorted by:</B> 
+              <a href="date.html#160">[ date ]</a>
+              <a href="thread.html#160">[ thread ]</a>
+              <a href="subject.html#160">[ subject ]</a>
+              <a href="author.html#160">[ author ]</a>
+         </LI>
+       </UL>
+
+<hr>
+<a href="https://lists.berlios.de/mailman/listinfo/libpkg-svn">More information about the Libpkg-svn
+mailing list</a><br>
+</body></html>

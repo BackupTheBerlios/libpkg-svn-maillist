@@ -1,0 +1,109 @@
+<!DOCTYPE HTML PUBLIC "-//W3C//DTD HTML 4.01 Transitional//EN">
+<HTML>
+ <HEAD>
+   <TITLE> [Libpkg-svn] r48 - trunk/src
+   </TITLE>
+   <LINK REL="Index" HREF="http://lists.berlios.de/pipermail/libpkg-svn/2006-January/index.html" >
+   <LINK REL="made" HREF="mailto:libpkg-svn%40lists.berlios.de?Subject=Re%3A%20%5BLibpkg-svn%5D%20r48%20-%20trunk/src&In-Reply-To=%3C200601090602.k0962bfm010785%40sheep.berlios.de%3E">
+   <META NAME="robots" CONTENT="index,nofollow">
+   <style type="text/css">
+       pre {
+           white-space: pre-wrap;       /* css-2.1, curent FF, Opera, Safari */
+           }
+   </style>
+   <META http-equiv="Content-Type" content="text/html; charset=us-ascii">
+   <LINK REL="Previous"  HREF="000032.html">
+   <LINK REL="Next"  HREF="000034.html">
+ </HEAD>
+ <BODY BGCOLOR="#ffffff">
+   <H1>[Libpkg-svn] r48 - trunk/src</H1>
+    <B>zxombie at BerliOS</B> 
+    <A HREF="mailto:libpkg-svn%40lists.berlios.de?Subject=Re%3A%20%5BLibpkg-svn%5D%20r48%20-%20trunk/src&In-Reply-To=%3C200601090602.k0962bfm010785%40sheep.berlios.de%3E"
+       TITLE="[Libpkg-svn] r48 - trunk/src">zxombie at berlios.de
+       </A><BR>
+    <I>Mon Jan  9 07:02:37 CET 2006</I>
+    <P><UL>
+        <LI>Previous message: <A HREF="000032.html">[Libpkg-svn] r47 - in trunk: demo src
+</A></li>
+        <LI>Next message: <A HREF="000034.html">[Libpkg-svn] r49 - trunk/src
+</A></li>
+         <LI> <B>Messages sorted by:</B> 
+              <a href="date.html#33">[ date ]</a>
+              <a href="thread.html#33">[ thread ]</a>
+              <a href="subject.html#33">[ subject ]</a>
+              <a href="author.html#33">[ author ]</a>
+         </LI>
+       </UL>
+    <HR>  
+<!--beginarticle-->
+<PRE>Author: zxombie
+Date: 2006-01-09 07:02:35 +0100 (Mon, 09 Jan 2006)
+New Revision: 48
+
+Modified:
+   trunk/src/pkg.h
+   trunk/src/pkg_file.c
+Log:
+Add a comment on wat the check for file-&gt;contents being NULL is for in pkg_file_get
+Add pkg_file_get_name to retrieve the name of a file
+
+
+Modified: trunk/src/pkg.h
+===================================================================
+--- trunk/src/pkg.h	2006-01-09 02:28:22 UTC (rev 47)
++++ trunk/src/pkg.h	2006-01-09 06:02:35 UTC (rev 48)
+@@ -46,6 +46,7 @@
+ int		 pkg_file_free(struct pkg_file *);
+ int		 pkg_file_write(struct pkg_file *);
+ char		*pkg_file_get(struct pkg_file *);
++char 		*pkg_file_get_name(struct pkg_file *);
+ 
+ /*
+  * The package handling functions
+
+Modified: trunk/src/pkg_file.c
+===================================================================
+--- trunk/src/pkg_file.c	2006-01-09 02:28:22 UTC (rev 47)
++++ trunk/src/pkg_file.c	2006-01-09 06:02:35 UTC (rev 48)
+@@ -204,6 +204,7 @@
+ 	if (file == NULL || (file-&gt;contents == NULL &amp;&amp; file-&gt;fd == NULL))
+ 		return NULL;
+ 
++	/* Only get the contents when asked for */
+ 	if (file-&gt;contents == NULL) {
+ 		file-&gt;contents = malloc(file-&gt;len + 1);
+ 		if (file-&gt;contents == NULL) {
+@@ -221,3 +222,9 @@
+ 
+ 	return file-&gt;contents;
+ }
++
++char *
++pkg_file_get_name(struct pkg_file *file)
++{
++	return file-&gt;filename;
++}
+
+
+</PRE>
+
+<!--endarticle-->
+    <HR>
+    <P><UL>
+        <!--threads-->
+	<LI>Previous message: <A HREF="000032.html">[Libpkg-svn] r47 - in trunk: demo src
+</A></li>
+	<LI>Next message: <A HREF="000034.html">[Libpkg-svn] r49 - trunk/src
+</A></li>
+         <LI> <B>Messages sorted by:</B> 
+              <a href="date.html#33">[ date ]</a>
+              <a href="thread.html#33">[ thread ]</a>
+              <a href="subject.html#33">[ subject ]</a>
+              <a href="author.html#33">[ author ]</a>
+         </LI>
+       </UL>
+
+<hr>
+<a href="https://lists.berlios.de/mailman/listinfo/libpkg-svn">More information about the Libpkg-svn
+mailing list</a><br>
+</body></html>

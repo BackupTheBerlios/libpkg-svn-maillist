@@ -1,0 +1,84 @@
+<!DOCTYPE HTML PUBLIC "-//W3C//DTD HTML 4.01 Transitional//EN">
+<HTML>
+ <HEAD>
+   <TITLE> [Libpkg-svn] r120 - trunk/src
+   </TITLE>
+   <LINK REL="Index" HREF="http://lists.berlios.de/pipermail/libpkg-svn/2006-May/index.html" >
+   <LINK REL="made" HREF="mailto:libpkg-svn%40lists.berlios.de?Subject=Re%3A%20%5BLibpkg-svn%5D%20r120%20-%20trunk/src&In-Reply-To=%3C200605011217.k41CHKAg009641%40sheep.berlios.de%3E">
+   <META NAME="robots" CONTENT="index,nofollow">
+   <style type="text/css">
+       pre {
+           white-space: pre-wrap;       /* css-2.1, curent FF, Opera, Safari */
+           }
+   </style>
+   <META http-equiv="Content-Type" content="text/html; charset=us-ascii">
+   <LINK REL="Previous"  HREF="000103.html">
+   <LINK REL="Next"  HREF="000105.html">
+ </HEAD>
+ <BODY BGCOLOR="#ffffff">
+   <H1>[Libpkg-svn] r120 - trunk/src</H1>
+    <B>zxombie at BerliOS</B> 
+    <A HREF="mailto:libpkg-svn%40lists.berlios.de?Subject=Re%3A%20%5BLibpkg-svn%5D%20r120%20-%20trunk/src&In-Reply-To=%3C200605011217.k41CHKAg009641%40sheep.berlios.de%3E"
+       TITLE="[Libpkg-svn] r120 - trunk/src">zxombie at berlios.de
+       </A><BR>
+    <I>Mon May  1 14:17:20 CEST 2006</I>
+    <P><UL>
+        <LI>Previous message: <A HREF="000103.html">[Libpkg-svn] r119 - trunk/src
+</A></li>
+        <LI>Next message: <A HREF="000105.html">[Libpkg-svn] r121 - trunk/src
+</A></li>
+         <LI> <B>Messages sorted by:</B> 
+              <a href="date.html#104">[ date ]</a>
+              <a href="thread.html#104">[ thread ]</a>
+              <a href="subject.html#104">[ subject ]</a>
+              <a href="author.html#104">[ author ]</a>
+         </LI>
+       </UL>
+    <HR>  
+<!--beginarticle-->
+<PRE>Author: zxombie
+Date: 2006-05-01 14:17:18 +0200 (Mon, 01 May 2006)
+New Revision: 120
+
+Modified:
+   trunk/src/pkg_private.h
+Log:
+Add pkg_cached_file defintion to pkg_private.h
+
+
+Modified: trunk/src/pkg_private.h
+===================================================================
+--- trunk/src/pkg_private.h	2006-05-01 12:07:40 UTC (rev 119)
++++ trunk/src/pkg_private.h	2006-05-01 12:17:18 UTC (rev 120)
+@@ -127,6 +127,7 @@
+ int pkg_dir_build(const char *);
+ int pkg_checksum_md5(struct pkg_file *, char *);
+ int pkg_exec(const char *, ...);
++FILE *pkg_cached_file(FILE *, const char *);
+ 
+ 
+ #endif /* __LIBPKG_PKG_PRIVATE_H__ */
+
+
+</PRE>
+
+<!--endarticle-->
+    <HR>
+    <P><UL>
+        <!--threads-->
+	<LI>Previous message: <A HREF="000103.html">[Libpkg-svn] r119 - trunk/src
+</A></li>
+	<LI>Next message: <A HREF="000105.html">[Libpkg-svn] r121 - trunk/src
+</A></li>
+         <LI> <B>Messages sorted by:</B> 
+              <a href="date.html#104">[ date ]</a>
+              <a href="thread.html#104">[ thread ]</a>
+              <a href="subject.html#104">[ subject ]</a>
+              <a href="author.html#104">[ author ]</a>
+         </LI>
+       </UL>
+
+<hr>
+<a href="https://lists.berlios.de/mailman/listinfo/libpkg-svn">More information about the Libpkg-svn
+mailing list</a><br>
+</body></html>

@@ -1,0 +1,481 @@
+<!DOCTYPE HTML PUBLIC "-//W3C//DTD HTML 4.01 Transitional//EN">
+<HTML>
+ <HEAD>
+   <TITLE> [Libpkg-svn] r262 - trunk/tests
+   </TITLE>
+   <LINK REL="Index" HREF="http://lists.berlios.de/pipermail/libpkg-svn/2007-February/index.html" >
+   <LINK REL="made" HREF="mailto:libpkg-svn%40lists.berlios.de?Subject=Re%3A%20%5BLibpkg-svn%5D%20r262%20-%20trunk/tests&In-Reply-To=%3C200702140509.l1E59BDR007248%40sheep.berlios.de%3E">
+   <META NAME="robots" CONTENT="index,nofollow">
+   <style type="text/css">
+       pre {
+           white-space: pre-wrap;       /* css-2.1, curent FF, Opera, Safari */
+           }
+   </style>
+   <META http-equiv="Content-Type" content="text/html; charset=us-ascii">
+   <LINK REL="Previous"  HREF="000245.html">
+   <LINK REL="Next"  HREF="000247.html">
+ </HEAD>
+ <BODY BGCOLOR="#ffffff">
+   <H1>[Libpkg-svn] r262 - trunk/tests</H1>
+    <B>zxombie at BerliOS</B> 
+    <A HREF="mailto:libpkg-svn%40lists.berlios.de?Subject=Re%3A%20%5BLibpkg-svn%5D%20r262%20-%20trunk/tests&In-Reply-To=%3C200702140509.l1E59BDR007248%40sheep.berlios.de%3E"
+       TITLE="[Libpkg-svn] r262 - trunk/tests">zxombie at mail.berlios.de
+       </A><BR>
+    <I>Wed Feb 14 06:09:11 CET 2007</I>
+    <P><UL>
+        <LI>Previous message: <A HREF="000245.html">[Libpkg-svn] r261 - trunk/src
+</A></li>
+        <LI>Next message: <A HREF="000247.html">[Libpkg-svn] r263 - trunk/tests
+</A></li>
+         <LI> <B>Messages sorted by:</B> 
+              <a href="date.html#246">[ date ]</a>
+              <a href="thread.html#246">[ thread ]</a>
+              <a href="subject.html#246">[ subject ]</a>
+              <a href="author.html#246">[ author ]</a>
+         </LI>
+       </UL>
+    <HR>  
+<!--beginarticle-->
+<PRE>Author: zxombie
+Date: 2007-02-14 06:09:10 +0100 (Wed, 14 Feb 2007)
+New Revision: 262
+
+Modified:
+   trunk/tests/main.c
+   trunk/tests/pkgfile.c
+Log:
+Add a licence to the tests and clean them up a little
+
+
+Modified: trunk/tests/main.c
+===================================================================
+--- trunk/tests/main.c	2007-02-14 04:21:53 UTC (rev 261)
++++ trunk/tests/main.c	2007-02-14 05:09:10 UTC (rev 262)
+@@ -1,3 +1,32 @@
++/*
++ * Copyright (C) 2006, 2007 Andrew Turner, All rights reserved.
++ *
++ * Redistribution and use in source and binary forms, with or without
++ * modification, are permitted provided that the following conditions
++ * are met:
++ * 1. Redistributions of source code must retain the above copyright
++ *    notice, this list of conditions and the following disclaimer
++ *    in this position and unchanged.
++ * 2. Redistributions in binary form must reproduce the above copyright
++ *    notice, this list of conditions and the following disclaimer in the
++ *    documentation and/or other materials provided with the distribution.
++ * 3. The name(s) of the author(s) may not be used to endorse or promote
++ *    products derived from this software without specific prior written
++ *    permission.
++ *
++ * THIS SOFTWARE IS PROVIDED BY THE AUTHOR(S) ``AS IS'' AND ANY EXPRESS OR
++ * IMPLIED WARRANTIES, INCLUDING, BUT NOT LIMITED TO, THE IMPLIED WARRANTIES
++ * OF MERCHANTABILITY AND FITNESS FOR A PARTICULAR PURPOSE ARE DISCLAIMED.
++ * IN NO EVENT SHALL THE AUTHOR(S) BE LIABLE FOR ANY DIRECT, INDIRECT,
++ * INCIDENTAL, SPECIAL, EXEMPLARY, OR CONSEQUENTIAL DAMAGES (INCLUDING, BUT
++ * NOT LIMITED TO, PROCUREMENT OF SUBSTITUTE GOODS OR SERVICES; LOSS OF USE,
++ * DATA, OR PROFITS; OR BUSINESS INTERRUPTION) HOWEVER CAUSED AND ON ANY
++ * THEORY OF LIABILITY, WHETHER IN CONTRACT, STRICT LIABILITY, OR TORT
++ * (INCLUDING NEGLIGENCE OR OTHERWISE) ARISING IN ANY WAY OUT OF THE USE OF
++ * THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
++ *
++ */
++
+ #include &quot;test.h&quot;
+ #include &lt;stdlib.h&gt;
+ 
+
+Modified: trunk/tests/pkgfile.c
+===================================================================
+--- trunk/tests/pkgfile.c	2007-02-14 04:21:53 UTC (rev 261)
++++ trunk/tests/pkgfile.c	2007-02-14 05:09:10 UTC (rev 262)
+@@ -1,3 +1,32 @@
++/*
++ * Copyright (C) 2006, 2007 Andrew Turner, All rights reserved.
++ *
++ * Redistribution and use in source and binary forms, with or without
++ * modification, are permitted provided that the following conditions
++ * are met:
++ * 1. Redistributions of source code must retain the above copyright
++ *    notice, this list of conditions and the following disclaimer
++ *    in this position and unchanged.
++ * 2. Redistributions in binary form must reproduce the above copyright
++ *    notice, this list of conditions and the following disclaimer in the
++ *    documentation and/or other materials provided with the distribution.
++ * 3. The name(s) of the author(s) may not be used to endorse or promote
++ *    products derived from this software without specific prior written
++ *    permission.
++ *
++ * THIS SOFTWARE IS PROVIDED BY THE AUTHOR(S) ``AS IS'' AND ANY EXPRESS OR
++ * IMPLIED WARRANTIES, INCLUDING, BUT NOT LIMITED TO, THE IMPLIED WARRANTIES
++ * OF MERCHANTABILITY AND FITNESS FOR A PARTICULAR PURPOSE ARE DISCLAIMED.
++ * IN NO EVENT SHALL THE AUTHOR(S) BE LIABLE FOR ANY DIRECT, INDIRECT,
++ * INCIDENTAL, SPECIAL, EXEMPLARY, OR CONSEQUENTIAL DAMAGES (INCLUDING, BUT
++ * NOT LIMITED TO, PROCUREMENT OF SUBSTITUTE GOODS OR SERVICES; LOSS OF USE,
++ * DATA, OR PROFITS; OR BUSINESS INTERRUPTION) HOWEVER CAUSED AND ON ANY
++ * THEORY OF LIABILITY, WHETHER IN CONTRACT, STRICT LIABILITY, OR TORT
++ * (INCLUDING NEGLIGENCE OR OTHERWISE) ARISING IN ANY WAY OUT OF THE USE OF
++ * THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
++ *
++ */
++
+ #include &quot;test.h&quot;
+ 
+ #include &lt;sys/param.h&gt;
+@@ -50,18 +79,20 @@
+ 
+ 	/* Test the data */
+ 	if (data != NULL) {
+-		fail_unless(pkgfile_get_data(file) != NULL, NULL);
+ 		fail_unless(strncmp(pkgfile_get_data(file), data, length) == 0,
+ 		    NULL);
++		if (length &gt; 0) {
++			fail_unless(pkgfile_get_data(file) != NULL, NULL);
+ 
+-		if (file-&gt;type != pkgfile_dir) {
+-			fail_unless(file-&gt;data != NULL, NULL);
+-			fail_unless(strncmp(file-&gt;data, data, length) == 0,
+-			    NULL);
+-		} else {
+-			fail_unless(file-&gt;data == NULL, NULL);
+-			fail_unless(strncmp(file-&gt;name, data, length) == 0,
+-			    NULL);
++			if (file-&gt;type != pkgfile_dir) {
++				fail_unless(file-&gt;data != NULL, NULL);
++				fail_unless(strncmp(file-&gt;data, data, length)
++				    == 0, NULL);
++			} else {
++				fail_unless(file-&gt;data == NULL, NULL);
++				fail_unless(strncmp(file-&gt;name, data, length)
++				    == 0, NULL);
++			}
+ 		}
+ 	}
+ 
+@@ -300,7 +331,7 @@
+ }
+ END_TEST
+ 
+-START_TEST(pkgfile_regular_existing_test)
++START_TEST(pkgfile_regular_existing_regular_test)
+ {
+ 	struct pkgfile *file;
+ 
+@@ -308,12 +339,24 @@
+ 	file = pkgfile_new_regular(BASIC_FILE, &quot;0123456789&quot;, 10);
+ 	existing_regular_test(file);
+ 	pkgfile_free(file);
++}
++END_TEST
+ 
++START_TEST(pkgfile_regular_existing_symlink_test)
++{
++	struct pkgfile *file;
++
+ 	/* Test if pkgfile_write will fail with a symlink */
+ 	file = pkgfile_new_regular(BASIC_FILE, &quot;0123456789&quot;, 10);
+ 	existing_symlink_test(file);
+ 	pkgfile_free(file);
++}
++END_TEST
+ 
++START_TEST(pkgfile_regular_existing_directory_test)
++{
++	struct pkgfile *file;
++
+ 	/* Test if pkgfile_write will fail with a directory */
+ 	file = pkgfile_new_regular(BASIC_FILE, &quot;0123456789&quot;, 10);
+ 	existing_directory_test(file);
+@@ -337,7 +380,13 @@
+ 	system(&quot;rmdir &quot; DEPTH_DIR);
+ 	CLEANUP_TESTDIR();
+ 	pkgfile_free(file);
++}
++END_TEST
+ 
++START_TEST(pkgfile_regular_depth_exists_test)
++{
++	struct pkgfile *file;
++
+ 	/* Test pkg_write will fail when it can't create a parent directory */
+ 	file = pkgfile_new_regular(DEPTH_FILE, &quot;0123456789&quot;, 10);
+ 	depth_test_fail_write(file);
+@@ -384,6 +433,22 @@
+ }
+ END_TEST
+ 
++START_TEST(pkgfile_regular_modify_empty_test)
++{
++	/* Test if an empty file can be modified */
++	struct pkgfile *file;
++	char *data;
++
++	file = pkgfile_new_regular(DEPTH_FILE, &quot;&quot;, 0);
++	basic_file_tests(file, pkgfile_regular, pkgfile_loc_mem, &quot;&quot;, 0);
++	fail_unless(pkgfile_append(file, &quot;67890&quot;, 5) == 0, NULL);
++	sprintf(data, &quot;67890&quot;);
++	basic_file_tests(file, pkgfile_regular, pkgfile_loc_mem, data, 5);
++	free(data);
++	pkgfile_free(file);
++}
++END_TEST
++
+ /* Tests on creating a symlink from a buffer */
+ START_TEST(pkgfile_symlink_bad_test)
+ {
+@@ -419,7 +484,7 @@
+ }
+ END_TEST
+ 
+-START_TEST(pkgfile_symlink_existing_test)
++START_TEST(pkgfile_symlink_existing_regular_test)
+ {
+ 	struct pkgfile *file;
+ 
+@@ -427,12 +492,24 @@
+ 	file = pkgfile_new_symlink(BASIC_FILE, LINK_TARGET);
+ 	existing_regular_test(file);
+ 	pkgfile_free(file);
++}
++END_TEST
+ 
++START_TEST(pkgfile_symlink_existing_symlink_test)
++{
++	struct pkgfile *file;
++
+ 	/* Test if pkgfile_write will fail with a symlink */
+ 	file = pkgfile_new_symlink(BASIC_FILE, LINK_TARGET);
+ 	existing_symlink_test(file);
+ 	pkgfile_free(file);
++}
++END_TEST
+ 
++START_TEST(pkgfile_symlink_existing_directory_test)
++{
++	struct pkgfile *file;
++
+ 	/* Test if pkgfile_write will fail with a directory */
+ 	file = pkgfile_new_symlink(BASIC_FILE, LINK_TARGET);
+ 	existing_directory_test(file);
+@@ -456,7 +533,13 @@
+ 	system(&quot;rmdir &quot; DEPTH_DIR);
+ 	CLEANUP_TESTDIR();
+ 	pkgfile_free(file);
++}
++END_TEST
+ 
++START_TEST(pkgfile_symlink_depth_exists_test)
++{
++	struct pkgfile *file;
++
+ 	/*
+ 	 * Check pkgfile_write fails when there
+ 	 * is already a file named testdir/foo
+@@ -509,7 +592,7 @@
+ }
+ END_TEST
+ 
+-START_TEST(pkgfile_hardlink_existing_test)
++START_TEST(pkgfile_hardlink_existing_regular_test)
+ {
+ 	struct pkgfile *file;
+ 
+@@ -517,12 +600,24 @@
+ 	file = pkgfile_new_hardlink(BASIC_FILE, LINK_TARGET);
+ 	existing_regular_test(file);
+ 	pkgfile_free(file);
++}
++END_TEST
+ 
++START_TEST(pkgfile_hardlink_existing_symlink_test)
++{
++	struct pkgfile *file;
++
+ 	/* Test if pkgfile_write will fail with a symlink */
+ 	file = pkgfile_new_hardlink(BASIC_FILE, LINK_TARGET);
+ 	existing_symlink_test(file);
+ 	pkgfile_free(file);
++}
++END_TEST
+ 
++START_TEST(pkgfile_hardlink_existing_directory_test)
++{
++	struct pkgfile *file;
++
+ 	/* Test if pkgfile_write will fail with a directory */
+ 	file = pkgfile_new_hardlink(BASIC_FILE, LINK_TARGET);
+ 	existing_directory_test(file);
+@@ -548,7 +643,13 @@
+ 	system(&quot;rm &quot; LINK_TARGET);
+ 	CLEANUP_TESTDIR();
+ 	pkgfile_free(file);
++}
++END_TEST
+ 
++START_TEST(pkgfile_hardlink_depth_exists_test)
++{
++	struct pkgfile *file;
++
+ 	/*
+ 	 * Check pkgfile_write fails when there
+ 	 * is already a file named testdir/foo
+@@ -593,7 +694,7 @@
+ }
+ END_TEST
+ 
+-START_TEST(pkgfile_directory_existing_test)
++START_TEST(pkgfile_directory_existing_regular_test)
+ {
+ 	struct pkgfile *file;
+ 
+@@ -601,7 +702,13 @@
+ 	file = pkgfile_new_directory(BASIC_FILE);
+ 	existing_regular_test(file);
+ 	pkgfile_free(file);
++}
++END_TEST
+ 
++START_TEST(pkgfile_directory_existing_symlink_test)
++{
++	struct pkgfile *file;
++
+ 	/* Test if pkgfile_write should fail with a symlink */
+ 	file = pkgfile_new_directory(BASIC_FILE);
+ 	existing_symlink_test(file);
+@@ -625,7 +732,13 @@
+ 	system(&quot;rmdir &quot; DEPTH_DIR);
+ 	CLEANUP_TESTDIR();
+ 	pkgfile_free(file);
++}
++END_TEST
+ 
++START_TEST(pkgfile_directory_depth_exists_test)
++{
++	struct pkgfile *file;
++
+ 	/*
+ 	 * Check pkgfile_write fails when there
+ 	 * is already a file named testdir/foo
+@@ -659,44 +772,68 @@
+ pkgfile_suite()
+ {
+ 	Suite *s;
+-	TCase *tc_regular, *tc_symlink, *tc_hardlink, *tc_dir, *tc_misc;
++	TCase *tc;
+ 
+ 	s = suite_create(&quot;pkgfile&quot;);
+-	tc_regular = tcase_create(&quot;regular&quot;);
+-	tc_symlink = tcase_create(&quot;symlink&quot;);
+-	tc_hardlink = tcase_create(&quot;hardlink&quot;);
+-	tc_dir = tcase_create(&quot;directory&quot;);
+-	tc_misc = tcase_create(&quot;misc&quot;);
+ 
+-	suite_add_tcase(s, tc_regular);
+-	suite_add_tcase(s, tc_symlink);
+-	suite_add_tcase(s, tc_hardlink);
+-	suite_add_tcase(s, tc_dir);
+-	suite_add_tcase(s, tc_misc);
++	tc = tcase_create(&quot;regular&quot;);
++	tcase_add_test(tc, pkgfile_regular_bad_test);
++	tcase_add_test(tc, pkgfile_regular_empty_test);
++	tcase_add_test(tc, pkgfile_regular_data_test);
+ 
+-	tcase_add_test(tc_regular, pkgfile_regular_bad_test);
+-	tcase_add_test(tc_regular, pkgfile_regular_empty_test);
+-	tcase_add_test(tc_regular, pkgfile_regular_data_test);
+-	tcase_add_test(tc_regular, pkgfile_regular_existing_test);
+-	tcase_add_test(tc_regular, pkgfile_regular_depth_test);
+-	tcase_add_test(tc_regular, pkgfile_regular_modify_test);
++	tcase_add_test(tc, pkgfile_regular_existing_regular_test);
++	tcase_add_test(tc, pkgfile_regular_existing_symlink_test);
++	tcase_add_test(tc, pkgfile_regular_existing_directory_test);
+ 
+-	tcase_add_test(tc_symlink, pkgfile_symlink_bad_test);
+-	tcase_add_test(tc_symlink, pkgfile_symlink_good_test);
+-	tcase_add_test(tc_symlink, pkgfile_symlink_existing_test);
+-	tcase_add_test(tc_symlink, pkgfile_symlink_depth_test);
++	tcase_add_test(tc, pkgfile_regular_depth_test);
++	tcase_add_test(tc, pkgfile_regular_depth_exists_test);
+ 
+-	tcase_add_test(tc_hardlink, pkgfile_hardlink_bad_test);
+-	tcase_add_test(tc_hardlink, pkgfile_hardlink_test);
+-	tcase_add_test(tc_hardlink, pkgfile_hardlink_depth_test);
+-	tcase_add_test(tc_hardlink, pkgfile_hardlink_existing_test);
++	tcase_add_test(tc, pkgfile_regular_modify_test);
++	tcase_add_test(tc, pkgfile_regular_modify_empty_test);
++	suite_add_tcase(s, tc);
+ 
+-	tcase_add_test(tc_dir, pkgfile_directory_bad_test);
+-	tcase_add_test(tc_dir, pkgfile_directory_test);
+-	tcase_add_test(tc_dir, pkgfile_directory_existing_test);
+-	tcase_add_test(tc_dir, pkgfile_directory_depth_test);
+ 
+-	tcase_add_test(tc_misc, pkgfile_misc_bad_args);
++	tc = tcase_create(&quot;symlink&quot;);
++	tcase_add_test(tc, pkgfile_symlink_bad_test);
++	tcase_add_test(tc, pkgfile_symlink_good_test);
+ 
++	tcase_add_test(tc, pkgfile_symlink_existing_regular_test);
++	tcase_add_test(tc, pkgfile_symlink_existing_symlink_test);
++	tcase_add_test(tc, pkgfile_symlink_existing_directory_test);
++
++	tcase_add_test(tc, pkgfile_symlink_depth_test);
++	tcase_add_test(tc, pkgfile_symlink_depth_exists_test);
++	suite_add_tcase(s, tc);
++
++
++	tc = tcase_create(&quot;hardlink&quot;);
++	tcase_add_test(tc, pkgfile_hardlink_bad_test);
++	tcase_add_test(tc, pkgfile_hardlink_test);
++
++	tcase_add_test(tc, pkgfile_hardlink_existing_regular_test);
++	tcase_add_test(tc, pkgfile_hardlink_existing_symlink_test);
++	tcase_add_test(tc, pkgfile_hardlink_existing_directory_test);
++
++	tcase_add_test(tc, pkgfile_hardlink_depth_test);
++	tcase_add_test(tc, pkgfile_hardlink_depth_exists_test);
++	suite_add_tcase(s, tc);
++
++
++	tc = tcase_create(&quot;directory&quot;);
++	tcase_add_test(tc, pkgfile_directory_bad_test);
++	tcase_add_test(tc, pkgfile_directory_test);
++
++	tcase_add_test(tc, pkgfile_directory_existing_regular_test);
++	tcase_add_test(tc, pkgfile_directory_existing_symlink_test);
++
++	tcase_add_test(tc, pkgfile_directory_depth_test);
++	tcase_add_test(tc, pkgfile_directory_depth_exists_test);
++	suite_add_tcase(s, tc);
++
++
++	tc = tcase_create(&quot;misc&quot;);
++	tcase_add_test(tc, pkgfile_misc_bad_args);
++	suite_add_tcase(s, tc);
++
+ 	return s;
+ }
+
+
+</PRE>
+
+<!--endarticle-->
+    <HR>
+    <P><UL>
+        <!--threads-->
+	<LI>Previous message: <A HREF="000245.html">[Libpkg-svn] r261 - trunk/src
+</A></li>
+	<LI>Next message: <A HREF="000247.html">[Libpkg-svn] r263 - trunk/tests
+</A></li>
+         <LI> <B>Messages sorted by:</B> 
+              <a href="date.html#246">[ date ]</a>
+              <a href="thread.html#246">[ thread ]</a>
+              <a href="subject.html#246">[ subject ]</a>
+              <a href="author.html#246">[ author ]</a>
+         </LI>
+       </UL>
+
+<hr>
+<a href="https://lists.berlios.de/mailman/listinfo/libpkg-svn">More information about the Libpkg-svn
+mailing list</a><br>
+</body></html>

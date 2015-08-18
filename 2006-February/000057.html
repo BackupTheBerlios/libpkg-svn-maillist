@@ -1,0 +1,156 @@
+<!DOCTYPE HTML PUBLIC "-//W3C//DTD HTML 4.01 Transitional//EN">
+<HTML>
+ <HEAD>
+   <TITLE> [Libpkg-svn] r72 - trunk/src
+   </TITLE>
+   <LINK REL="Index" HREF="http://lists.berlios.de/pipermail/libpkg-svn/2006-February/index.html" >
+   <LINK REL="made" HREF="mailto:libpkg-svn%40lists.berlios.de?Subject=Re%3A%20%5BLibpkg-svn%5D%20r72%20-%20trunk/src&In-Reply-To=%3C200602220331.k1M3Vlc4001191%40sheep.berlios.de%3E">
+   <META NAME="robots" CONTENT="index,nofollow">
+   <style type="text/css">
+       pre {
+           white-space: pre-wrap;       /* css-2.1, curent FF, Opera, Safari */
+           }
+   </style>
+   <META http-equiv="Content-Type" content="text/html; charset=us-ascii">
+   <LINK REL="Previous"  HREF="000056.html">
+   <LINK REL="Next"  HREF="000058.html">
+ </HEAD>
+ <BODY BGCOLOR="#ffffff">
+   <H1>[Libpkg-svn] r72 - trunk/src</H1>
+    <B>zxombie at BerliOS</B> 
+    <A HREF="mailto:libpkg-svn%40lists.berlios.de?Subject=Re%3A%20%5BLibpkg-svn%5D%20r72%20-%20trunk/src&In-Reply-To=%3C200602220331.k1M3Vlc4001191%40sheep.berlios.de%3E"
+       TITLE="[Libpkg-svn] r72 - trunk/src">zxombie at berlios.de
+       </A><BR>
+    <I>Wed Feb 22 04:31:47 CET 2006</I>
+    <P><UL>
+        <LI>Previous message: <A HREF="000056.html">[Libpkg-svn] r71 - trunk/tools/pkg_info
+</A></li>
+        <LI>Next message: <A HREF="000058.html">[Libpkg-svn] r73 - in trunk: src tools/pkg_info
+</A></li>
+         <LI> <B>Messages sorted by:</B> 
+              <a href="date.html#57">[ date ]</a>
+              <a href="thread.html#57">[ thread ]</a>
+              <a href="subject.html#57">[ subject ]</a>
+              <a href="author.html#57">[ author ]</a>
+         </LI>
+       </UL>
+    <HR>  
+<!--beginarticle-->
+<PRE>Author: zxombie
+Date: 2006-02-22 04:31:31 +0100 (Wed, 22 Feb 2006)
+New Revision: 72
+
+Modified:
+   trunk/src/Makefile
+   trunk/src/pkg.c
+   trunk/src/pkg_repo_ftp.c
+Log:
+Check ftp_get_fd returns a valid pointer
+Make pkg_compare WARNS=6 complant
+Make src/Makefile easyer to read
+
+
+Modified: trunk/src/Makefile
+===================================================================
+--- trunk/src/Makefile	2006-02-20 00:45:19 UTC (rev 71)
++++ trunk/src/Makefile	2006-02-22 03:31:31 UTC (rev 72)
+@@ -1,31 +1,32 @@
+-LIB=	pkg
++LIB		 = pkg
+ 
+-SRCS=	archive_read_open_stream.c
++SRCS		 = archive_read_open_stream.c
+ 
+ # Package handling
+-SRCS+=	pkg.c pkg_freebsd.c
++SRCS		+= pkg.c pkg_freebsd.c
+ 
+ # Handle FreeBSD +CONTENTS files
+-SRCS+=	pkg_freebsd_contents.c
++SRCS		+= pkg_freebsd_contents.c
+ 
+ # Package files
+-SRCS+=	pkg_file.c
++SRCS		+= pkg_file.c
+ 
+ # Package Database
+-SRCS+=	pkg_db.c pkg_db_freebsd.c
++SRCS		+= pkg_db.c pkg_db_freebsd.c
+ 
+ # Package Repository
+-SRCS+=	pkg_repo.c pkg_repo_files.c pkg_repo_ftp.c pkg_repo_local_freebsd.c
++SRCS		+= pkg_repo.c pkg_repo_files.c pkg_repo_ftp.c \
++			pkg_repo_local_freebsd.c
+ 
+ # Misc functions
+-SRCS+=	pkg_util.c
++SRCS		+= pkg_util.c
+ 
+-INC=	pkg.h
++INC		 = pkg.h
+ 
+-MAN=	libpkg.3 pkg.3 pkg_repo.3 pkg_db.3
++MAN		 = libpkg.3 pkg.3 pkg_repo.3 pkg_db.3
+ 
+-CFLAGS+=-O0
+-DEBUG_FLAGS=-ggdb
+-WARNS?=3
++CFLAGS		+= -O0
++DEBUG_FLAGS	= -ggdb
++WARNS		?= 6
+ 
+ .include &lt;bsd.lib.mk&gt;
+
+Modified: trunk/src/pkg.c
+===================================================================
+--- trunk/src/pkg.c	2006-02-20 00:45:19 UTC (rev 71)
++++ trunk/src/pkg.c	2006-02-22 03:31:31 UTC (rev 72)
+@@ -144,8 +144,8 @@
+ pkg_compare(const void *pkg_a, const void *pkg_b)
+ {
+ 	/* XXX Makes WARNS &lt;= 3 */
+-	return strcmp((*(const struct pkg **)pkg_a)-&gt;pkg_name,
+-	    (*(const struct pkg **)pkg_b)-&gt;pkg_name);
++	return strcmp((*(struct pkg * const *)pkg_a)-&gt;pkg_name,
++	    (*(struct pkg * const *)pkg_b)-&gt;pkg_name);
+ }
+ 
+ /*
+
+Modified: trunk/src/pkg_repo_ftp.c
+===================================================================
+--- trunk/src/pkg_repo_ftp.c	2006-02-20 00:45:19 UTC (rev 71)
++++ trunk/src/pkg_repo_ftp.c	2006-02-22 03:31:31 UTC (rev 72)
+@@ -135,6 +135,8 @@
+ 	assert(f_repo != NULL);
+ 
+ 	fd = ftp_get_fd(pkg_name, f_repo);
++	if (fd == NULL)
++		return NULL;
+ 	
+ 	pkg = pkg_new_freebsd_from_file(fd);
+ 	if (!pkg) {
+
+
+</PRE>
+
+<!--endarticle-->
+    <HR>
+    <P><UL>
+        <!--threads-->
+	<LI>Previous message: <A HREF="000056.html">[Libpkg-svn] r71 - trunk/tools/pkg_info
+</A></li>
+	<LI>Next message: <A HREF="000058.html">[Libpkg-svn] r73 - in trunk: src tools/pkg_info
+</A></li>
+         <LI> <B>Messages sorted by:</B> 
+              <a href="date.html#57">[ date ]</a>
+              <a href="thread.html#57">[ thread ]</a>
+              <a href="subject.html#57">[ subject ]</a>
+              <a href="author.html#57">[ author ]</a>
+         </LI>
+       </UL>
+
+<hr>
+<a href="https://lists.berlios.de/mailman/listinfo/libpkg-svn">More information about the Libpkg-svn
+mailing list</a><br>
+</body></html>

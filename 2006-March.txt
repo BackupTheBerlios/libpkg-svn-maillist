@@ -1,0 +1,2084 @@
+From zxombie at berlios.de  Tue Mar 14 07:12:46 2006
+From: zxombie at berlios.de (zxombie at BerliOS)
+Date: Tue, 14 Mar 2006 07:12:46 +0100
+Subject: [Libpkg-svn] r74 - trunk/src
+Message-ID: <200603140612.k2E6Cksw022143@sheep.berlios.de>
+
+Author: zxombie
+Date: 2006-03-14 07:12:36 +0100 (Tue, 14 Mar 2006)
+New Revision: 74
+
+Modified:
+   trunk/src/pkg_db.c
+   trunk/src/pkg_db.h
+   trunk/src/pkg_db_freebsd.c
+   trunk/src/pkg_db_private.h
+Log:
+Add support for communication from the package database to the user
+
+
+Modified: trunk/src/pkg_db.c
+===================================================================
+--- trunk/src/pkg_db.c	2006-02-23 09:50:52 UTC (rev 73)
++++ trunk/src/pkg_db.c	2006-03-14 06:12:36 UTC (rev 74)
+@@ -96,6 +96,16 @@
+ int
+ pkg_db_install_pkg(struct pkg_db *db, struct pkg *pkg)
+ {
++	return pkg_db_install_pkg_action(db, pkg, NULL);
++}
++
++/*
++ * Install a given package to the database with a given action
++ */
++int
++pkg_db_install_pkg_action(struct pkg_db *db, struct pkg *pkg,
++    pkg_db_action *action)
++{
+ 	if (!db) {
+ 		return -1;
+ 	}
+@@ -108,7 +118,7 @@
+ 		return -1;
+ 	}
+ 
+-	return db->pkg_install(db, pkg);
++	return db->pkg_install(db, pkg, action);
+ }
+ 
+ /*
+
+Modified: trunk/src/pkg_db.h
+===================================================================
+--- trunk/src/pkg_db.h	2006-02-23 09:50:52 UTC (rev 73)
++++ trunk/src/pkg_db.h	2006-03-14 06:12:36 UTC (rev 74)
+@@ -42,8 +42,15 @@
+  */
+ typedef		  int pkg_db_match(struct pkg *, const void *);
+ 
++#define PKG_DB_ERROR	1 /* Error messages */
++#define PKG_DB_INFO	2 /* General info */
++#define PKG_DB_PACKAGE	3 /* Specific info from the package */
++typedef		  void pkg_db_action(int, const char *, ...);
++
+ struct pkg_db	 *pkg_db_open_freebsd(const char *);
+ int		  pkg_db_install_pkg(struct pkg_db *, struct pkg *);
++int		  pkg_db_install_pkg_action(struct pkg_db *, struct pkg *,
++			pkg_db_action *);
+ int		  pkg_db_is_installed(struct pkg_db *, struct pkg *);
+ struct pkg	**pkg_db_get_installed(struct pkg_db *);
+ struct pkg	**pkg_db_get_installed_match(struct pkg_db *, pkg_db_match *,
+
+Modified: trunk/src/pkg_db_freebsd.c
+===================================================================
+--- trunk/src/pkg_db_freebsd.c	2006-02-23 09:50:52 UTC (rev 73)
++++ trunk/src/pkg_db_freebsd.c	2006-03-14 06:12:36 UTC (rev 74)
+@@ -62,7 +62,8 @@
+ 	{ -1, -1, -1, -1, -1,  6, -1, -1, -1, -1, -1, -1 }  /* p6 */
+ };
+ 
+-static int		  freebsd_install_pkg(struct pkg_db *, struct pkg *);
++static int		  freebsd_install_pkg_action(struct pkg_db *,
++				struct pkg *, pkg_db_action *);
+ static int		  freebsd_is_installed(struct pkg_db *, struct pkg *);
+ static struct pkg	**freebsd_get_installed_match(struct pkg_db *,
+ 				pkg_db_match *, const void *);
+@@ -81,15 +82,18 @@
+ struct pkg_db*
+ pkg_db_open_freebsd(const char *base)
+ {
+-	return pkg_db_open(base, freebsd_install_pkg, freebsd_is_installed,
+-	    freebsd_get_installed_match, freebsd_get_package);
++	return pkg_db_open(base, freebsd_install_pkg_action,
++	    freebsd_is_installed, freebsd_get_installed_match,
++	    freebsd_get_package);
+ }
+ 
+ /*
+  * Installs the package pkg to the database db
++ * Calls action on each action. This is used for verbose support.
+  */
+ static int
+-freebsd_install_pkg(struct pkg_db *db, struct pkg *pkg)
++freebsd_install_pkg_action(struct pkg_db *db, struct pkg *pkg,
++    pkg_db_action *pkg_action)
+ {
+ 	struct pkg_file	*contents_file;
+ 	struct pkg_file **control;
+@@ -120,6 +124,10 @@
+ 		return -1;
+ 	}
+ 
++	if (pkg_action != NULL)
++		pkg_action(PKG_DB_PACKAGE, "Package name is %s",
++		    pkg_get_name(pkg));
++
+ 	cwd = getcwd(NULL, 0);
+ 	if (!cwd) {
+ 		pkg_freebsd_contents_free(contents);
+@@ -158,6 +166,9 @@
+ 				pkg_freebsd_contents_free(contents);
+ 				return -1;
+ 			}
++			if (pkg_action != NULL)
++				pkg_action(PKG_DB_PACKAGE, "CWD to %s",
++				    contents->lines[line].data);
+ 			directory = getcwd(NULL, 0);
+ 			break;
+ 		case PKG_LINE_EXEC: {
+@@ -165,6 +176,8 @@
+ 			freebsd_format_cmd(cmd, FILENAME_MAX,
+ 			    contents->lines[line].data, directory, last_file);
+ 			printf("exec %s\n", cmd);
++			if (pkg_action != NULL)
++				pkg_action(PKG_DB_PACKAGE, "execute '%s'", cmd);
+ 			break;
+ 		}
+ 		case PKG_LINE_FILE: {
+@@ -217,6 +230,9 @@
+ 					pkg_freebsd_contents_free(contents);
+ 					return -1;
+ 				}
++				if (pkg_action != NULL)
++					pkg_action(PKG_DB_PACKAGE, "%s/%s",
++					    directory, pkg_file_get_name(file));
+ 			}
+ 
+ 			contents_sum = strchr(contents->lines[line+1].data,
+@@ -268,6 +284,22 @@
+ 	pkg_file_write(contents_file);
+ 	pkg_file_free(contents_file);
+ 
++	if (pkg_action != NULL)
++		pkg_action(PKG_DB_INFO, "Running mtree for %s..",
++		    pkg_get_name(pkg));
++	/* XXX Run mtree: mtree -U -f +MTREE_DIRS -d -e -p $PREFIX >/dev/null */
++	
++	if (pkg_action != NULL)
++		pkg_action(PKG_DB_INFO,
++		    "Attempting to record package into /var/db/pkg/%s..",
++		    pkg_get_name(pkg));
++
++	/* XXX Register the reverse dependencies */
++	if (pkg_action != NULL)
++		pkg_action(PKG_DB_INFO,
++		    "Package %s registered in /var/db/pkg/%s",
++		    pkg_get_name(pkg), pkg_get_name(pkg));
++
+ 	free(directory);
+ 	if (last_file)
+ 		free(last_file);
+
+Modified: trunk/src/pkg_db_private.h
+===================================================================
+--- trunk/src/pkg_db_private.h	2006-02-23 09:50:52 UTC (rev 73)
++++ trunk/src/pkg_db_private.h	2006-03-14 06:12:36 UTC (rev 74)
+@@ -30,7 +30,8 @@
+ #ifndef __LIBPKG_PKG_DB_PRIVATE_H__
+ #define __LIBPKG_PKG_DB_PRIVATE_H__
+ 
+-typedef int	 pkg_db_install_pkg_callback(struct pkg_db *, struct pkg *);
++typedef int	 pkg_db_install_pkg_callback(struct pkg_db *, struct pkg *,
++			pkg_db_action *);
+ typedef int 	 pkg_db_is_installed_callback(struct pkg_db *, struct pkg *);
+ typedef struct pkg	 *pkg_db_get_package_callback(struct pkg_db *,
+ 				const char *);
+
+
+
+From zxombie at berlios.de  Tue Mar 14 11:20:22 2006
+From: zxombie at berlios.de (zxombie at BerliOS)
+Date: Tue, 14 Mar 2006 11:20:22 +0100
+Subject: [Libpkg-svn] r75 - trunk/src
+Message-ID: <200603141020.k2EAKMGL031971@sheep.berlios.de>
+
+Author: zxombie
+Date: 2006-03-14 11:20:21 +0100 (Tue, 14 Mar 2006)
+New Revision: 75
+
+Modified:
+   trunk/src/pkg_db_freebsd.c
+   trunk/src/pkg_private.h
+   trunk/src/pkg_util.c
+Log:
+Add pkg_execute to execute programs by using a va_list. This is not complete
+Save the prefix when installing packages
+Use pkg_exec and prefix when installing FreeBSD packages
+
+
+Modified: trunk/src/pkg_db_freebsd.c
+===================================================================
+--- trunk/src/pkg_db_freebsd.c	2006-03-14 06:12:36 UTC (rev 74)
++++ trunk/src/pkg_db_freebsd.c	2006-03-14 10:20:21 UTC (rev 75)
+@@ -99,7 +99,7 @@
+ 	struct pkg_file **control;
+ 	struct pkg_freebsd_contents *contents;
+ 	char *cwd;
+-	char *directory, *last_file;
++	char *directory, *prefix, *last_file;
+ 	int i;
+ 	unsigned int pos, line;
+ 
+@@ -145,6 +145,7 @@
+ 
+ 	/* directory is used int the processing of +CONTENTS files */
+ 	directory = getcwd(NULL, 0);
++	prefix = strdup(directory);
+ 	last_file = NULL;
+ 
+ 	/* Read through the contents file and install the package */
+@@ -163,6 +164,7 @@
+ 			    != 0) {
+ 				chdir(cwd);
+ 				free(cwd);
++				free(prefix);
+ 				pkg_freebsd_contents_free(contents);
+ 				return -1;
+ 			}
+@@ -175,7 +177,7 @@
+ 			char cmd[FILENAME_MAX];
+ 			freebsd_format_cmd(cmd, FILENAME_MAX,
+ 			    contents->lines[line].data, directory, last_file);
+-			printf("exec %s\n", cmd);
++			pkg_exec(cmd);
+ 			if (pkg_action != NULL)
+ 				pkg_action(PKG_DB_PACKAGE, "execute '%s'", cmd);
+ 			break;
+@@ -193,6 +195,7 @@
+ 				chdir(cwd);
+ 				free(cwd);
+ 				free(directory);
++				free(prefix);
+ 				pkg_freebsd_contents_free(contents);
+ 				return -1;
+ 			} else if (strncmp("MD5:", contents->lines[line+1].data,
+@@ -200,6 +203,7 @@
+ 				chdir(cwd);
+ 				free(cwd);
+ 				free(directory);
++				free(prefix);
+ 				pkg_freebsd_contents_free(contents);
+ 				return -1;
+ 			}
+@@ -226,6 +230,7 @@
+ 					chdir(cwd);
+ 					free(cwd);
+ 					free(directory);
++					free(prefix);
+ 					pkg_file_free(file);
+ 					pkg_freebsd_contents_free(contents);
+ 					return -1;
+@@ -243,6 +248,7 @@
+ 				chdir(cwd);
+ 				free(cwd);
+ 				free(directory);
++				free(prefix);
+ 				pkg_file_free(file);
+ 				pkg_freebsd_contents_free(contents);
+ 				return -1;
+@@ -254,6 +260,7 @@
+ 				chdir(cwd);
+ 				free(cwd);
+ 				free(directory);
++				free(prefix);
+ 				pkg_file_free(file);
+ 				pkg_freebsd_contents_free(contents);
+ 				return -1;
+@@ -288,6 +295,8 @@
+ 		pkg_action(PKG_DB_INFO, "Running mtree for %s..",
+ 		    pkg_get_name(pkg));
+ 	/* XXX Run mtree: mtree -U -f +MTREE_DIRS -d -e -p $PREFIX >/dev/null */
++	pkg_exec("mtree -U -f +MTREE_DIRS -d -e -p %s >/dev/null", prefix);
++	free(prefix);
+ 	
+ 	if (pkg_action != NULL)
+ 		pkg_action(PKG_DB_INFO,
+
+Modified: trunk/src/pkg_private.h
+===================================================================
+--- trunk/src/pkg_private.h	2006-03-14 06:12:36 UTC (rev 74)
++++ trunk/src/pkg_private.h	2006-03-14 10:20:21 UTC (rev 75)
+@@ -104,5 +104,7 @@
+ 
+ int pkg_dir_build(const char *);
+ int pkg_checksum_md5(struct pkg_file *, char *);
++int pkg_exec(const char *, ...);
+ 
++
+ #endif /* __LIBPKG_PKG_PRIVATE_H__ */
+
+Modified: trunk/src/pkg_util.c
+===================================================================
+--- trunk/src/pkg_util.c	2006-03-14 06:12:36 UTC (rev 74)
++++ trunk/src/pkg_util.c	2006-03-14 10:20:21 UTC (rev 75)
+@@ -35,6 +35,7 @@
+ #include <err.h>
+ #include <errno.h>
+ #include <md5.h>
++#include <stdarg.h>
+ #include <stdlib.h>
+ #include <string.h>
+ 
+@@ -117,3 +118,23 @@
+ 	}
+ 	return 0;
+ }
++
++/*
++ * Executes a program. It will use fmt as the
++ * format to generate the execv string
++ */
++int
++pkg_exec(const char *fmt, ...)
++{
++	va_list ap;
++	char *str;
++
++	va_start(ap, fmt);
++	vasprintf(&str, fmt, ap);
++	va_end(ap);
++
++	printf("exec: %s\n", str);
++	free(str);
++
++	return 0;
++}
+
+
+
+From zxombie at berlios.de  Thu Mar 16 10:58:36 2006
+From: zxombie at berlios.de (zxombie at BerliOS)
+Date: Thu, 16 Mar 2006 10:58:36 +0100
+Subject: [Libpkg-svn] r76 - in trunk/tools: . pkg_add
+Message-ID: <200603160958.k2G9waNA016334@sheep.berlios.de>
+
+Author: zxombie
+Date: 2006-03-16 10:58:35 +0100 (Thu, 16 Mar 2006)
+New Revision: 76
+
+Added:
+   trunk/tools/pkg_add/
+   trunk/tools/pkg_add/Makefile
+   trunk/tools/pkg_add/main.c
+Modified:
+   trunk/tools/Makefile
+Log:
+Add the start of a pkg_add replacement
+
+
+Modified: trunk/tools/Makefile
+===================================================================
+--- trunk/tools/Makefile	2006-03-14 10:20:21 UTC (rev 75)
++++ trunk/tools/Makefile	2006-03-16 09:58:35 UTC (rev 76)
+@@ -1,3 +1,3 @@
+-SUBDIR=pkg_info
++SUBDIR=pkg_info pkg_add
+ 
+ .include <bsd.subdir.mk>
+
+Added: trunk/tools/pkg_add/Makefile
+===================================================================
+--- trunk/tools/pkg_add/Makefile	2006-03-14 10:20:21 UTC (rev 75)
++++ trunk/tools/pkg_add/Makefile	2006-03-16 09:58:35 UTC (rev 76)
+@@ -0,0 +1,18 @@
++PROG	 = pkg_add
++
++SRCS	 = main.c
++
++CFLAGS	+= -I${.CURDIR}/../../src
++.if defined(WITH_PROFILE)
++CFLAGS	+= -ggdb -pg -lc
++LDADD	 = ${.CURDIR}/../../src/libpkg_p.a
++.else
++LDADD	 = ${.CURDIR}/../../src/libpkg.a
++.endif
++LDADD	+= -lmd -larchive -lbz2 -lz -lfetch
++NOMAN	 = 1
++NO_MAN	 = 1
++
++WARNS	?= 6
++
++.include <bsd.prog.mk>
+
+Added: trunk/tools/pkg_add/main.c
+===================================================================
+--- trunk/tools/pkg_add/main.c	2006-03-14 10:20:21 UTC (rev 75)
++++ trunk/tools/pkg_add/main.c	2006-03-16 09:58:35 UTC (rev 76)
+@@ -0,0 +1,248 @@
++/*
++ *
++ * FreeBSD install - a package for the installation and maintainance
++ * of non-core utilities.
++ *
++ * Redistribution and use in source and binary forms, with or without
++ * modification, are permitted provided that the following conditions
++ * are met:
++ * 1. Redistributions of source code must retain the above copyright
++ *    notice, this list of conditions and the following disclaimer.
++ * 2. Redistributions in binary form must reproduce the above copyright
++ *    notice, this list of conditions and the following disclaimer in the
++ *    documentation and/or other materials provided with the distribution.
++ *
++ * Jordan K. Hubbard
++ * 18 July 1993
++ *
++ * This is the add module.
++ */
++
++#include <sys/param.h>
++
++#include <assert.h>
++#include <err.h>
++#include <pkg.h>
++#include <pkg_db.h>
++#include <pkg_repo.h>
++#include <stdarg.h>
++#include <stdio.h>
++#include <stdlib.h>
++#include <string.h>
++#include <unistd.h>
++
++struct pkg_add {
++	struct pkg_db	 *db;
++	struct pkg_repo	 *repo;
++	struct pkg	**pkgs;
++	int		  verbosity;
++	char		  chroot[PATH_MAX];
++};
++
++static char options[] = "hvIRfnrp:P:SMt:C:K";
++
++static void usage(void);
++static int pkg_add(struct pkg_add);
++static int install_package(struct pkg *, struct pkg_repo *, struct pkg_db *,
++		int);
++
++int
++main (int argc, char *argv[])
++{
++	char ch;
++	struct pkg_add add;
++	int ret, i;
++
++	add.db = NULL;
++	add.repo = NULL;
++	add.verbosity = 0;
++	add.chroot[0] = '\0';
++	while ((ch = getopt(argc, argv, options)) != -1) {
++		switch(ch) {
++		/* Case statements marked TODO will be supported in the next release */
++		case 'C':
++			strlcpy(add.chroot, optarg, PATH_MAX);
++			break;
++		case 'f':
++			/* TODO */
++			errx(1, "Unsupported argument");
++			break;
++		case 'I':
++			/* TODO */
++			errx(1, "Unsupported argument");
++			break;
++		case 'K':
++			/* TODO */
++			errx(1, "Unsupported argument");
++			break;
++		case 'M':
++			errx(1, "Unsupported argument");
++			break;
++		case 'n':
++			/* TODO */
++			/* This dosn't seem to do anything in the base version */
++			errx(1, "Unsupported argument");
++			break;
++		case 'P':
++			errx(1, "Unsupported argument");
++			break;
++		case 'p':
++			errx(1, "Unsupported argument");
++			break;
++		case 'R':
++			/* TODO */
++			errx(1, "Unsupported argument");
++			break;
++		case 'r':
++			pkg_repo_free(add.repo);
++			add.repo = pkg_repo_new_ftp(NULL, NULL);
++			break;
++		case 'S':
++			errx(1, "Unsupported argument");
++			break;
++		case 't':
++			errx(1, "The -t argument is unneded as the staging area is unused");
++			break;
++		case 'v':
++			add.verbosity = 1;
++			break;
++		case 'h':
++		case '?':
++		default:
++			usage();
++			break;
++		}
++	}
++	argc -= optind;
++	argv += optind;
++
++	/* There are no packages to install. just quit now */
++	if (argc == 0) {
++		pkg_repo_free(add.repo);
++		return 0;
++	}
++
++	if (add.chroot[0] != '\0')
++		if (chroot(add.chroot) == -1)
++			err(1, "Could not chroot to %s", add.chroot);
++
++	/* Open the repo and database */
++	if (add.repo == NULL)
++		add.repo = pkg_repo_new_local_freebsd();
++	if (add.db == NULL)
++		add.db = pkg_db_open_freebsd("/");
++
++	/* The rest of the arguments are packages to install */
++	add.pkgs = malloc(sizeof(struct pkg*) * (argc + 1));
++	for (i=0; i < argc; i++) {
++		add.pkgs[i] = pkg_repo_get_pkg(add.repo, argv[i]);
++		if (add.pkgs[i] == NULL) {
++			errx(1, "can't stat package file '%s'", argv[i]);
++		}
++	}
++	add.pkgs[i] = NULL;
++
++	/* Perform the installation */
++	ret = pkg_add(add);
++	free(add.pkgs);
++	pkg_db_free(add.db);
++	pkg_repo_free(add.repo);
++	return ret;
++}
++
++static void
++usage()
++{
++	fprintf(stderr,
++	    "usage: pkg_add [-vInrfRMSK] [-t template] [-p prefix] [-P prefix] [-C chrootdir]\n"
++	    "               pkg-name [pkg-name ...]");
++    exit(1);
++}
++
++/*
++ * Get the list of packages and call install_package to install them
++ */
++static int
++pkg_add(struct pkg_add add)
++{
++	int i;
++	assert(add.db != NULL);
++	assert(add.repo != NULL);
++	for (i=0; add.pkgs[i] != NULL; i++) {
++		if (pkg_db_is_installed(add.db, add.pkgs[i]) == 0) {
++			warnx("package '%s' or its older version already installed",
++			    pkg_get_name(add.pkgs[i]));
++			continue;
++		}
++		install_package(add.pkgs[i], add.repo, add.db, add.verbosity);
++	}
++	return 1;
++}
++
++/*
++ * Print the message from fmt
++ * Only used when -v is set
++ */
++static void
++pkg_action(int level, const char *fmt, ...)
++{
++	va_list ap;
++
++	va_start(ap, fmt);
++	if (level == PKG_DB_PACKAGE)
++		printf("extract: ");
++	vprintf(fmt, ap);
++	putchar('\n');
++	va_end(ap);
++}
++
++/*
++ * Recursivley install the required packages
++ */
++static int
++install_package(struct pkg *pkg, struct pkg_repo *repo, struct pkg_db *db, int verbosity)
++{
++	unsigned int i;
++	int ret;
++	struct pkg **deps;
++
++	assert(pkg != NULL);
++	assert(repo != NULL);
++	assert(db != NULL);
++
++	/* Don't install packages twice */
++	if (pkg_db_is_installed(db, pkg) == 0) {
++		return 0;
++	}
++
++	/* Get the package's dependencies */
++	deps = pkg_get_dependencies(pkg);
++	for (i=0; deps[i] != NULL; i++) {
++		struct pkg *new_pkg;
++
++		/* Replace the empty package with one from disk */
++		new_pkg = pkg_repo_get_pkg(repo, pkg_get_name(deps[i]));
++		if (new_pkg == NULL) {
++			warnx("could not find package %s",
++			    pkg_get_name(deps[i]));
++			continue;
++		}
++		pkg_free(deps[i]);
++		deps[i] = new_pkg;
++
++		/* Install the dependency */
++		if (install_package(deps[i], repo, db, verbosity) != 0) {
++			return -1;
++		}
++	}
++	pkg_list_free(deps);
++
++	if (verbosity) {
++		printf("extract: Package name is %s\n", pkg_get_name(pkg));
++		ret = pkg_db_install_pkg_action(db, pkg, pkg_action);
++	} else {
++		ret = pkg_db_install_pkg(db, pkg);
++	}
++	/* XXX Ass warning if ret != 0 */
++	return ret;
++}
+
+
+
+From zxombie at berlios.de  Mon Mar 20 03:23:10 2006
+From: zxombie at berlios.de (zxombie at BerliOS)
+Date: Mon, 20 Mar 2006 03:23:10 +0100
+Subject: [Libpkg-svn] r77 - trunk/src
+Message-ID: <200603200223.k2K2NAmv032227@sheep.berlios.de>
+
+Author: zxombie
+Date: 2006-03-20 03:22:52 +0100 (Mon, 20 Mar 2006)
+New Revision: 77
+
+Modified:
+   trunk/src/pkg.c
+Log:
+Document pkg.c in a way doxygen will be able to understand
+
+
+Modified: trunk/src/pkg.c
+===================================================================
+--- trunk/src/pkg.c	2006-03-16 09:58:35 UTC (rev 76)
++++ trunk/src/pkg.c	2006-03-20 02:22:52 UTC (rev 77)
+@@ -1,5 +1,5 @@
+ /*
+- * Copyright (C) 2005, Andrew Turner, All rights reserved.
++ * Copyright (C) 2005, 2006 Andrew Turner, All rights reserved.
+  *
+  * Redistribution and use in source and binary forms, with or without
+  * modification, are permitted provided that the following conditions
+@@ -33,10 +33,26 @@
+ #include "pkg.h"
+ #include "pkg_private.h"
+ 
+-/*
+- * Creates a new package and associates callbacks that are
+- * used by most types of packages
++/**
++ * @defgroup pkg_internal Internal package functions
++ * @ingroup pkg
++ * @brief Internal functions in the package module
++ *
++ * None of the callbacks for any given package format need to be specified.
++ * If they are NULL the accessor function will return an error.
++ * @{
+  */
++
++/**
++ * @brief Creates a new package and associates callbacks that are used
++ * by most types of packages.
++ * @param pkg_name The name of the package
++ * @param control_files A callback to be used by pkg_get_control_files()
++ * @param control_file A callback to be used by pkg_get_control_file()
++ * @param get_deps A callback to be used by pkg_get_dependencies()
++ * @param free_pkg A call back to be used by pkg_free()
++ * @return A new #pkg object, or NULL on error
++ */
+ struct pkg *
+ pkg_new(const char *pkg_name,
+ 		pkg_get_control_files_callback *control_files,
+@@ -80,9 +96,13 @@
+ 	return pkg;
+ }
+ 
+-/*
+- * Internal function to add callbacks to retrieve data
++/**
++ * @brief Internal function to add callbacks to retrieve data
+  * eg. the packages origin on FreeBSD
++ * @param pkg The package returned by pkg_new()
++ * @param get_version A callback to be used by pkg_get_version()
++ * @param get_origin A callback to be used by pkg_get_origin()
++ * @return 0 on success, -1 on error.
+  */
+ int
+ pkg_add_callbacks_data(struct pkg *pkg,
+@@ -97,8 +117,12 @@
+ 	return 0;
+ }
+ 
+-/*
+- * Internal function to add callbacks that add data to the package
++/**
++ * @brief Internal function to add callbacks that add data to the package
++ * @param pkg The package returned by pkg_new()
++ * @param add_depend A callback to be used by pkg_get_dependencies()
++ * @param add_file A callback to be used by pkg_add_file()
++ * @return 0 on success, -1 on error.
+  */
+ int
+ pkg_add_callbacks_empty(struct pkg *pkg, 
+@@ -114,8 +138,12 @@
+ 	return 0;
+ }
+ 
+-/*
+- * Internal function to add callbacks that are used when a package is installed
++/**
++ * @brief Internal function to add callbacks that are used when a package is installed
++ * @param pkg The package returned by pkg_new()
++ * @param next_file A callback to be used by pkg_get_next_file()
++ * @return 0 on success, -1 on error.
++ * @return
+  */
+ int
+ pkg_add_callbacks_install (struct pkg *pkg,
+@@ -128,28 +156,56 @@
+ 	return 0;
+ }
+ 
+-/*
+- * Creates an empty package with no callbacks
++/**
++ * @}
+  */
++
++/**
++ * @defgroup pkg Package manipulation Functions
++ * 
++ * These are the publicly availiable package manipulation functions.
++ *
++ * Most functions take a pointer to struct #pkg as the first argument.
++ * This is the package that is currently being worked on.
++ * @{
++ */
++
++/**
++ * @brief Creates an empty package with no callbacks
++ *
++ * This is the simplest package constructor.
++ * It is used to create a package with just a name associated with it.
++ * Only pkg_get_name() and pkg_compare() will work with the created package.
++ * @return An empty package
++ */
+ struct pkg*
+ pkg_new_empty(const char *pkg_name)
+ {
+ 	return pkg_new(pkg_name, NULL, NULL, NULL, NULL);
+ }
+ 
+-/*
+- * A function to pass to *sort[_r] to sort alphabeticly by package name
++/**
++ * @brief A function to pass to *sort[_r] to sort alphabeticly by package name
++ * @param pkg_a the first package
++ * @param pkg_b the second package
++ *  
++ * This is used to lexigraphically compare two packages by their name.
++ * It is designed to be used with qsort() to sort a list of packages
++ * @return 0 > if pkg_a should be before pkg_b,
++ *         0 if both packages have the same name,
++ *         0 < if pkg_b should be before pkg_a.
+  */
+ int
+ pkg_compare(const void *pkg_a, const void *pkg_b)
+ {
+-	/* XXX Makes WARNS <= 3 */
+ 	return strcmp((*(struct pkg * const *)pkg_a)->pkg_name,
+ 	    (*(struct pkg * const *)pkg_b)->pkg_name);
+ }
+ 
+-/*
+- * Gets the control files from a given package
++/**
++ * @brief Gets the control files from a given package
++ * 
++ * @return A null-terminated array of pkg_file's contining the packages control files
+  */
+ struct pkg_file **
+ pkg_get_control_files(struct pkg *pkg)
+@@ -165,8 +221,10 @@
+ 	return pkg->pkg_get_control_files(pkg);
+ }
+ 
+-/*
+- * Gets a given control file from a package
++/**
++ * @brief Gets a given control file from a package
++ * @param pkg_name The name of the file to return
++ * @return The control file with the name pkg_name
+  */
+ struct pkg_file *
+ pkg_get_control_file(struct pkg *pkg, const char *pkg_name)
+@@ -180,8 +238,11 @@
+ 	return NULL;
+ }
+ 
+-/*
+- * Gets all the dependencies for a given package
++/**
++ * @brief Gets all the dependencies for a given package
++ *
++ * This retrieves an array of packages that the named package depends on.
++ * @return A NULL terminated array of packages or NULL;
+  */
+ struct pkg **
+ pkg_get_dependencies(struct pkg *pkg)
+@@ -194,8 +255,10 @@
+ 	return NULL;
+ }
+ 
+-/*
+- * Gets the name of a package
++/**
++ * @brief Gets the name of a package
++ *
++ * @return a sting containing the package name. Do not free this.
+  */
+ const char *
+ pkg_get_name(struct pkg *pkg)
+@@ -205,9 +268,12 @@
+ 	return pkg->pkg_name;
+ }
+ 
+-/*
+- * Gets the next file in a package, used for installation
+- * to iterate over all files to be installed in a package
++/**
++ * @brief Gets the next file in a package.
++ *
++ * Ths is used during the instillation of a package to iterate over
++ * all files to be installed in a package
++ * @return the next non-control file in the package or NULL when done.
+  */
+ struct pkg_file *
+ pkg_get_next_file(struct pkg *pkg)
+@@ -223,8 +289,12 @@
+ 	return pkg->pkg_get_next_file(pkg);
+ }
+ 
+-/*
+- * Gets a packages origin if it has one
++/**
++ * @brief Gets a packages origin
++ *
++ * This is used to get the package origin from packages that record it.
++ * Not all package formats have an origin.
++ * @return The packages origin or NULL if it dosn't have one.
+  */
+ const char *
+ pkg_get_origin(struct pkg *pkg)
+@@ -238,8 +308,12 @@
+ 	return NULL;
+ }
+ 
+-/*
+- * Return a string containg the package format version
++/**
++ * @brief Get the package format version
++ *
++ * This retrieves a free form string containing the package format's version.
++ * It is intended to be shown to the user rather than be processed.
++ * @return A string containing the package format version. Do not free.
+  */
+ const char *
+ pkg_get_version(struct pkg *pkg)
+@@ -253,8 +327,9 @@
+ 	return NULL;
+ }
+ 
+-/*
+- * Adds a dependency to a given package
++/**
++ * @brief Adds a dependency to a given package
++ * @return 0 on success, -1 on error.
+  */
+ int
+ pkg_add_dependency(struct pkg *pkg, struct pkg *depend)
+@@ -268,8 +343,9 @@
+ 	return -1;
+ }
+ 
+-/*
+- * Adds a file to a given package
++/**
++ * @brief Adds a file to a given package
++ * @return 0 on success, -1 on error.
+  */
+ int
+ pkg_add_file(struct pkg *pkg, struct pkg_file *file)
+@@ -283,8 +359,12 @@
+ 	return -1;
+ }
+ 
+-/*
+- * Frees a NULL terminated array of packages, eg. from pkg_get_dependencies
++/**
++ * @brief Frees a NULL terminated array of packages
++ *
++ * This is to be used to free the arrays generated by
++ * pkg_get_dependencies()
++ * @return 0 on success, -1 on error.
+  */
+ int
+ pkg_list_free(struct pkg **pkgs)
+@@ -302,8 +382,9 @@
+ 	return 0;
+ }
+ 
+-/*
+- * Frees a given package
++/**
++ * @brief Frees a given package
++ * @return 0 on success, -1 on error.
+  */
+ int
+ pkg_free(struct pkg *pkg)
+@@ -322,3 +403,7 @@
+ 
+ 	return 0;
+ }
++
++/**
++ * @}
++ */
+
+
+
+From zxombie at berlios.de  Thu Mar 23 10:41:39 2006
+From: zxombie at berlios.de (zxombie at BerliOS)
+Date: Thu, 23 Mar 2006 10:41:39 +0100
+Subject: [Libpkg-svn] r79 - trunk/src
+Message-ID: <200603230941.k2N9fdLq025090@sheep.berlios.de>
+
+Author: zxombie
+Date: 2006-03-23 10:41:31 +0100 (Thu, 23 Mar 2006)
+New Revision: 79
+
+Modified:
+   trunk/src/pkg_db.c
+Log:
+Document the pkg_db object
+
+
+Modified: trunk/src/pkg_db.c
+===================================================================
+--- trunk/src/pkg_db.c	2006-03-21 02:05:56 UTC (rev 78)
++++ trunk/src/pkg_db.c	2006-03-23 09:41:31 UTC (rev 79)
+@@ -35,9 +35,24 @@
+ #include "pkg_private.h"
+ #include "pkg_db_private.h"
+ 
+-/*
+- * Opens a Package Database
++/**
++ * @defgroup PackageDBInternal Internal package database functions
++ * @ingroup PackageDB
++ * @brief Internal functions in the Package Database module
++ * 
++ * @{
+  */
++
++/**
++ * @brief Opens a Package Database and assigns the callbacks
++ * @param base the Base direcroty of the Package Database
++ * @param install_pkg The callback to be used by pkg_db_install_pkg()
++ * @param is_installed The callback to be used by pkg_db_is_installed()
++ * @param get_installed_match The callback to be used by
++ *     pkg_db_get_installed_match()
++ * @param get_package The callback to be used by pkg_db_get_package()
++ * @returns A pkg_db object or NULL
++ */
+ struct pkg_db*
+ pkg_db_open(const char *base, pkg_db_install_pkg_callback *install_pkg,
+ 		pkg_db_is_installed_callback *is_installed,
+@@ -90,17 +105,38 @@
+ 	return db;
+ }
+ 
+-/*
+- * Install a given package to the database
++/**
++ * @}
+  */
++
++/**
++ * @defgroup PackageDB Package database functions
++ * @brief Package database handeling functions
++ *
++ * These are the functions to talk to a package database.
++ * The database is created by a system dependent constructor.
++ * eg. pkg_db_open_freebsd() on FreeBSD systems
++ *
++ * @{
++ */
++
++/**
++ * @brief Installs a package to the database
++ * @return 0 on success, -1 on error
++ */
+ int
+ pkg_db_install_pkg(struct pkg_db *db, struct pkg *pkg)
+ {
+ 	return pkg_db_install_pkg_action(db, pkg, NULL);
+ }
+ 
+-/*
+- * Install a given package to the database with a given action
++/**
++ * @brief Installs a package to the database
++ * @param db The database to install to
++ * @param pkg The package to install
++ * @param action A callback that is used to inform the user the status
++ *     of the installation
++ * @return 0 if the package is installed, -1 otherwise
+  */
+ int
+ pkg_db_install_pkg_action(struct pkg_db *db, struct pkg *pkg,
+@@ -121,8 +157,9 @@
+ 	return db->pkg_install(db, pkg, action);
+ }
+ 
+-/*
+- * Check to se if a package is installed
++/**
++ * @brief Check to see if a package is installed
++ * @return 0 if the package is installed, -1 otherwise
+  */
+ int
+ pkg_db_is_installed(struct pkg_db *db, struct pkg *pkg)
+@@ -138,8 +175,9 @@
+ 	return db->pkg_is_installed(db, pkg);
+ }
+ 
+-/*
+- * Get a NULL terminated array of installed packages
++/**
++ * @brief Retrieve a NULL terminated array of all installed packages
++ * @return A null-terminated array of packages or NULL
+  */
+ struct pkg **
+ pkg_db_get_installed(struct pkg_db *db)
+@@ -147,8 +185,14 @@
+ 	return pkg_db_get_installed_match(db, NULL, NULL);
+ }
+ 
+-/*
+- * Get a NULL terminated array of installed packages that match accepts
++/**
++ * @brief Retrieve a NULL terminated array of installed packages that
++ *     match accepts
++ * @param db The database to get the installed packages from
++ * @param match A function that is passed each package and returns 0 if
++ *     the package is wanted in the array
++ * @param data Data to be passed to match
++ * @return A null-terminated array of packages or NULL
+  */
+ struct pkg **
+ pkg_db_get_installed_match(struct pkg_db *db, pkg_db_match *match, const void *data)
+@@ -165,8 +209,9 @@
+ 	return NULL;
+ }
+ 
+-/*
+- * Gets the package with the given name
++/**
++ * @brief Retrieves the package with the given name
++ * @return The named package or NULL
+  */
+ struct pkg *
+ pkg_db_get_package(struct pkg_db *db, const char *pkg_name)
+@@ -180,8 +225,9 @@
+ 	return NULL;
+ }
+ 
+-/*
+- * Frees the database
++/**
++ * @brief Frees the database
++ * @return 0 on success, -1 on error
+  */
+ int
+ pkg_db_free(struct pkg_db *db)
+@@ -198,21 +244,40 @@
+ 	return 0;
+ }
+ 
+-/*
+- * Matches all packages.
+- * This is here because it is used with pkg_db_get_installed_match
++/**
++ * @}
+  */
++
++/**
++ * @defgroup PackageDBMatch Package Matching functions
++ * @ingroup PackageDB
++ * @brief Functions to be passed to pkg_db_get_installed_match()
++ *
++ * @{
++ */
++
++/**
++ * @brief A function to be passed to match all packages
++ * @return 0
++ */
+ int
+ pkg_match_all(struct pkg *pkg __unused, const void *data __unused)
+ {
+ 	return 0;
+ }
+ 
+-/*
+- * Matches all packages by origin. The origin is a string pointed to by data
++/**
++ * @brief Matches all packages by origin.
++ * @param pkg The package to attempt to match
++ * @param origin The origin to find
++ * @return 0 if the package origin is the same as origin, otherwise non zero
+  */
+ int
+-pkg_match_by_origin(struct pkg *pkg, const void *data)
++pkg_match_by_origin(struct pkg *pkg, const void *origin)
+ {
+-	return strcmp(pkg_get_origin(pkg), (const char *)data);
++	return strcmp(pkg_get_origin(pkg), (const char *)origin);
+ }
++
++/**
++ * @}
++ */
+
+
+
+From zxombie at berlios.de  Thu Mar 23 10:55:39 2006
+From: zxombie at berlios.de (zxombie at BerliOS)
+Date: Thu, 23 Mar 2006 10:55:39 +0100
+Subject: [Libpkg-svn] r80 - trunk/src
+Message-ID: <200603230955.k2N9tdME013389@sheep.berlios.de>
+
+Author: zxombie
+Date: 2006-03-23 10:55:34 +0100 (Thu, 23 Mar 2006)
+New Revision: 80
+
+Modified:
+   trunk/src/pkg_db_freebsd.c
+   trunk/src/pkg_freebsd_contents.c
+Log:
+Document the FreeBSD pkg_db object and FreeBSD +CONTENT handeling
+
+
+Modified: trunk/src/pkg_db_freebsd.c
+===================================================================
+--- trunk/src/pkg_db_freebsd.c	2006-03-23 09:41:31 UTC (rev 79)
++++ trunk/src/pkg_db_freebsd.c	2006-03-23 09:55:34 UTC (rev 80)
+@@ -52,7 +52,7 @@
+  * State transition array for the head part of a +CONTENTS file.
+  * p0 is the start state, p4 and p6 are the accepting states
+  */
+-static int pkg_states[7][12] = {
++static const int pkg_states[7][12] = {
+ 	{ -1,  1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1 }, /* p0 */
+ 	{ -1, -1,  2, -1, -1, -1, -1, -1, -1, -1, -1, -1 }, /* p1 */
+ 	{ -1,  3, -1,  4, -1, -1, -1, -1, -1, -1, -1, -1 }, /* p2 */
+@@ -62,23 +62,32 @@
+ 	{ -1, -1, -1, -1, -1,  6, -1, -1, -1, -1, -1, -1 }  /* p6 */
+ };
+ 
+-static int		  freebsd_install_pkg_action(struct pkg_db *,
++pkg_static int		  freebsd_install_pkg_action(struct pkg_db *,
+ 				struct pkg *, pkg_db_action *);
+-static int		  freebsd_is_installed(struct pkg_db *, struct pkg *);
+-static struct pkg	**freebsd_get_installed_match(struct pkg_db *,
++pkg_static int		  freebsd_is_installed(struct pkg_db *, struct pkg *);
++pkg_static struct pkg	**freebsd_get_installed_match(struct pkg_db *,
+ 				pkg_db_match *, const void *);
+-static struct pkg	 *freebsd_get_package(struct pkg_db *, const char *);	
++pkg_static struct pkg	 *freebsd_get_package(struct pkg_db *, const char *);	
+ 
+ /* Internal */
+-static struct pkg_file	*freebsd_build_contents(struct pkg_freebsd_contents *);
+-static int		 freebsd_do_cwd(struct pkg_db *, struct pkg *,
++pkg_static struct pkg_file	*freebsd_build_contents(
++				struct pkg_freebsd_contents *);
++pkg_static int			 freebsd_do_cwd(struct pkg_db *, struct pkg *,
+ 				char *ndir);
+-static int		 freebsd_check_contents(struct pkg_db *,
++pkg_static int			 freebsd_check_contents(struct pkg_db *,
+ 				struct pkg_freebsd_contents *);
+ 
+-/*
+- * Opens the FreeBSD Package Database
++/**
++ * @defgroup PackageDBFreebsd FreeBSD Package Database handeling
++ * @ingroup PackageDB
++ *
++ * @{
+  */
++
++/**
++ * @brief Opens the FreeBSD Package Database
++ * @return A package database that will install FreeBSD packages
++ */
+ struct pkg_db*
+ pkg_db_open_freebsd(const char *base)
+ {
+@@ -87,10 +96,29 @@
+ 	    freebsd_get_package);
+ }
+ 
+-/*
+- * Installs the package pkg to the database db
+- * Calls action on each action. This is used for verbose support.
++/**
++ * @}
+  */
++
++/**
++ * @defgroup PackageDBFreebsdCallback FreeBSD package database callbacks
++ * @ingroup PackageDBFreebsd
++ * @brief FreeBSD package database callback functions.
++ *
++ * @{
++ */
++
++/**
++ * @brief Callback for pkg_db_install_pkg_action()
++ * @param db The database to install to
++ * @param pkg The package to install
++ * @param pkg_action A function to call when an action takes place
++ * @todo Run mtree
++ * @todo Register the reverse dependencies
++ * @bug When the install fails part way through remove some files are left.
++ *     Remove these.
++ * @return 0 on success, -1 on error
++ */
+ static int
+ freebsd_install_pkg_action(struct pkg_db *db, struct pkg *pkg,
+     pkg_db_action *pkg_action)
+@@ -320,9 +348,9 @@
+ 	return 0;
+ }
+ 
+-/*
+- * Returns 0 if the package is installed
+- *        -1 otherwise
++/**
++ * @brief Callback for pkg_db_is_installed()
++ * @returns 0 on of the package is installed, -1 otherwise
+  */
+ static int
+ freebsd_is_installed(struct pkg_db *db, struct pkg *pkg)
+@@ -362,8 +390,10 @@
+ 	return is_installed;
+ }
+ 
+-/*
+- * Gets all installed packages
++/**
++ * @brief Callback for pkg_db_get_installed_match()
++ * @return A null-terminated array of packages that when passed to the match
++ *     function it returns 0. NULL on error
+  */
+ static struct pkg **
+ freebsd_get_installed_match(struct pkg_db *db, pkg_db_match *match, const void *data)
+@@ -417,8 +447,9 @@
+ 	return packages;
+ }
+ 
+-/*
+- * Finds a package with the name from pkg_name
++/**
++ * @brief Callback for pkg_db_get_package()
++ * @return The named package or NULL
+  */
+ static struct pkg *
+ freebsd_get_package(struct pkg_db *db, const char *pkg_name)
+@@ -429,9 +460,23 @@
+ 	return pkg_new_freebsd_installed(pkg_name, dir);
+ }
+ 
+-/*
+- * Internal function to to the correct thing for an @cwd line
++/**
++ * @}
+  */
++
++/**
++ * @defgroup PackageDBFreebsdInternal FreeBSD package database
++ *     internal functions
++ * @ingroup PackageDBFreebsd
++ * @brief Functions to help the FreeBSD package database callbacks
++ *
++ * @{
++ */
++
++/**
++ * @brief Internal function to to the correct thing for an @cwd line
++ * @return 0 if successful or -1 on error
++ */
+ static int
+ freebsd_do_cwd(struct pkg_db *db, struct pkg *pkg, char *ndir) {
+ 	char *dir;
+@@ -468,8 +513,12 @@
+ 	return 0;
+ }
+ 
+-/*
+- * Builds the new cotents file to be installed in /var/db/pkg/foo-1.2.3
++/**
++ * @brief Builds a new cotents file
++ * @param contents The contents data to build the file from
++ *
++ * The file can be installed in /var/db/pkg/foo-1.2,3
++ * @return The new contents file or NULL
+  */
+ static struct pkg_file *
+ freebsd_build_contents(struct pkg_freebsd_contents *contents)
+@@ -546,10 +595,9 @@
+ 	return pkg_file_new_from_buffer("+CONTENTS", used, buffer, NULL);
+ }
+ 
+-/*
+- * Unlike most functions this return -1 on error.
+- * It will return the number of lines to
+- * skip to get to the first file.
++/**
++ * @brief Checks the start of a contents file
++ * @return The number of lines to skip to get to the first file or -1 on error
+  */
+ static int
+ freebsd_check_contents(struct pkg_db *db, struct pkg_freebsd_contents *contents)
+@@ -589,3 +637,7 @@
+ 	}
+ 	return i;
+ }
++
++/**
++ * @}
++ */
+
+Modified: trunk/src/pkg_freebsd_contents.c
+===================================================================
+--- trunk/src/pkg_freebsd_contents.c	2006-03-23 09:41:31 UTC (rev 79)
++++ trunk/src/pkg_freebsd_contents.c	2006-03-23 09:55:34 UTC (rev 80)
+@@ -40,7 +40,16 @@
+ #include "pkg_private.h"
+ #include "pkg_freebsd_private.h"
+ 
+-const char *pkg_freebsd_contents_line_str[] = {
++/**
++ * @defgroup FreebsdContents FreeBSD +CONTENTS handeling
++ *
++ * @{
++ */
++
++/**
++ * @brief All possible line types in a +CONTENTS file
++ */
++static const char *pkg_freebsd_contents_line_str[] = {
+ 	"",
+ 	"@comment",
+ 	"@name",
+@@ -55,7 +64,7 @@
+ 	NULL
+ };
+ 
+-/*
++/**
+  * Reads a FreeBSD +CONTENTS file create a struct pkg_freebsd_contents
+  */
+ struct pkg_freebsd_contents *
+@@ -176,7 +185,7 @@
+ 	return cont;
+ }
+ 
+-/*
++/**
+  * Adds a line of type with the value of data the fiven contents file
+  */
+ int
+@@ -220,7 +229,7 @@
+ 	return 0;
+ }
+ 
+-/*
++/**
+  * Adds a dependency to a +CONTENTS file
+  */
+ int
+@@ -253,7 +262,7 @@
+ 	return -1;
+ }
+ 
+-/*
++/**
+  * Add's a file the the +CONTENTS file
+  */
+ int
+@@ -284,7 +293,7 @@
+ 	return 0;
+ }
+ 
+-/*
++/**
+  * Gets the given line from the contents file
+  */
+ struct pkg_freebsd_contents_line*
+@@ -300,7 +309,7 @@
+ 	return &contents->lines[line];
+ }
+ 
+-/*
++/**
+  * Frees a contents struct
+  */
+ int
+@@ -320,3 +329,6 @@
+ 
+ 	return 0;
+ }
++/**
++ * @}
++ */
+
+
+
+From zxombie at berlios.de  Mon Mar 27 23:04:51 2006
+From: zxombie at berlios.de (zxombie at BerliOS)
+Date: Mon, 27 Mar 2006 23:04:51 +0200
+Subject: [Libpkg-svn] r81 - trunk/src
+Message-ID: <200603272104.k2RL4p5S014680@sheep.berlios.de>
+
+Author: zxombie
+Date: 2006-03-27 23:04:51 +0200 (Mon, 27 Mar 2006)
+New Revision: 81
+
+Modified:
+   trunk/src/pkg_file.c
+Log:
+Document the pkg_file object
+
+
+Modified: trunk/src/pkg_file.c
+===================================================================
+--- trunk/src/pkg_file.c	2006-03-23 09:55:34 UTC (rev 80)
++++ trunk/src/pkg_file.c	2006-03-27 21:04:51 UTC (rev 81)
+@@ -37,9 +37,17 @@
+ #include "pkg.h"
+ #include "pkg_private.h"
+ 
+-/*
+- * Creates a new pkg_file from a file on the file system
++/**
++ * @defgroup PackageFile Safe file handeling functions
++ * @todo Create a hardlink pkg_file constructor
++ *
++ * @{
+  */
++
++/**
++ * @brief Creates a new pkg_file from a file on the file system
++ * @return A pkg_file object containing the file or NULL
++ */
+ struct pkg_file *
+ pkg_file_new(const char *filename)
+ {
+@@ -67,6 +75,10 @@
+ 	return file;
+ }
+ 
++/**
++ * @brief Creates a pkg_file to be a symlink
++ * @return A pkg_file object that when written to disk will be a symlink or NULL
++ */
+ struct pkg_file *
+ pkg_file_new_symlink(const char *filename, char *lnk,
+ 		const struct stat *sb)
+@@ -77,8 +89,9 @@
+ 	return pkg_file_new_from_buffer(filename, strlen(lnk), lnk, sb);
+ }
+ 
+-/*
+- * Creates a new pkg_file from a buffer
++/**
++ * @brief Creates a new pkg_file from a buffer
++ * @return A pkg_file object containing the buffer or NULL
+  */
+ struct pkg_file *
+ pkg_file_new_from_buffer(const char *filename, uint64_t length, char *buffer,
+@@ -117,8 +130,9 @@
+ 	return file;
+ }
+ 
+-/*
+- * Frees a pkg_file
++/**
++ * @brief Frees a pkg_file
++ * @return 0 on success or -1 on error
+  */
+ int
+ pkg_file_free(struct pkg_file *file)
+@@ -144,8 +158,9 @@
+ 	return 0;
+ }
+ 
+-/*
+- * Writes a file to the filesystem
++/**
++ * @brief Writes a file to the filesystem
++ * @return 0 on siccess or -1 on errro
+  */
+ int
+ pkg_file_write(struct pkg_file *file)
+@@ -203,8 +218,9 @@
+ 	return -1;
+ }
+ 
+-/*
+- * Gets to contents of file
++/**
++ * @brief Retrieves the contents of a file
++ * @return A null-terminated string with the contents of file or NULL
+  */
+ char *
+ pkg_file_get(struct pkg_file *file)
+@@ -231,8 +247,16 @@
+ 	return file->contents;
+ }
+ 
++/**
++ * @brief Retrieves the name of a file
++ * @return A null-terminated string with the filename or NULL
++ */
+ char *
+ pkg_file_get_name(struct pkg_file *file)
+ {
+ 	return file->filename;
+ }
++
++/**
++ * @}
++ */
+
+
+
+From zxombie at berlios.de  Mon Mar 27 23:14:31 2006
+From: zxombie at berlios.de (zxombie at BerliOS)
+Date: Mon, 27 Mar 2006 23:14:31 +0200
+Subject: [Libpkg-svn] r82 - trunk/src
+Message-ID: <200603272114.k2RLEVE6015676@sheep.berlios.de>
+
+Author: zxombie
+Date: 2006-03-27 23:14:24 +0200 (Mon, 27 Mar 2006)
+New Revision: 82
+
+Modified:
+   trunk/src/pkg_db_freebsd.c
+   trunk/src/pkg_repo.c
+Log:
+Document the pkg_repo object
+Fix the documentation on in the internal FreeBSD functions
+
+
+Modified: trunk/src/pkg_db_freebsd.c
+===================================================================
+--- trunk/src/pkg_db_freebsd.c	2006-03-27 21:04:51 UTC (rev 81)
++++ trunk/src/pkg_db_freebsd.c	2006-03-27 21:14:24 UTC (rev 82)
+@@ -465,8 +465,7 @@
+  */
+ 
+ /**
+- * @defgroup PackageDBFreebsdInternal FreeBSD package database
+- *     internal functions
++ * @defgroup PackageDBFreebsdInternal FreeBSD package database internal functions
+  * @ingroup PackageDBFreebsd
+  * @brief Functions to help the FreeBSD package database callbacks
+  *
+@@ -474,7 +473,7 @@
+  */
+ 
+ /**
+- * @brief Internal function to to the correct thing for an @cwd line
++ * @brief Internal function to to the correct thing for an \@cwd line
+  * @return 0 if successful or -1 on error
+  */
+ static int
+
+Modified: trunk/src/pkg_repo.c
+===================================================================
+--- trunk/src/pkg_repo.c	2006-03-27 21:04:51 UTC (rev 81)
++++ trunk/src/pkg_repo.c	2006-03-27 21:14:24 UTC (rev 82)
+@@ -34,9 +34,17 @@
+ #include "pkg_private.h"
+ #include "pkg_repo_private.h"
+ 
+-/*
+- * Returns a new package repo
++/**
++ * @defgroup PackageRepoInternal Internal package repository functions
++ * @ingroup PackageRepo
++ *
++ * @{
+  */
++
++/**
++ * @brief Creates a new package repository and associates callbacks to it.
++ * @return A new pkg_repo object or NULL
++ */
+ struct pkg_repo *
+ pkg_repo_new(pkg_repo_get_pkg_callback *pkg_get,
+ 	     pkg_repo_free_callback *pfree)
+@@ -56,9 +64,20 @@
+ 	return repo;
+ }
+ 
+-/*
+- * Gets a package from a repo
++/**
++ * @}
+  */
++
++/**
++ * @defgroup PackageRepo Package repository functions
++ *
++ * @{
++ */
++
++/**
++ * @brief Retrieves a package from the repository
++ * @return The named package or NULL
++ */
+ struct pkg *
+ pkg_repo_get_pkg(struct pkg_repo *repo, const char *pkg_name)
+ {
+@@ -77,8 +96,9 @@
+ 	return repo->pkg_get(repo, pkg_name);
+ }
+ 
+-/*
+- * Frees the struct pkg_repo
++/**
++ * @brief Frees the struct pkg_repo
++ * @return 0 on success, -1 on error
+  */
+ int
+ pkg_repo_free(struct pkg_repo *repo)
+@@ -94,3 +114,7 @@
+ 
+ 	return 0;
+ }
++
++/**
++ * @}
++ */
+
+
+
+From zxombie at berlios.de  Tue Mar 28 12:21:20 2006
+From: zxombie at berlios.de (zxombie at BerliOS)
+Date: Tue, 28 Mar 2006 12:21:20 +0200
+Subject: [Libpkg-svn] r83 - trunk/src
+Message-ID: <200603281021.k2SALK5W012754@sheep.berlios.de>
+
+Author: zxombie
+Date: 2006-03-28 12:21:19 +0200 (Tue, 28 Mar 2006)
+New Revision: 83
+
+Modified:
+   trunk/src/pkg_repo_files.c
+   trunk/src/pkg_repo_ftp.c
+   trunk/src/pkg_repo_local_freebsd.c
+Log:
+Document the pkg_repo objects
+
+
+Modified: trunk/src/pkg_repo_files.c
+===================================================================
+--- trunk/src/pkg_repo_files.c	2006-03-27 21:14:24 UTC (rev 82)
++++ trunk/src/pkg_repo_files.c	2006-03-28 10:21:19 UTC (rev 83)
+@@ -38,22 +38,44 @@
+ #include "pkg_private.h"
+ #include "pkg_repo_private.h"
+ 
+-static struct pkg *file_get_pkg(struct pkg_repo *, const char *);
++pkg_static struct pkg *file_repo_get_pkg(struct pkg_repo *, const char *);
+ 
+-/*
+- * A repo where local files can be added to be installed
++/**
++ * @defgroup PackageRepoFiles Local file repository
++ * @ingroup PackageRepo
++ *
++ * @{
+  */
++
++/**
++ * @brief Creates a new package repository where local files can be added
++ * @return A new pkg_repo object
++ */
+ struct pkg_repo *
+ pkg_repo_new_files()
+ {
+-	return pkg_repo_new(file_get_pkg, NULL);
++	return pkg_repo_new(file_repo_get_pkg, NULL);
+ }
+ 
+-/*
+- * Gets a given package from the local filesystem
++/**
++ * @}
+  */
++
++/**
++ * @defgroup PackageRepoFilesCallbacks Local file repository callbacks
++ * @ingroup PackageRepoFiles
++ *
++ * @{
++ */
++
++/**
++ * @brief Callback for pkg_repo_get_pkg()
++ * @param repo The repo creates with pkg_repo_new_files()
++ * @param pkg_name The file to create a package from
++ * @return A pkg object or NULL
++ */
+ static struct pkg *
+-file_get_pkg(struct pkg_repo *repo, const char *pkg_name)
++file_repo_get_pkg(struct pkg_repo *repo, const char *pkg_name)
+ {
+ 	struct pkg *pkg;
+ 	FILE *fd;
+@@ -77,3 +99,7 @@
+ 
+ 	return pkg;
+ }
++
++/**
++ * @}
++ */
+
+Modified: trunk/src/pkg_repo_ftp.c
+===================================================================
+--- trunk/src/pkg_repo_ftp.c	2006-03-27 21:14:24 UTC (rev 82)
++++ trunk/src/pkg_repo_ftp.c	2006-03-28 10:21:19 UTC (rev 83)
+@@ -87,17 +87,28 @@
+ int getosreldate(void);
+ 
+ /* Callbacks */
+-static struct pkg	*ftp_get_pkg(struct pkg_repo *, const char *);
+-static int		 ftp_free(struct pkg_repo *);
++pkg_static struct pkg	*ftp_get_pkg(struct pkg_repo *, const char *);
++pkg_static int		 ftp_free(struct pkg_repo *);
+ /* Internal */
+-static FILE		*ftp_get_fd(const char *, struct ftp_repo *);
+-static struct ftp_repo	*ftp_create_repo(const char *, const char *);
+-/*static int		 pkg_in_All(const char *); */
+-static int		 pkg_name_has_extension(const char *);
++pkg_static FILE		*ftp_get_fd(const char *, struct ftp_repo *);
++pkg_static struct ftp_repo	*ftp_create_repo(const char *, const char *);
++/*pkg_static int		 pkg_in_All(const char *); */
++pkg_static int		 pkg_name_has_extension(const char *);
+ 
+-/*
+- * A repo with files on a remote ftp server
++/**
++ * @defgroup PackageRepoFtp FTP package repository
++ * @ingroup PackageRepo
++ *
++ * @{
+  */
++
++/**
++ * @brief Creates a pkg_repo with the given sie and path
++ * @param site The ftp site to use. If NULL will use ftp.freebsd.org
++ * @param path The path to the top level of the packages.
++ *     If NULL will use the default path
++ * @return A pkg_repo object or NULL
++ */
+ struct pkg_repo *
+ pkg_repo_new_ftp(const char *site, const char *path)
+ {
+@@ -105,7 +116,6 @@
+ 
+ 	repo = pkg_repo_new(ftp_get_pkg, ftp_free);
+ 	if (!repo) {
+-		/* pkg_null will contain the error string */
+ 		return NULL;
+ 	}
+ 	
+@@ -118,9 +128,21 @@
+ 	return repo;
+ }
+ 
+-/*
+- * Gets a package from a FTP site
++/**
++ * @}
+  */
++
++/**
++ * @defgroup PackageRepoFtpCallback FTP package repository callbacks
++ * @ingroup PackageRepoFtp
++ *
++ * @{
++ */
++
++/**
++ * @brief Callback for pkg_repo_get_pkg()
++ * @return The requested package or NULL
++ */
+ static struct pkg *
+ ftp_get_pkg(struct pkg_repo *repo, const char *pkg_name)
+ {
+@@ -147,8 +169,9 @@
+ 	return pkg;
+ }
+ 
+-/*
+- * Free the struct ftp_repo
++/**
++ * @brief Callback for pkg_repo_free()
++ * @return 0 always
+  */
+ static int
+ ftp_free(struct pkg_repo *repo)
+@@ -174,9 +197,21 @@
+ 	return 0;
+ }
+ 
+-/*
+- * Gets a FILE pointer for a given package name
++/**
++ * @}
+  */
++
++/**
++ * @defgroup PackageRepoFtpInternal FTP package repository Internal functions
++ * @ingroup PackageRepoFtp
++ *
++ * @{
++ */
++
++/**
++ * @bried Retrieves a FILE pointer for a given package name
++ * @return A FILE pointer to get a package with fetch(3)
++ */
+ static FILE *
+ ftp_get_fd(const char *pkg_name, struct ftp_repo *f_repo)
+ {
+@@ -231,8 +266,10 @@
+ 	return fd;
+ }
+ 
+-/*
+- * Creates a struct ftp_repo pointer to go into repo->data
++/**
++ * @brief Creates a ftp_repo object for repo->data
++ * @todo Free the object at all failure points
++ * @return A ftp_repo object or NULL
+  */
+ static struct ftp_repo *
+ ftp_create_repo(const char *site, const char *path)
+@@ -262,7 +299,6 @@
+ 
+ 		reldate = getosreldate();
+ 		if(reldate > MAX_VERSION) {  /* bogus osreldate?? */
+-			/* XXX create a static ftp_repo_free */
+ 			return NULL;
+ 		}
+ 
+@@ -288,8 +324,10 @@
+ 	return f_repo;
+ }
+ 
+-/*
+- * Find if a name has a known extension
++/**
++ * @brief Find if a name has a known extension
++ * @todo Return 0 and -1 like other functions
++ * @return 1 if name ends with ".t[bg]z", otherwise 0
+  */
+ static int
+ pkg_name_has_extension(const char *name)
+@@ -305,3 +343,7 @@
+ 		return (1);
+ 	return (0);
+ }
++
++/**
++ * @}
++ */
+
+Modified: trunk/src/pkg_repo_local_freebsd.c
+===================================================================
+--- trunk/src/pkg_repo_local_freebsd.c	2006-03-27 21:14:24 UTC (rev 82)
++++ trunk/src/pkg_repo_local_freebsd.c	2006-03-28 10:21:19 UTC (rev 83)
+@@ -38,15 +38,23 @@
+ #include "pkg_private.h"
+ #include "pkg_repo_private.h"
+ 
+-static struct pkg *file_get_pkg(struct pkg_repo *, const char *);
++pkg_static struct pkg *file_get_pkg(struct pkg_repo *, const char *);
+ 
+ /**
+- * The contructor.
+- * Creates a package repo where the packages are stored on a local filesystem.
++ * @defgroup PackageRepoLocalFreebsd FreeBSD local files repository
++ * @ingroup PackageRepo
++ *
++ * @{
++ */
++
++/**
++ * @brief Creates a package repo where the packages are stored on a local
++ *     filesystem.
++ * 
+  * If the package name contains a '/' it will assume it is a path and attempt
+  * to open the package from there.
+- * Otherwise it will search in '.' then /usr/ports/distfiles.
+- * @return 
++ * Otherwise it will search in . then /usr/ports/distfiles.
++ * @return A new pkg_repo object or NULL
+  */
+ struct pkg_repo *
+ pkg_repo_new_local_freebsd()
+@@ -54,6 +62,22 @@
+ 	return pkg_repo_new(file_get_pkg, NULL);
+ }
+ 
++/**
++ * @}
++ */
++
++/**
++ * @defgroup PackageRepoLocalFreebsdCallbacks FreeBSD local files repository callbacks
++ * @ingroup PackageRepoLocalFreebsd
++ *
++ * @{
++ */
++
++/**
++ * @brief Retrieves a package from either . or /usr/ports/packages/All/
++ * @todo Check if the file we opened is a package. If not try the next file.
++ * @return a package object or NULL
++ */
+ static struct pkg *
+ file_get_pkg(struct pkg_repo *repo, const char *pkg_name)
+ {
+@@ -90,3 +114,7 @@
+ 
+ 	return pkg;
+ }
++
++/**
++ * @}
++ */
+
+
+
+From zxombie at berlios.de  Tue Mar 28 12:37:31 2006
+From: zxombie at berlios.de (zxombie at BerliOS)
+Date: Tue, 28 Mar 2006 12:37:31 +0200
+Subject: [Libpkg-svn] r84 - trunk/src
+Message-ID: <200603281037.k2SAbVGk018263@sheep.berlios.de>
+
+Author: zxombie
+Date: 2006-03-28 12:37:26 +0200 (Tue, 28 Mar 2006)
+New Revision: 84
+
+Modified:
+   trunk/src/pkg_util.c
+Log:
+Document the util finctions
+
+
+Modified: trunk/src/pkg_util.c
+===================================================================
+--- trunk/src/pkg_util.c	2006-03-28 10:21:19 UTC (rev 83)
++++ trunk/src/pkg_util.c	2006-03-28 10:37:26 UTC (rev 84)
+@@ -42,10 +42,16 @@
+ #include "pkg.h"
+ #include "pkg_private.h"
+ 
+-/*
+- * This is a simplified version of `mkdir -p path'
+- * Is has been simplified to just take in a path to create
++/**
++ * @defgroup PackageUtil Miscellaneous utilities
++ *
++ * @{
+  */
++
++/**
++ * @brief A simplified version of `mkdir -p path'
++ * @return 0 on success, -1 on error
++ */
+ /* Based off src/bin/mkdir/mkdir.c 1.32 */
+ int
+ pkg_dir_build(const char *path)
+@@ -95,8 +101,9 @@
+ 	return (retval);
+ }
+ 
+-/*
+- * Checks a file against a given md5 checksum
++/**
++ * @brief Checks a file against a given md5 checksum
++ * @return 0 if the file matches the checksum, or -1 otherwise
+  */
+ int
+ pkg_checksum_md5(struct pkg_file *file, char *chk_sum)
+@@ -119,9 +126,12 @@
+ 	return 0;
+ }
+ 
+-/*
+- * Executes a program. It will use fmt as the
+- * format to generate the execv string
++/**
++ * @brief Executes a program
++ * 
++ * It will use fmt as the format to generate the execv string.
++ * @todo Write
++ * @return the return value from the child process
+  */
+ int
+ pkg_exec(const char *fmt, ...)
+@@ -138,3 +148,7 @@
+ 
+ 	return 0;
+ }
++
++/**
++ * @}
++ */
+
+
+

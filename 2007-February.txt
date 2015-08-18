@@ -1,0 +1,1466 @@
+From zxombie at mail.berlios.de  Wed Feb 14 04:14:04 2007
+From: zxombie at mail.berlios.de (zxombie at BerliOS)
+Date: Wed, 14 Feb 2007 04:14:04 +0100
+Subject: [Libpkg-svn] r259 - trunk/src
+Message-ID: <200702140314.l1E3E4sE030889@sheep.berlios.de>
+
+Author: zxombie
+Date: 2007-02-14 04:14:04 +0100 (Wed, 14 Feb 2007)
+New Revision: 259
+
+Modified:
+   trunk/src/pkg_freebsd.h
+   trunk/src/pkg_freebsd_contents.c
+   trunk/src/pkg_freebsd_private.h
+Log:
+Add pkg_freebsd_contents_update_prefix and pkg_freebsd_contents_get_file to uchange the prefix in a contents file and get a pkgfile of the contents respectively
+
+
+Modified: trunk/src/pkg_freebsd.h
+===================================================================
+--- trunk/src/pkg_freebsd.h	2007-01-27 02:19:46 UTC (rev 258)
++++ trunk/src/pkg_freebsd.h	2007-02-14 03:14:04 UTC (rev 259)
+@@ -68,6 +68,8 @@
+ struct pkg_freebsd_contents_line *pkg_freebsd_contents_get_line
+ 					(struct pkg_freebsd_contents *,
+ 					 unsigned int);
++int	pkg_freebsd_contents_update_prefix(struct pkg_freebsd_contents *, const char *);
++struct pkgfile *pkg_freebsd_contents_get_file(struct pkg_freebsd_contents *);
+ int	 pkg_freebsd_contents_free(struct pkg_freebsd_contents *);
+ 
+ #endif /* __LIBPKG_PKG_FREEBSD_H__ */
+
+Modified: trunk/src/pkg_freebsd_contents.c
+===================================================================
+--- trunk/src/pkg_freebsd_contents.c	2007-01-27 02:19:46 UTC (rev 258)
++++ trunk/src/pkg_freebsd_contents.c	2007-02-14 03:14:04 UTC (rev 259)
+@@ -1,5 +1,5 @@
+ /*
+- * Copyright (C) 2005, Andrew Turner, All rights reserved.
++ * Copyright (C) 2005, 2007 Andrew Turner, All rights reserved.
+  *
+  * Redistribution and use in source and binary forms, with or without
+  * modification, are permitted provided that the following conditions
+@@ -79,6 +79,9 @@
+ 	if (!cont)
+ 		return NULL;
+ 
++	cont->cnts_file = NULL;
++	cont->cnts_prefix = NULL;
++
+ 	if (contents == NULL) {
+ 		cont->file = NULL;
+ 		cont->line_count = 0;
+@@ -235,6 +238,10 @@
+ 	}
+ 	contents->line_count++;
+ 
++	if (contents->cnts_file != NULL) {
++		pkgfile_free(contents->cnts_file);
++		contents->cnts_file = NULL;
++	}
+ 	return 0;
+ }
+ 
+@@ -268,6 +275,10 @@
+ 		free(data);
+ 	}	
+ 
++	if (contents->cnts_file != NULL) {
++		pkgfile_free(contents->cnts_file);
++		contents->cnts_file = NULL;
++	}
+ 	return -1;
+ }
+ 
+@@ -299,6 +310,10 @@
+ 		return -1;
+ 	}
+ 
++	if (contents->cnts_file != NULL) {
++		pkgfile_free(contents->cnts_file);
++		contents->cnts_file = NULL;
++	}
+ 	return 0;
+ }
+ 
+@@ -318,6 +333,67 @@
+ 	return &contents->lines[line];
+ }
+ 
++int
++pkg_freebsd_contents_update_prefix(struct pkg_freebsd_contents *contents,
++    const char *prefix)
++{
++	unsigned int pos;
++
++	if (contents == NULL)
++		return -1;
++
++	/* Find the package prefix and change it */
++	for (pos = 0; pos < contents->line_count; pos++) {
++		if (contents->lines[pos].line_type == PKG_LINE_CWD) {
++			if (contents->cnts_prefix != NULL) {
++				free(contents->cnts_prefix);
++			}
++			contents->cnts_prefix = strdup(prefix);
++			contents->lines[pos].data = contents->cnts_prefix;
++			break;
++		}
++	}
++	if (contents->cnts_file != NULL) {
++		pkgfile_free(contents->cnts_file);
++		contents->cnts_file = NULL;
++	}
++	return 0;
++}
++
++struct pkgfile *
++pkg_freebsd_contents_get_file(struct pkg_freebsd_contents *contents)
++{
++	unsigned int pos;
++
++	if (contents == NULL)
++		return NULL;
++
++	if (contents->cnts_file == NULL) {
++		contents->cnts_file = pkgfile_new_regular("+CONTENTS", "", 0);
++		if (contents->cnts_file == NULL)
++			return NULL;
++
++		for (pos = 0; pos < contents->line_count; pos++) {
++			struct pkg_freebsd_contents_line *line;
++			char *data;
++
++			line = &contents->lines[pos];
++			if (line->data == NULL) {
++				pkgfile_append(contents->cnts_file, line->line,
++				    strlen(line->line));
++				pkgfile_append(contents->cnts_file, "\n", 1);
++			} else {
++				asprintf(&data, "%s %s\n",
++				    line->line,line->data);
++				pkgfile_append(contents->cnts_file, data,
++				    strlen(data));
++				free(data);
++			}
++		}
++	}
++	return contents->cnts_file;
++}
++
+ /**
+  * Frees a contents struct
+  */
+
+Modified: trunk/src/pkg_freebsd_private.h
+===================================================================
+--- trunk/src/pkg_freebsd_private.h	2007-01-27 02:19:46 UTC (rev 258)
++++ trunk/src/pkg_freebsd_private.h	2007-02-14 03:14:04 UTC (rev 259)
+@@ -35,6 +35,9 @@
+ 	unsigned int	 line_count;
+ 	unsigned int	 line_size;
+ 	struct pkg_freebsd_contents_line *lines;
++
++	char		*cnts_prefix;
++	struct pkgfile	*cnts_file;
+ };
+ 
+ #endif /* __LIBPKG_PKG_FREEBSD_PRIVATE_H__ */
+
+
+
+From zxombie at mail.berlios.de  Wed Feb 14 05:18:16 2007
+From: zxombie at mail.berlios.de (zxombie at BerliOS)
+Date: Wed, 14 Feb 2007 05:18:16 +0100
+Subject: [Libpkg-svn] r260 - trunk/src
+Message-ID: <200702140418.l1E4IGwx000552@sheep.berlios.de>
+
+Author: zxombie
+Date: 2007-02-14 05:18:15 +0100 (Wed, 14 Feb 2007)
+New Revision: 260
+
+Modified:
+   trunk/src/pkgfile.c
+Log:
+Allow appending data to empty files
+
+
+Modified: trunk/src/pkgfile.c
+===================================================================
+--- trunk/src/pkgfile.c	2007-02-14 03:14:04 UTC (rev 259)
++++ trunk/src/pkgfile.c	2007-02-14 04:18:15 UTC (rev 260)
+@@ -703,7 +703,7 @@
+ 	if (file->type != pkgfile_regular)
+ 		return -1;
+ 
+-	assert(file->data != NULL);
++	assert(file->length == 0 || file->data != NULL);
+ 	if (file->data != NULL) {
+ 		char *new_data;
+ 
+@@ -713,10 +713,15 @@
+ 
+ 		/* Update the internal pointer and copy the new data */
+ 		file->data = new_data;
+-		memcpy(file->data + file->length, data, length);
+-		file->length += length;
+-		
++	} else {
++		file->data = malloc(length);
++		if (file->data == NULL) {
++			return -1;
++		}
+ 	}
++	/* Append the data to the file */
++	memcpy(file->data + file->length, data, length);
++	file->length += length;
+ 
+ 	return 0;
+ }
+
+
+
+From zxombie at mail.berlios.de  Wed Feb 14 05:21:54 2007
+From: zxombie at mail.berlios.de (zxombie at BerliOS)
+Date: Wed, 14 Feb 2007 05:21:54 +0100
+Subject: [Libpkg-svn] r261 - trunk/src
+Message-ID: <200702140421.l1E4LsnD000690@sheep.berlios.de>
+
+Author: zxombie
+Date: 2007-02-14 05:21:53 +0100 (Wed, 14 Feb 2007)
+New Revision: 261
+
+Modified:
+   trunk/src/pkg.c
+   trunk/src/pkg_db_freebsd.c
+   trunk/src/pkg_freebsd.c
+   trunk/src/pkg_private.h
+Log:
+Add a pkg_db_deregister callback for deinstallation
+Allow setting of the prefix in the pkg_db_register callback
+Let the prefix be changed in the FreeBSD +CONTENTS file when registering the installation
+
+
+Modified: trunk/src/pkg.c
+===================================================================
+--- trunk/src/pkg.c	2007-02-14 04:18:15 UTC (rev 260)
++++ trunk/src/pkg.c	2007-02-14 04:21:53 UTC (rev 261)
+@@ -541,7 +541,7 @@
+ int
+ pkg_deinstall(struct pkg *pkg, pkg_db_action *pkg_action, void *data,
+ 		pkg_db_chdir *db_chdir,	pkg_db_install_file *deinstall_file,
+-		pkg_db_exec *do_exec, pkg_db_register *pkg_deregister)
++		pkg_db_exec *do_exec, pkg_db_deregister *pkg_deregister)
+ {
+ 	if (pkg == NULL || data == NULL || db_chdir == NULL ||
+ 	    deinstall_file == NULL || do_exec == NULL || pkg_deregister == NULL)
+
+Modified: trunk/src/pkg_db_freebsd.c
+===================================================================
+--- trunk/src/pkg_db_freebsd.c	2007-02-14 04:18:15 UTC (rev 260)
++++ trunk/src/pkg_db_freebsd.c	2007-02-14 04:21:53 UTC (rev 261)
+@@ -50,12 +50,12 @@
+ #define DB_LOCATION	"/var/db/pkg"
+ 
+ struct pkg_install_data {
+-	int fake;
+-	int empty_dirs;		/* Used in the removal of files */
+-	struct pkg_db *db;
+-	const char *last_dir;
+-	char last_file[FILENAME_MAX];
+-	char directory[MAXPATHLEN];
++	int		 fake;
++	int		 empty_dirs;	/* Used in the removal of files */
++	struct pkg_db	*db;
++	const char	*last_dir;
++	char		 last_file[FILENAME_MAX];
++	char		 directory[MAXPATHLEN];
+ };
+ 
+ /*
+@@ -92,7 +92,7 @@
+ static int	freebsd_do_exec(struct pkg *, pkg_db_action *, void *,
+ 				const char *);
+ static int	freebsd_register(struct pkg *, pkg_db_action *, void *,
+-				struct pkgfile **);
++				struct pkgfile **, const char *);
+ static int	freebsd_deregister(struct pkg *, pkg_db_action *, void *,
+ 				struct pkgfile **);
+ /* Internal */
+@@ -687,7 +687,7 @@
+  */
+ static int
+ freebsd_register(struct pkg *pkg, pkg_db_action *pkg_action, void *data,
+-		struct pkgfile **control)
++		struct pkgfile **control, const char *prefix)
+ {
+ 	unsigned int pos;
+ 	struct pkg_install_data *install_data;
+@@ -722,6 +722,18 @@
+ 		 * as we don't need any output from this.
+ 		 */
+ 		for (pos = 0; control[pos] != NULL; pos++) {
++			if (prefix != NULL &&
++			    strcmp(pkgfile_get_name(control[pos]),
++			    "+CONTENTS") == 0) {
++				struct pkg_freebsd_contents *contents;
++				contents = pkg_freebsd_get_contents(pkg);
++
++				pkg_freebsd_contents_update_prefix(contents,
++				    prefix);
++				pkgfile_free(control[pos]);
++				control[pos] = pkg_freebsd_contents_get_file(
++				    contents);
++			}
+ 			freebsd_install_file(pkg, pkg_action_null, data,
+ 			    control[pos]);
+ 		}
+
+Modified: trunk/src/pkg_freebsd.c
+===================================================================
+--- trunk/src/pkg_freebsd.c	2007-02-14 04:18:15 UTC (rev 260)
++++ trunk/src/pkg_freebsd.c	2007-02-14 04:21:53 UTC (rev 261)
+@@ -64,7 +64,7 @@
+ static int		  freebsd_deinstall(struct pkg *,
+ 				pkg_db_action *, void *,
+ 				pkg_db_chdir *, pkg_db_install_file *,
+-				pkg_db_exec *, pkg_db_register *);
++				pkg_db_exec *, pkg_db_deregister *);
+ static struct pkg	**freebsd_get_deps(struct pkg *);
+ static struct pkg	**freebsd_get_rdeps(struct pkg *);
+ static int		  freebsd_run_script(struct pkg *,const char *,
+@@ -601,7 +601,7 @@
+ 
+ 	if (reg) {
+ 		/* Register the package */
+-		pkg_register(pkg, pkg_action, data, control);
++		pkg_register(pkg, pkg_action, data, control, prefix);
+ 	}
+ 
+ 	/* Set the return to 0 as we have fully installed the package */
+@@ -622,7 +622,7 @@
+ static int
+ freebsd_deinstall(struct pkg *pkg, pkg_db_action *pkg_action, void *data,
+ 		pkg_db_chdir *db_chdir, pkg_db_install_file *deinstall_file,
+-		pkg_db_exec *do_exec, pkg_db_register *pkg_deregister)
++		pkg_db_exec *do_exec, pkg_db_deregister *pkg_deregister)
+ {
+ 	int ret;
+ 	unsigned int pos;
+
+Modified: trunk/src/pkg_private.h
+===================================================================
+--- trunk/src/pkg_private.h	2007-02-14 04:18:15 UTC (rev 260)
++++ trunk/src/pkg_private.h	2007-02-14 04:21:53 UTC (rev 261)
+@@ -109,14 +109,16 @@
+ typedef int		  pkg_db_exec(struct pkg *, pkg_db_action *, void *,
+ 				const char *);
+ typedef int		  pkg_db_register(struct pkg *, pkg_db_action *, void *,
+-				struct pkgfile **);
++				struct pkgfile **, const char *);
++typedef int		  pkg_db_deregister(struct pkg *, pkg_db_action *,
++				void *,	struct pkgfile **);
+ typedef int	  	  pkg_install_callback(struct pkg *, const char *, int,
+ 				pkg_db_action *, void *, pkg_db_chdir *,
+ 				pkg_db_install_file *, pkg_db_exec *,
+ 				pkg_db_register *);
+ typedef int		  pkg_deinstall_callback(struct pkg *, pkg_db_action *,
+ 				void *, pkg_db_chdir *, pkg_db_install_file *,
+-				pkg_db_exec *, pkg_db_register *);
++				pkg_db_exec *, pkg_db_deregister *);
+ typedef struct pkgfile	 *pkg_get_next_file_callback(struct pkg *);
+ typedef int		  pkg_run_script_callback(struct pkg *, const char *,
+ 				pkg_script);
+@@ -133,7 +135,7 @@
+ int			  pkg_deinstall(struct pkg *,
+ 				pkg_db_action *, void *, pkg_db_chdir *,
+ 				pkg_db_install_file *, pkg_db_exec *,
+-				pkg_db_register *);
++				pkg_db_deregister *);
+ 
+ struct pkg {
+ 	void	*data;
+
+
+
+From zxombie at mail.berlios.de  Wed Feb 14 06:09:11 2007
+From: zxombie at mail.berlios.de (zxombie at BerliOS)
+Date: Wed, 14 Feb 2007 06:09:11 +0100
+Subject: [Libpkg-svn] r262 - trunk/tests
+Message-ID: <200702140509.l1E59BDR007248@sheep.berlios.de>
+
+Author: zxombie
+Date: 2007-02-14 06:09:10 +0100 (Wed, 14 Feb 2007)
+New Revision: 262
+
+Modified:
+   trunk/tests/main.c
+   trunk/tests/pkgfile.c
+Log:
+Add a licence to the tests and clean them up a little
+
+
+Modified: trunk/tests/main.c
+===================================================================
+--- trunk/tests/main.c	2007-02-14 04:21:53 UTC (rev 261)
++++ trunk/tests/main.c	2007-02-14 05:09:10 UTC (rev 262)
+@@ -1,3 +1,32 @@
++/*
++ * Copyright (C) 2006, 2007 Andrew Turner, All rights reserved.
++ *
++ * Redistribution and use in source and binary forms, with or without
++ * modification, are permitted provided that the following conditions
++ * are met:
++ * 1. Redistributions of source code must retain the above copyright
++ *    notice, this list of conditions and the following disclaimer
++ *    in this position and unchanged.
++ * 2. Redistributions in binary form must reproduce the above copyright
++ *    notice, this list of conditions and the following disclaimer in the
++ *    documentation and/or other materials provided with the distribution.
++ * 3. The name(s) of the author(s) may not be used to endorse or promote
++ *    products derived from this software without specific prior written
++ *    permission.
++ *
++ * THIS SOFTWARE IS PROVIDED BY THE AUTHOR(S) ``AS IS'' AND ANY EXPRESS OR
++ * IMPLIED WARRANTIES, INCLUDING, BUT NOT LIMITED TO, THE IMPLIED WARRANTIES
++ * OF MERCHANTABILITY AND FITNESS FOR A PARTICULAR PURPOSE ARE DISCLAIMED.
++ * IN NO EVENT SHALL THE AUTHOR(S) BE LIABLE FOR ANY DIRECT, INDIRECT,
++ * INCIDENTAL, SPECIAL, EXEMPLARY, OR CONSEQUENTIAL DAMAGES (INCLUDING, BUT
++ * NOT LIMITED TO, PROCUREMENT OF SUBSTITUTE GOODS OR SERVICES; LOSS OF USE,
++ * DATA, OR PROFITS; OR BUSINESS INTERRUPTION) HOWEVER CAUSED AND ON ANY
++ * THEORY OF LIABILITY, WHETHER IN CONTRACT, STRICT LIABILITY, OR TORT
++ * (INCLUDING NEGLIGENCE OR OTHERWISE) ARISING IN ANY WAY OUT OF THE USE OF
++ * THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
++ *
++ */
++
+ #include "test.h"
+ #include <stdlib.h>
+ 
+
+Modified: trunk/tests/pkgfile.c
+===================================================================
+--- trunk/tests/pkgfile.c	2007-02-14 04:21:53 UTC (rev 261)
++++ trunk/tests/pkgfile.c	2007-02-14 05:09:10 UTC (rev 262)
+@@ -1,3 +1,32 @@
++/*
++ * Copyright (C) 2006, 2007 Andrew Turner, All rights reserved.
++ *
++ * Redistribution and use in source and binary forms, with or without
++ * modification, are permitted provided that the following conditions
++ * are met:
++ * 1. Redistributions of source code must retain the above copyright
++ *    notice, this list of conditions and the following disclaimer
++ *    in this position and unchanged.
++ * 2. Redistributions in binary form must reproduce the above copyright
++ *    notice, this list of conditions and the following disclaimer in the
++ *    documentation and/or other materials provided with the distribution.
++ * 3. The name(s) of the author(s) may not be used to endorse or promote
++ *    products derived from this software without specific prior written
++ *    permission.
++ *
++ * THIS SOFTWARE IS PROVIDED BY THE AUTHOR(S) ``AS IS'' AND ANY EXPRESS OR
++ * IMPLIED WARRANTIES, INCLUDING, BUT NOT LIMITED TO, THE IMPLIED WARRANTIES
++ * OF MERCHANTABILITY AND FITNESS FOR A PARTICULAR PURPOSE ARE DISCLAIMED.
++ * IN NO EVENT SHALL THE AUTHOR(S) BE LIABLE FOR ANY DIRECT, INDIRECT,
++ * INCIDENTAL, SPECIAL, EXEMPLARY, OR CONSEQUENTIAL DAMAGES (INCLUDING, BUT
++ * NOT LIMITED TO, PROCUREMENT OF SUBSTITUTE GOODS OR SERVICES; LOSS OF USE,
++ * DATA, OR PROFITS; OR BUSINESS INTERRUPTION) HOWEVER CAUSED AND ON ANY
++ * THEORY OF LIABILITY, WHETHER IN CONTRACT, STRICT LIABILITY, OR TORT
++ * (INCLUDING NEGLIGENCE OR OTHERWISE) ARISING IN ANY WAY OUT OF THE USE OF
++ * THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
++ *
++ */
++
+ #include "test.h"
+ 
+ #include <sys/param.h>
+@@ -50,18 +79,20 @@
+ 
+ 	/* Test the data */
+ 	if (data != NULL) {
+-		fail_unless(pkgfile_get_data(file) != NULL, NULL);
+ 		fail_unless(strncmp(pkgfile_get_data(file), data, length) == 0,
+ 		    NULL);
++		if (length > 0) {
++			fail_unless(pkgfile_get_data(file) != NULL, NULL);
+ 
+-		if (file->type != pkgfile_dir) {
+-			fail_unless(file->data != NULL, NULL);
+-			fail_unless(strncmp(file->data, data, length) == 0,
+-			    NULL);
+-		} else {
+-			fail_unless(file->data == NULL, NULL);
+-			fail_unless(strncmp(file->name, data, length) == 0,
+-			    NULL);
++			if (file->type != pkgfile_dir) {
++				fail_unless(file->data != NULL, NULL);
++				fail_unless(strncmp(file->data, data, length)
++				    == 0, NULL);
++			} else {
++				fail_unless(file->data == NULL, NULL);
++				fail_unless(strncmp(file->name, data, length)
++				    == 0, NULL);
++			}
+ 		}
+ 	}
+ 
+@@ -300,7 +331,7 @@
+ }
+ END_TEST
+ 
+-START_TEST(pkgfile_regular_existing_test)
++START_TEST(pkgfile_regular_existing_regular_test)
+ {
+ 	struct pkgfile *file;
+ 
+@@ -308,12 +339,24 @@
+ 	file = pkgfile_new_regular(BASIC_FILE, "0123456789", 10);
+ 	existing_regular_test(file);
+ 	pkgfile_free(file);
++}
++END_TEST
+ 
++START_TEST(pkgfile_regular_existing_symlink_test)
++{
++	struct pkgfile *file;
++
+ 	/* Test if pkgfile_write will fail with a symlink */
+ 	file = pkgfile_new_regular(BASIC_FILE, "0123456789", 10);
+ 	existing_symlink_test(file);
+ 	pkgfile_free(file);
++}
++END_TEST
+ 
++START_TEST(pkgfile_regular_existing_directory_test)
++{
++	struct pkgfile *file;
++
+ 	/* Test if pkgfile_write will fail with a directory */
+ 	file = pkgfile_new_regular(BASIC_FILE, "0123456789", 10);
+ 	existing_directory_test(file);
+@@ -337,7 +380,13 @@
+ 	system("rmdir " DEPTH_DIR);
+ 	CLEANUP_TESTDIR();
+ 	pkgfile_free(file);
++}
++END_TEST
+ 
++START_TEST(pkgfile_regular_depth_exists_test)
++{
++	struct pkgfile *file;
++
+ 	/* Test pkg_write will fail when it can't create a parent directory */
+ 	file = pkgfile_new_regular(DEPTH_FILE, "0123456789", 10);
+ 	depth_test_fail_write(file);
+@@ -384,6 +433,22 @@
+ }
+ END_TEST
+ 
++START_TEST(pkgfile_regular_modify_empty_test)
++{
++	/* Test if an empty file can be modified */
++	struct pkgfile *file;
++	char *data;
++
++	file = pkgfile_new_regular(DEPTH_FILE, "", 0);
++	basic_file_tests(file, pkgfile_regular, pkgfile_loc_mem, "", 0);
++	fail_unless(pkgfile_append(file, "67890", 5) == 0, NULL);
++	sprintf(data, "67890");
++	basic_file_tests(file, pkgfile_regular, pkgfile_loc_mem, data, 5);
++	free(data);
++	pkgfile_free(file);
++}
++END_TEST
++
+ /* Tests on creating a symlink from a buffer */
+ START_TEST(pkgfile_symlink_bad_test)
+ {
+@@ -419,7 +484,7 @@
+ }
+ END_TEST
+ 
+-START_TEST(pkgfile_symlink_existing_test)
++START_TEST(pkgfile_symlink_existing_regular_test)
+ {
+ 	struct pkgfile *file;
+ 
+@@ -427,12 +492,24 @@
+ 	file = pkgfile_new_symlink(BASIC_FILE, LINK_TARGET);
+ 	existing_regular_test(file);
+ 	pkgfile_free(file);
++}
++END_TEST
+ 
++START_TEST(pkgfile_symlink_existing_symlink_test)
++{
++	struct pkgfile *file;
++
+ 	/* Test if pkgfile_write will fail with a symlink */
+ 	file = pkgfile_new_symlink(BASIC_FILE, LINK_TARGET);
+ 	existing_symlink_test(file);
+ 	pkgfile_free(file);
++}
++END_TEST
+ 
++START_TEST(pkgfile_symlink_existing_directory_test)
++{
++	struct pkgfile *file;
++
+ 	/* Test if pkgfile_write will fail with a directory */
+ 	file = pkgfile_new_symlink(BASIC_FILE, LINK_TARGET);
+ 	existing_directory_test(file);
+@@ -456,7 +533,13 @@
+ 	system("rmdir " DEPTH_DIR);
+ 	CLEANUP_TESTDIR();
+ 	pkgfile_free(file);
++}
++END_TEST
+ 
++START_TEST(pkgfile_symlink_depth_exists_test)
++{
++	struct pkgfile *file;
++
+ 	/*
+ 	 * Check pkgfile_write fails when there
+ 	 * is already a file named testdir/foo
+@@ -509,7 +592,7 @@
+ }
+ END_TEST
+ 
+-START_TEST(pkgfile_hardlink_existing_test)
++START_TEST(pkgfile_hardlink_existing_regular_test)
+ {
+ 	struct pkgfile *file;
+ 
+@@ -517,12 +600,24 @@
+ 	file = pkgfile_new_hardlink(BASIC_FILE, LINK_TARGET);
+ 	existing_regular_test(file);
+ 	pkgfile_free(file);
++}
++END_TEST
+ 
++START_TEST(pkgfile_hardlink_existing_symlink_test)
++{
++	struct pkgfile *file;
++
+ 	/* Test if pkgfile_write will fail with a symlink */
+ 	file = pkgfile_new_hardlink(BASIC_FILE, LINK_TARGET);
+ 	existing_symlink_test(file);
+ 	pkgfile_free(file);
++}
++END_TEST
+ 
++START_TEST(pkgfile_hardlink_existing_directory_test)
++{
++	struct pkgfile *file;
++
+ 	/* Test if pkgfile_write will fail with a directory */
+ 	file = pkgfile_new_hardlink(BASIC_FILE, LINK_TARGET);
+ 	existing_directory_test(file);
+@@ -548,7 +643,13 @@
+ 	system("rm " LINK_TARGET);
+ 	CLEANUP_TESTDIR();
+ 	pkgfile_free(file);
++}
++END_TEST
+ 
++START_TEST(pkgfile_hardlink_depth_exists_test)
++{
++	struct pkgfile *file;
++
+ 	/*
+ 	 * Check pkgfile_write fails when there
+ 	 * is already a file named testdir/foo
+@@ -593,7 +694,7 @@
+ }
+ END_TEST
+ 
+-START_TEST(pkgfile_directory_existing_test)
++START_TEST(pkgfile_directory_existing_regular_test)
+ {
+ 	struct pkgfile *file;
+ 
+@@ -601,7 +702,13 @@
+ 	file = pkgfile_new_directory(BASIC_FILE);
+ 	existing_regular_test(file);
+ 	pkgfile_free(file);
++}
++END_TEST
+ 
++START_TEST(pkgfile_directory_existing_symlink_test)
++{
++	struct pkgfile *file;
++
+ 	/* Test if pkgfile_write should fail with a symlink */
+ 	file = pkgfile_new_directory(BASIC_FILE);
+ 	existing_symlink_test(file);
+@@ -625,7 +732,13 @@
+ 	system("rmdir " DEPTH_DIR);
+ 	CLEANUP_TESTDIR();
+ 	pkgfile_free(file);
++}
++END_TEST
+ 
++START_TEST(pkgfile_directory_depth_exists_test)
++{
++	struct pkgfile *file;
++
+ 	/*
+ 	 * Check pkgfile_write fails when there
+ 	 * is already a file named testdir/foo
+@@ -659,44 +772,68 @@
+ pkgfile_suite()
+ {
+ 	Suite *s;
+-	TCase *tc_regular, *tc_symlink, *tc_hardlink, *tc_dir, *tc_misc;
++	TCase *tc;
+ 
+ 	s = suite_create("pkgfile");
+-	tc_regular = tcase_create("regular");
+-	tc_symlink = tcase_create("symlink");
+-	tc_hardlink = tcase_create("hardlink");
+-	tc_dir = tcase_create("directory");
+-	tc_misc = tcase_create("misc");
+ 
+-	suite_add_tcase(s, tc_regular);
+-	suite_add_tcase(s, tc_symlink);
+-	suite_add_tcase(s, tc_hardlink);
+-	suite_add_tcase(s, tc_dir);
+-	suite_add_tcase(s, tc_misc);
++	tc = tcase_create("regular");
++	tcase_add_test(tc, pkgfile_regular_bad_test);
++	tcase_add_test(tc, pkgfile_regular_empty_test);
++	tcase_add_test(tc, pkgfile_regular_data_test);
+ 
+-	tcase_add_test(tc_regular, pkgfile_regular_bad_test);
+-	tcase_add_test(tc_regular, pkgfile_regular_empty_test);
+-	tcase_add_test(tc_regular, pkgfile_regular_data_test);
+-	tcase_add_test(tc_regular, pkgfile_regular_existing_test);
+-	tcase_add_test(tc_regular, pkgfile_regular_depth_test);
+-	tcase_add_test(tc_regular, pkgfile_regular_modify_test);
++	tcase_add_test(tc, pkgfile_regular_existing_regular_test);
++	tcase_add_test(tc, pkgfile_regular_existing_symlink_test);
++	tcase_add_test(tc, pkgfile_regular_existing_directory_test);
+ 
+-	tcase_add_test(tc_symlink, pkgfile_symlink_bad_test);
+-	tcase_add_test(tc_symlink, pkgfile_symlink_good_test);
+-	tcase_add_test(tc_symlink, pkgfile_symlink_existing_test);
+-	tcase_add_test(tc_symlink, pkgfile_symlink_depth_test);
++	tcase_add_test(tc, pkgfile_regular_depth_test);
++	tcase_add_test(tc, pkgfile_regular_depth_exists_test);
+ 
+-	tcase_add_test(tc_hardlink, pkgfile_hardlink_bad_test);
+-	tcase_add_test(tc_hardlink, pkgfile_hardlink_test);
+-	tcase_add_test(tc_hardlink, pkgfile_hardlink_depth_test);
+-	tcase_add_test(tc_hardlink, pkgfile_hardlink_existing_test);
++	tcase_add_test(tc, pkgfile_regular_modify_test);
++	tcase_add_test(tc, pkgfile_regular_modify_empty_test);
++	suite_add_tcase(s, tc);
+ 
+-	tcase_add_test(tc_dir, pkgfile_directory_bad_test);
+-	tcase_add_test(tc_dir, pkgfile_directory_test);
+-	tcase_add_test(tc_dir, pkgfile_directory_existing_test);
+-	tcase_add_test(tc_dir, pkgfile_directory_depth_test);
+ 
+-	tcase_add_test(tc_misc, pkgfile_misc_bad_args);
++	tc = tcase_create("symlink");
++	tcase_add_test(tc, pkgfile_symlink_bad_test);
++	tcase_add_test(tc, pkgfile_symlink_good_test);
+ 
++	tcase_add_test(tc, pkgfile_symlink_existing_regular_test);
++	tcase_add_test(tc, pkgfile_symlink_existing_symlink_test);
++	tcase_add_test(tc, pkgfile_symlink_existing_directory_test);
++
++	tcase_add_test(tc, pkgfile_symlink_depth_test);
++	tcase_add_test(tc, pkgfile_symlink_depth_exists_test);
++	suite_add_tcase(s, tc);
++
++
++	tc = tcase_create("hardlink");
++	tcase_add_test(tc, pkgfile_hardlink_bad_test);
++	tcase_add_test(tc, pkgfile_hardlink_test);
++
++	tcase_add_test(tc, pkgfile_hardlink_existing_regular_test);
++	tcase_add_test(tc, pkgfile_hardlink_existing_symlink_test);
++	tcase_add_test(tc, pkgfile_hardlink_existing_directory_test);
++
++	tcase_add_test(tc, pkgfile_hardlink_depth_test);
++	tcase_add_test(tc, pkgfile_hardlink_depth_exists_test);
++	suite_add_tcase(s, tc);
++
++
++	tc = tcase_create("directory");
++	tcase_add_test(tc, pkgfile_directory_bad_test);
++	tcase_add_test(tc, pkgfile_directory_test);
++
++	tcase_add_test(tc, pkgfile_directory_existing_regular_test);
++	tcase_add_test(tc, pkgfile_directory_existing_symlink_test);
++
++	tcase_add_test(tc, pkgfile_directory_depth_test);
++	tcase_add_test(tc, pkgfile_directory_depth_exists_test);
++	suite_add_tcase(s, tc);
++
++
++	tc = tcase_create("misc");
++	tcase_add_test(tc, pkgfile_misc_bad_args);
++	suite_add_tcase(s, tc);
++
+ 	return s;
+ }
+
+
+
+From zxombie at mail.berlios.de  Wed Feb 14 07:53:46 2007
+From: zxombie at mail.berlios.de (zxombie at BerliOS)
+Date: Wed, 14 Feb 2007 07:53:46 +0100
+Subject: [Libpkg-svn] r263 - trunk/tests
+Message-ID: <200702140653.l1E6rkvY021760@sheep.berlios.de>
+
+Author: zxombie
+Date: 2007-02-14 07:53:45 +0100 (Wed, 14 Feb 2007)
+New Revision: 263
+
+Added:
+   trunk/tests/pkg_freebsd_contents.c
+Modified:
+   trunk/tests/Makefile
+   trunk/tests/main.c
+   trunk/tests/test.h
+Log:
+Add the start of tests for FreeBSD +CONTENTS file processing
+Rename the targets to run the test and the test program's name
+
+
+Modified: trunk/tests/Makefile
+===================================================================
+--- trunk/tests/Makefile	2007-02-14 05:09:10 UTC (rev 262)
++++ trunk/tests/Makefile	2007-02-14 06:53:45 UTC (rev 263)
+@@ -1,6 +1,6 @@
+-PROG=		test
++PROG=		tests
+ 
+-SRCS=		main.c pkgfile.c
++SRCS=		main.c pkgfile.c pkg_freebsd_contents.c
+ CFLAGS+=	-I/usr/local/include -I${.CURDIR}/../src
+ LDADD+=		-L/usr/local/lib -lcheck
+ LDADD+=		${.OBJDIR}/../src/libpkg.a /usr/lib/libmd.a
+@@ -8,7 +8,7 @@
+ MAN=
+ WARNS=	6
+ 
+-run_test: all
+-	cd ${.OBJDIR} && MALLOC_OPTIONS=AJ ./test
++test: all
++	cd ${.OBJDIR} && MALLOC_OPTIONS=AJ ./tests
+ 
+ .include <bsd.prog.mk>
+
+Modified: trunk/tests/main.c
+===================================================================
+--- trunk/tests/main.c	2007-02-14 05:09:10 UTC (rev 262)
++++ trunk/tests/main.c	2007-02-14 06:53:45 UTC (rev 263)
+@@ -54,6 +54,8 @@
+ 	SRunner *sr;
+ 
+ 	sr = srunner_create(pkgfile_suite());
++	srunner_add_suite(sr, pkg_freebsd_contents_suite());
++
+ 	srunner_run_all(sr, CK_NORMAL);
+ 	fail_count = srunner_ntests_failed(sr);
+ 	srunner_free(sr);
+
+Added: trunk/tests/pkg_freebsd_contents.c
+===================================================================
+--- trunk/tests/pkg_freebsd_contents.c	2007-02-14 05:09:10 UTC (rev 262)
++++ trunk/tests/pkg_freebsd_contents.c	2007-02-14 06:53:45 UTC (rev 263)
+@@ -0,0 +1,82 @@
++/*
++ * Copyright (C) 2007, Andrew Turner, All rights reserved.
++ *
++ * Redistribution and use in source and binary forms, with or without
++ * modification, are permitted provided that the following conditions
++ * are met:
++ * 1. Redistributions of source code must retain the above copyright
++ *    notice, this list of conditions and the following disclaimer
++ *    in this position and unchanged.
++ * 2. Redistributions in binary form must reproduce the above copyright
++ *    notice, this list of conditions and the following disclaimer in the
++ *    documentation and/or other materials provided with the distribution.
++ * 3. The name(s) of the author(s) may not be used to endorse or promote
++ *    products derived from this software without specific prior written
++ *    permission.
++ *
++ * THIS SOFTWARE IS PROVIDED BY THE AUTHOR(S) ``AS IS'' AND ANY EXPRESS OR
++ * IMPLIED WARRANTIES, INCLUDING, BUT NOT LIMITED TO, THE IMPLIED WARRANTIES
++ * OF MERCHANTABILITY AND FITNESS FOR A PARTICULAR PURPOSE ARE DISCLAIMED.
++ * IN NO EVENT SHALL THE AUTHOR(S) BE LIABLE FOR ANY DIRECT, INDIRECT,
++ * INCIDENTAL, SPECIAL, EXEMPLARY, OR CONSEQUENTIAL DAMAGES (INCLUDING, BUT
++ * NOT LIMITED TO, PROCUREMENT OF SUBSTITUTE GOODS OR SERVICES; LOSS OF USE,
++ * DATA, OR PROFITS; OR BUSINESS INTERRUPTION) HOWEVER CAUSED AND ON ANY
++ * THEORY OF LIABILITY, WHETHER IN CONTRACT, STRICT LIABILITY, OR TORT
++ * (INCLUDING NEGLIGENCE OR OTHERWISE) ARISING IN ANY WAY OUT OF THE USE OF
++ * THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
++ *
++ */
++
++#include "test.h"
++
++#include <pkg.h>
++#include <pkg_freebsd.h>
++
++#include <string.h>
++
++START_TEST(pkg_freebsd_contents_empty_test)
++{
++	struct pkg_freebsd_contents *contents;
++
++	contents = pkg_freebsd_contents_new("", 0);
++	fail_unless(contents == NULL, NULL);
++	pkg_freebsd_contents_free(contents);
++}
++END_TEST
++
++/* Test if a minimal config file will work */
++START_TEST(pkg_freebsd_contents_good_basic_test)
++{
++	struct pkg_freebsd_contents *contents;
++	const char *pkg_data = "@comment PKG_FORMAT_REVISION:1.1\n"
++	    "@name package_name-1.0\n"
++	    "@comment ORIGIN:package/origin\n"
++	    "@cwd /usr/local\n";
++
++	contents = pkg_freebsd_contents_new(pkg_data, strlen(pkg_data));
++	fail_unless(contents != NULL, NULL);
++	pkg_freebsd_contents_free(contents);
++}
++END_TEST
++
++Suite *
++pkg_freebsd_contents_suite()
++{
++	Suite *s;
++	TCase *tc;
++
++	s = suite_create("pkg_freebsd_contents");
++
++	tc = tcase_create("empty");
++	tcase_add_test(tc, pkg_freebsd_contents_empty_test);
++	suite_add_tcase(s, tc);
++
++
++	tc = tcase_create("good");
++	tcase_add_test(tc, pkg_freebsd_contents_good_basic_test);
++	suite_add_tcase(s, tc);
++
++	return s;
++}
++
++
+
+Modified: trunk/tests/test.h
+===================================================================
+--- trunk/tests/test.h	2007-02-14 05:09:10 UTC (rev 262)
++++ trunk/tests/test.h	2007-02-14 06:53:45 UTC (rev 263)
+@@ -6,4 +6,5 @@
+ #define CLEANUP_TESTDIR() fail_unless(cleanup_testdir() == 0, "Couldn't cleanup the test dir")
+ 
+ Suite *pkgfile_suite(void);
++Suite *pkg_freebsd_contents_suite(void);
+ 
+
+
+
+From zxombie at mail.berlios.de  Wed Feb 14 09:53:08 2007
+From: zxombie at mail.berlios.de (zxombie at BerliOS)
+Date: Wed, 14 Feb 2007 09:53:08 +0100
+Subject: [Libpkg-svn] r264 - in trunk/tests: . fbsd_contents
+Message-ID: <200702140853.l1E8r831029239@sheep.berlios.de>
+
+Author: zxombie
+Date: 2007-02-14 09:53:08 +0100 (Wed, 14 Feb 2007)
+New Revision: 264
+
+Added:
+   trunk/tests/fbsd_contents/
+   trunk/tests/fbsd_contents/Makefile
+   trunk/tests/fbsd_contents/fbsd_test.c
+Modified:
+   trunk/tests/Makefile
+Log:
+Add a program that tests if the FreeBSD +CONTENTS file parser works on all the currently installed packages
+
+
+Modified: trunk/tests/Makefile
+===================================================================
+--- trunk/tests/Makefile	2007-02-14 06:53:45 UTC (rev 263)
++++ trunk/tests/Makefile	2007-02-14 08:53:08 UTC (rev 264)
+@@ -11,4 +11,6 @@
+ test: all
+ 	cd ${.OBJDIR} && MALLOC_OPTIONS=AJ ./tests
+ 
++SUBDIR=		fbsd_contents
++
+ .include <bsd.prog.mk>
+
+Added: trunk/tests/fbsd_contents/Makefile
+===================================================================
+--- trunk/tests/fbsd_contents/Makefile	2007-02-14 06:53:45 UTC (rev 263)
++++ trunk/tests/fbsd_contents/Makefile	2007-02-14 08:53:08 UTC (rev 264)
+@@ -0,0 +1,8 @@
++PROG=	fbsd_test
++
++CFLAGS+= -I${.CURDIR}/../../src
++LDADD+= -L${.OBJDIR}/../../src -lpkg -larchive -lmd
++
++MAN=
++
++.include <bsd.prog.mk>
+
+Added: trunk/tests/fbsd_contents/fbsd_test.c
+===================================================================
+--- trunk/tests/fbsd_contents/fbsd_test.c	2007-02-14 06:53:45 UTC (rev 263)
++++ trunk/tests/fbsd_contents/fbsd_test.c	2007-02-14 08:53:08 UTC (rev 264)
+@@ -0,0 +1,86 @@
++/*
++ * Copyright (C) 2007, Andrew Turner, All rights reserved.
++ *
++ * Redistribution and use in source and binary forms, with or without
++ * modification, are permitted provided that the following conditions
++ * are met:
++ * 1. Redistributions of source code must retain the above copyright
++ *    notice, this list of conditions and the following disclaimer
++ *    in this position and unchanged.
++ * 2. Redistributions in binary form must reproduce the above copyright
++ *    notice, this list of conditions and the following disclaimer in the
++ *    documentation and/or other materials provided with the distribution.
++ * 3. The name(s) of the author(s) may not be used to endorse or promote
++ *    products derived from this software without specific prior written
++ *    permission.
++ *
++ * THIS SOFTWARE IS PROVIDED BY THE AUTHOR(S) ``AS IS'' AND ANY EXPRESS OR
++ * IMPLIED WARRANTIES, INCLUDING, BUT NOT LIMITED TO, THE IMPLIED WARRANTIES
++ * OF MERCHANTABILITY AND FITNESS FOR A PARTICULAR PURPOSE ARE DISCLAIMED.
++ * IN NO EVENT SHALL THE AUTHOR(S) BE LIABLE FOR ANY DIRECT, INDIRECT,
++ * INCIDENTAL, SPECIAL, EXEMPLARY, OR CONSEQUENTIAL DAMAGES (INCLUDING, BUT
++ * NOT LIMITED TO, PROCUREMENT OF SUBSTITUTE GOODS OR SERVICES; LOSS OF USE,
++ * DATA, OR PROFITS; OR BUSINESS INTERRUPTION) HOWEVER CAUSED AND ON ANY
++ * THEORY OF LIABILITY, WHETHER IN CONTRACT, STRICT LIABILITY, OR TORT
++ * (INCLUDING NEGLIGENCE OR OTHERWISE) ARISING IN ANY WAY OUT OF THE USE OF
++ * THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
++ *
++ */
++
++#include <sys/types.h>
++
++#include <dirent.h>
++#include <err.h>
++#include <pkg.h>
++#include <pkg_db.h>
++#include <pkg_freebsd.h>
++#include <stdlib.h>
++
++int
++main(int argc __unused, char *argv[] __unused)
++{
++	DIR *d;
++	struct dirent *de;
++
++	d = opendir("/var/db/pkg");
++	if (d == NULL) {
++		errx(1, "Could not open /var/db/pkg");
++	}
++
++	while((de = readdir(d)) != NULL) {
++		char *buf;
++		struct pkg_freebsd_contents *contents;
++		char file[FILENAME_MAX];
++		struct stat sb;
++		FILE *fd;
++
++		if (de->d_name[0] == '.')
++			continue;
++
++		if (de->d_type != DT_DIR)
++			continue;
++
++		printf("%s ", de->d_name);
++		snprintf(file, FILENAME_MAX, "/var/db/pkg/%s/+CONTENTS",
++		    de->d_name);
++
++		stat(file, &sb);
++		buf = malloc(sb.st_size);
++
++		fd = fopen(file, "r");
++		fread(buf, sb.st_size, 1, fd);
++		fclose(fd);
++
++		contents = pkg_freebsd_contents_new(buf, sb.st_size);
++		if (contents == NULL) {
++			printf("FAILED\n");
++		} else {
++			printf("Ok\n");
++		}
++		pkg_freebsd_contents_free(contents);
++		free(buf);
++	}
++
++	closedir(d);
++	return 0;
++}
+
+
+
+From zxombie at mail.berlios.de  Wed Feb 14 10:24:44 2007
+From: zxombie at mail.berlios.de (zxombie at BerliOS)
+Date: Wed, 14 Feb 2007 10:24:44 +0100
+Subject: [Libpkg-svn] r265 - trunk/tools/pkg_delete
+Message-ID: <200702140924.l1E9Oivn031460@sheep.berlios.de>
+
+Author: zxombie
+Date: 2007-02-14 10:24:43 +0100 (Wed, 14 Feb 2007)
+New Revision: 265
+
+Modified:
+   trunk/tools/pkg_delete/Makefile
+   trunk/tools/pkg_delete/run.sh
+Log:
+Add 2 new pkg_delete tests
+
+
+Modified: trunk/tools/pkg_delete/Makefile
+===================================================================
+--- trunk/tools/pkg_delete/Makefile	2007-02-14 08:53:08 UTC (rev 264)
++++ trunk/tools/pkg_delete/Makefile	2007-02-14 09:24:43 UTC (rev 265)
+@@ -19,7 +19,7 @@
+ 
+ .for run in libpkg cvs
+ . for type in mtree stdout stderr
+-.  for i in 1 2 3 4 5
++.  for i in 1 2 3 4 5 6 7
+ CLEANFILES	+= ${run}.${type}.${i}
+ .  endfor
+ . endfor
+
+Modified: trunk/tools/pkg_delete/run.sh
+===================================================================
+--- trunk/tools/pkg_delete/run.sh	2007-02-14 08:53:08 UTC (rev 264)
++++ trunk/tools/pkg_delete/run.sh	2007-02-14 09:24:43 UTC (rev 265)
+@@ -39,4 +39,18 @@
+ 	fi
+ 	pkg_delete -r libiconv-1.9.2_1
+ 	exit $?
++elif [ ${TESTNO} -eq 6 ] ; then
++	pkg_add ./${PACKAGE}.tbz
++	if [ $? -ne 0 ] ; then
++		exit 1
++	fi
++	pkg_delete -d ${PACKAGE}
++	exit $?
++elif [ ${TESTNO} -eq 7 ] ; then
++	pkg_add ./${PACKAGE}.tbz
++	if [ $? -ne 0 ] ; then
++		exit 1
++	fi
++	pkg_delete -rd libiconv-1.9.2_1
++	exit $?
+ fi
+
+
+
+From zxombie at mail.berlios.de  Wed Feb 14 10:25:39 2007
+From: zxombie at mail.berlios.de (zxombie at BerliOS)
+Date: Wed, 14 Feb 2007 10:25:39 +0100
+Subject: [Libpkg-svn] r266 - trunk/tools/pkg_delete
+Message-ID: <200702140925.l1E9PdUN031513@sheep.berlios.de>
+
+Author: zxombie
+Date: 2007-02-14 10:25:38 +0100 (Wed, 14 Feb 2007)
+New Revision: 266
+
+Modified:
+   trunk/tools/pkg_delete/main.c
+Log:
+Support the -d argument for pkg_delete
+
+
+Modified: trunk/tools/pkg_delete/main.c
+===================================================================
+--- trunk/tools/pkg_delete/main.c	2007-02-14 09:24:43 UTC (rev 265)
++++ trunk/tools/pkg_delete/main.c	2007-02-14 09:25:38 UTC (rev 266)
+@@ -72,7 +72,6 @@
+ 			break;
+ 		case 'd':
+ 			delete.flags |= remove_empty_dirs_flag;
+-			errx(1, "Unsupported argument");
+ 			break;
+ 		case 'D':
+ 			delete.flags |= no_run_script_flag;
+
+
+
+From zxombie at mail.berlios.de  Wed Feb 14 10:28:40 2007
+From: zxombie at mail.berlios.de (zxombie at BerliOS)
+Date: Wed, 14 Feb 2007 10:28:40 +0100
+Subject: [Libpkg-svn] r267 - trunk/tools/pkg_delete
+Message-ID: <200702140928.l1E9Seja031633@sheep.berlios.de>
+
+Author: zxombie
+Date: 2007-02-14 10:28:39 +0100 (Wed, 14 Feb 2007)
+New Revision: 267
+
+Modified:
+   trunk/tools/pkg_delete/test.sh
+Log:
+Merge in the pkg_add test script to the pkg_delete test script
+
+
+Modified: trunk/tools/pkg_delete/test.sh
+===================================================================
+--- trunk/tools/pkg_delete/test.sh	2007-02-14 09:25:38 UTC (rev 266)
++++ trunk/tools/pkg_delete/test.sh	2007-02-14 09:28:39 UTC (rev 267)
+@@ -2,21 +2,39 @@
+ 
+ . `dirname $0`/../test.sh
+ 
+-# Rins the tests for either the libpkg or cvs version of pkg_delete
++TEST_NO=$1
++shift
++
++TEST_MAX=7
++TOOL_NAME=pkg_delete
++
+ do_test() {
++	i=$1
++	RUN=$2
++	LIBPKG=$3
++
++	build_chroot
++	if [ "X$LIBPKG" != "X" ]; then
++		cp ${TOOL_NAME} ${BASE_DIR}/base/usr/sbin/${TOOL_NAME}
++	fi
++	chroot ${BASE_DIR}/base /run.sh ${PACKAGE} ${i} > ${RUN}.stdout.${i} 2> ${RUN}.stderr.${i}
++	# Get the mtree file to use to compare the filesystems
++	mtree -c -p ${BASE_DIR}/base | grep -v "^\#[[:space:]]*date:" | sed "s/time=[^ ]*//" | grep -v "^[ ]*${TOOL_NAME}[^\.]" > ${RUN}.mtree.${i}
++	# Create a tarball of the important dir's to compare later
++	rm ${BASE_DIR}/${RUN}-${i}.tar
++	tar -cf ${BASE_DIR}/${RUN}-${i}.tar ${BASE_DIR}/base/var/db/pkg ${BASE_DIR}/base/usr/local ${BASE_DIR}/base/usr/pkg
++	# Cleanup the package directories
++	rm -fr ${BASE_DIR}/base/var/db/pkg ${BASE_DIR}/base/usr/local ${BASE_DIR}/base/usr/pkg
++}
++
++# Runs the tests for either the libpkg or cvs version of pkg_delete
++do_tests() {
+ 	RUN=$1
++	LIBPKG=$2
+ 
+ 	i=1
+-	while [ $i -le 5 ] ; do
+-		chroot ${BASE_DIR}/base /run.sh ${PACKAGE} ${i} > ${RUN}.stdout.${i} 2> ${RUN}.stderr.${i}
+-		# Get the mtree file to use to compare the filesystems
+-		mtree -c -p ${BASE_DIR}/base | grep -v "^\#[[:space:]]*date:" | sed "s/time=[^ ]*//" | grep -v "^[ ]*pkg_delete" > ${RUN}.mtree.${i}
+-		# Create a tarball of the important dir's to compare later
+-		rm ${BASE_DIR}/${RUN}-${i}.tar
+-		tar -cf ${BASE_DIR}/${RUN}-${i}.tar ${BASE_DIR}/base/var/db/pkg ${BASE_DIR}/base/usr/local
+-		# Cleanup the package directories
+-		rm -fr ${BASE_DIR}/base/var/db/pkg ${BASE_DIR}/base/usr/local
+-
++	while [ $i -le $TEST_MAX ] ; do
++		do_test $i $RUN $LIBPKG
+ 		i=$((i+1))
+ 	done
+ }
+@@ -24,15 +42,17 @@
+ # Runs the test
+ run_test() {
+ 
+-	# Get the reference data from the FreeBSD cvs pkg_delete
+-	build_chroot
+-	do_test cvs
++	build_tool
+ 
+-	# Get the test data from out pkg_delete
+-	build_chroot
+-	build_tool
+-	cp pkg_delete ${BASE_DIR}/base/usr/sbin/pkg_delete
+-	do_test libpkg
++	if [ "X${TEST_NO}" != "X" ] ; then
++		do_test $TEST_NO cvs
++		do_test $TEST_NO libpkg true
++	else
++		# Get the reference data from the FreeBSD cvs pkg_delete
++		do_tests cvs
++		# Get the test data from out pkg_delete
++		do_tests libpkg true
++	fi
+ }
+ 
+ CWD=`pwd`
+
+
+
+From zxombie at mail.berlios.de  Wed Feb 14 10:55:48 2007
+From: zxombie at mail.berlios.de (zxombie at BerliOS)
+Date: Wed, 14 Feb 2007 10:55:48 +0100
+Subject: [Libpkg-svn] r268 - trunk/tools/pkg_add
+Message-ID: <200702140955.l1E9tm1o000249@sheep.berlios.de>
+
+Author: zxombie
+Date: 2007-02-14 10:55:48 +0100 (Wed, 14 Feb 2007)
+New Revision: 268
+
+Modified:
+   trunk/tools/pkg_add/test.sh
+Log:
+Update the pkg_add test script
+
+
+Modified: trunk/tools/pkg_add/test.sh
+===================================================================
+--- trunk/tools/pkg_add/test.sh	2007-02-14 09:28:39 UTC (rev 267)
++++ trunk/tools/pkg_add/test.sh	2007-02-14 09:55:48 UTC (rev 268)
+@@ -5,6 +5,9 @@
+ TEST_NO=$1
+ shift
+ 
++TEST_MAX=9
++TOOL_NAME=pkg_add
++
+ do_test() {
+ 	i=$1
+ 	RUN=$2
+@@ -12,11 +15,11 @@
+ 
+ 	build_chroot
+ 	if [ "X$LIBPKG" != "X" ]; then
+-		cp pkg_add ${BASE_DIR}/base/usr/sbin/pkg_add
++		cp ${TOOL_NAME} ${BASE_DIR}/base/usr/sbin/${TOOL_NAME}
+ 	fi
+ 	chroot ${BASE_DIR}/base /run.sh ${PACKAGE} ${i} > ${RUN}.stdout.${i} 2> ${RUN}.stderr.${i}
+ 	# Get the mtree file to use to compare the filesystems
+-	mtree -c -p ${BASE_DIR}/base | grep -v "^\#[[:space:]]*date:" | sed "s/time=[^ ]*//" | grep -v "^[ ]*pkg_add[^\.]" > ${RUN}.mtree.${i}
++	mtree -c -p ${BASE_DIR}/base | grep -v "^\#[[:space:]]*date:" | sed "s/time=[^ ]*//" | grep -v "^[ ]*${TOOL_NAME}[^\.]" > ${RUN}.mtree.${i}
+ 	# Create a tarball of the important dir's to compare later
+ 	rm ${BASE_DIR}/${RUN}-${i}.tar
+ 	tar -cf ${BASE_DIR}/${RUN}-${i}.tar ${BASE_DIR}/base/var/db/pkg ${BASE_DIR}/base/usr/local ${BASE_DIR}/base/usr/pkg
+@@ -24,13 +27,13 @@
+ 	rm -fr ${BASE_DIR}/base/var/db/pkg ${BASE_DIR}/base/usr/local ${BASE_DIR}/base/usr/pkg
+ }
+ 
+-# Rins the tests for either the libpkg or cvs version of pkg_add
++# Runs the tests for either the libpkg or cvs version of pkg_add
+ do_tests() {
+ 	RUN=$1
+ 	LIBPKG=$2
+ 
+ 	i=1
+-	while [ $i -le 9 ] ; do
++	while [ $i -le $TEST_MAX ] ; do
+ 		do_test $i $RUN $LIBPKG
+ 		i=$((i+1))
+ 	done
+
+
+
+From zxombie at mail.berlios.de  Wed Feb 14 10:56:56 2007
+From: zxombie at mail.berlios.de (zxombie at BerliOS)
+Date: Wed, 14 Feb 2007 10:56:56 +0100
+Subject: [Libpkg-svn] r269 - trunk/src
+Message-ID: <200702140956.l1E9uuXU000354@sheep.berlios.de>
+
+Author: zxombie
+Date: 2007-02-14 10:56:56 +0100 (Wed, 14 Feb 2007)
+New Revision: 269
+
+Modified:
+   trunk/src/pkg_freebsd_contents.c
+Log:
+Allow files to have a space in them
+
+
+Modified: trunk/src/pkg_freebsd_contents.c
+===================================================================
+--- trunk/src/pkg_freebsd_contents.c	2007-02-14 09:55:48 UTC (rev 268)
++++ trunk/src/pkg_freebsd_contents.c	2007-02-14 09:56:56 UTC (rev 269)
+@@ -150,6 +150,12 @@
+ 		while (pos < cont->line_count) {
+ 			char *space;
+ 
++			if (cont->lines[pos].line[0] != '@') {
++				cont->lines[pos].line_type = PKG_LINE_FILE;
++				assert(cont->lines[pos].data == NULL);
++				pos++;
++				continue;
++			}
+ 			space = strchr(cont->lines[pos].line, ' ');
+ 			if (space && space[0] != '\0') {
+ 				space[0] = '\0';
+@@ -159,10 +165,7 @@
+ 			}
+ 
+ 			/* Get the correct line type for the line */
+-			if (cont->lines[pos].line[0] != '@') {
+-				cont->lines[pos].line_type = PKG_LINE_FILE;
+-				assert(cont->lines[pos].data == NULL);
+-			} else if (!strcmp(cont->lines[pos].line, "@comment")) {
++			if (!strcmp(cont->lines[pos].line, "@comment")) {
+ 				cont->lines[pos].line_type = PKG_LINE_COMMENT;
+ 			} else if (!strcmp(cont->lines[pos].line, "@name")) {
+ 				cont->lines[pos].line_type = PKG_LINE_NAME;
+
+
+
+From zxombie at mail.berlios.de  Wed Feb 14 22:41:47 2007
+From: zxombie at mail.berlios.de (zxombie at BerliOS)
+Date: Wed, 14 Feb 2007 22:41:47 +0100
+Subject: [Libpkg-svn] r270 - tags
+Message-ID: <200702142141.l1ELflHN010855@sheep.berlios.de>
+
+Author: zxombie
+Date: 2007-02-14 22:41:47 +0100 (Wed, 14 Feb 2007)
+New Revision: 270
+
+Added:
+   tags/libpkg-0.1.20070215/
+Log:
+Tag the 0.1.20070215 release
+
+Copied: tags/libpkg-0.1.20070215 (from rev 269, trunk)
+
+
+
+From zxombie at mail.berlios.de  Thu Feb 15 01:08:29 2007
+From: zxombie at mail.berlios.de (zxombie at BerliOS)
+Date: Thu, 15 Feb 2007 01:08:29 +0100
+Subject: [Libpkg-svn] r271 - www
+Message-ID: <200702150008.l1F08TT4013101@sheep.berlios.de>
+
+Author: zxombie
+Date: 2007-02-15 01:08:22 +0100 (Thu, 15 Feb 2007)
+New Revision: 271
+
+Modified:
+   www/docs.xml
+Log:
+Update the document links
+
+
+Modified: www/docs.xml
+===================================================================
+--- www/docs.xml	2007-02-14 21:41:47 UTC (rev 270)
++++ www/docs.xml	2007-02-15 00:08:22 UTC (rev 271)
+@@ -8,6 +8,10 @@
+    <p><a href="doc/trunk/html/index.html">API documentation</a></p>
+   </div>
+   <div>
++   <h2>0.1.20070215</h2>
++   <p><a href="doc/0.1.20070215/html/index.html">API documentation</a></p>
++  </div>
++  <div>
+    <h2>0.1.20060714</h2>
+    <p><a href="doc/0.1.20060714/html/index.html">API documentation</a></p>
+   </div>
+
+
+

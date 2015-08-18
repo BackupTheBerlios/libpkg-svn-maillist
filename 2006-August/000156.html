@@ -1,0 +1,218 @@
+<!DOCTYPE HTML PUBLIC "-//W3C//DTD HTML 4.01 Transitional//EN">
+<HTML>
+ <HEAD>
+   <TITLE> [Libpkg-svn] r172 - in trunk: src tools/pkg_add
+   </TITLE>
+   <LINK REL="Index" HREF="http://lists.berlios.de/pipermail/libpkg-svn/2006-August/index.html" >
+   <LINK REL="made" HREF="mailto:libpkg-svn%40lists.berlios.de?Subject=Re%3A%20%5BLibpkg-svn%5D%20r172%20-%20in%20trunk%3A%20src%20tools/pkg_add&In-Reply-To=%3C200608011041.k71AfCuP001877%40sheep.berlios.de%3E">
+   <META NAME="robots" CONTENT="index,nofollow">
+   <style type="text/css">
+       pre {
+           white-space: pre-wrap;       /* css-2.1, curent FF, Opera, Safari */
+           }
+   </style>
+   <META http-equiv="Content-Type" content="text/html; charset=us-ascii">
+   
+   <LINK REL="Next"  HREF="000157.html">
+ </HEAD>
+ <BODY BGCOLOR="#ffffff">
+   <H1>[Libpkg-svn] r172 - in trunk: src tools/pkg_add</H1>
+    <B>zxombie at BerliOS</B> 
+    <A HREF="mailto:libpkg-svn%40lists.berlios.de?Subject=Re%3A%20%5BLibpkg-svn%5D%20r172%20-%20in%20trunk%3A%20src%20tools/pkg_add&In-Reply-To=%3C200608011041.k71AfCuP001877%40sheep.berlios.de%3E"
+       TITLE="[Libpkg-svn] r172 - in trunk: src tools/pkg_add">zxombie at mail.berlios.de
+       </A><BR>
+    <I>Tue Aug  1 12:41:12 CEST 2006</I>
+    <P><UL>
+        
+        <LI>Next message: <A HREF="000157.html">[Libpkg-svn] r173 - in trunk: src tools/pkg_info
+</A></li>
+         <LI> <B>Messages sorted by:</B> 
+              <a href="date.html#156">[ date ]</a>
+              <a href="thread.html#156">[ thread ]</a>
+              <a href="subject.html#156">[ subject ]</a>
+              <a href="author.html#156">[ author ]</a>
+         </LI>
+       </UL>
+    <HR>  
+<!--beginarticle-->
+<PRE>Author: zxombie
+Date: 2006-08-01 12:41:05 +0200 (Tue, 01 Aug 2006)
+New Revision: 172
+
+Modified:
+   trunk/src/pkg_db.c
+   trunk/src/pkg_db.h
+   trunk/src/pkg_db_freebsd.c
+   trunk/src/pkg_db_private.h
+   trunk/tools/pkg_add/main.c
+Log:
+Allow for the pre/post script to be conditionally run
+Use this to implement pkg_add -I
+
+
+Modified: trunk/src/pkg_db.c
+===================================================================
+--- trunk/src/pkg_db.c	2006-07-31 06:17:03 UTC (rev 171)
++++ trunk/src/pkg_db.c	2006-08-01 10:41:05 UTC (rev 172)
+@@ -135,9 +135,9 @@
+  */
+ int
+ pkg_db_install_pkg(struct pkg_db *db, struct pkg *pkg, const char *prefix,
+-	int reg)
++	int reg, int scripts)
+ {
+-	return pkg_db_install_pkg_action(db, pkg, prefix, reg, 0, NULL);
++	return pkg_db_install_pkg_action(db, pkg, prefix, reg, scripts, 0,NULL);
+ }
+ 
+ /**
+@@ -153,7 +153,7 @@
+  */
+ int
+ pkg_db_install_pkg_action(struct pkg_db *db, struct pkg *pkg,
+-    const char *prefix, int reg, int fake, pkg_db_action *action)
++    const char *prefix, int reg, int scripts, int fake, pkg_db_action *action)
+ {
+ 	if (!db) {
+ 		return -1;
+@@ -170,7 +170,7 @@
+ 	if (action == NULL)
+ 		action = pkg_action_null;
+ 
+-	return db-&gt;pkg_install(db, pkg, prefix, reg, fake, action);
++	return db-&gt;pkg_install(db, pkg, prefix, reg, scripts, fake, action);
+ }
+ 
+ /**
+
+Modified: trunk/src/pkg_db.h
+===================================================================
+--- trunk/src/pkg_db.h	2006-07-31 06:17:03 UTC (rev 171)
++++ trunk/src/pkg_db.h	2006-08-01 10:41:05 UTC (rev 172)
+@@ -49,9 +49,9 @@
+ 
+ struct pkg_db	 *pkg_db_open_freebsd(const char *);
+ int		  pkg_db_install_pkg(struct pkg_db *, struct pkg *,
+-			const char *, int);
++			const char *, int, int);
+ int		  pkg_db_install_pkg_action(struct pkg_db *, struct pkg *,
+-			const char *, int, int, pkg_db_action *);
++			const char *, int, int, int, pkg_db_action *);
+ int		  pkg_db_is_installed(struct pkg_db *, struct pkg *);
+ struct pkg	**pkg_db_get_installed(struct pkg_db *);
+ struct pkg	**pkg_db_get_installed_match(struct pkg_db *, pkg_db_match *,
+
+Modified: trunk/src/pkg_db_freebsd.c
+===================================================================
+--- trunk/src/pkg_db_freebsd.c	2006-07-31 06:17:03 UTC (rev 171)
++++ trunk/src/pkg_db_freebsd.c	2006-08-01 10:41:05 UTC (rev 172)
+@@ -70,7 +70,7 @@
+ };
+ 
+ pkg_static int		  freebsd_install_pkg_action(struct pkg_db *,
+-				struct pkg *, const char *, int, int,
++				struct pkg *, const char *, int, int, int,
+ 				pkg_db_action *);
+ pkg_static int		  freebsd_is_installed(struct pkg_db *, struct pkg *);
+ pkg_static struct pkg	**freebsd_get_installed_match(struct pkg_db *,
+@@ -136,7 +136,8 @@
+  */
+ static int
+ freebsd_install_pkg_action(struct pkg_db *db, struct pkg *pkg,
+-    const char *prefix, int reg, int fake, pkg_db_action *pkg_action)
++    const char *prefix, int reg, int scripts, int fake,
++    pkg_db_action *pkg_action)
+ {
+ 	struct pkg_install_data install_data;
+ 	char cwd[MAXPATHLEN];
+@@ -175,7 +176,7 @@
+ 	pkg_action(PKG_DB_INFO, &quot;Running pre-install for %s..&quot;,
+ 	    pkg_get_name(pkg));
+ 
+-	if (!fake)
++	if (!fake &amp;&amp; scripts)
+ 		pkg_run_script(pkg, prefix, pkg_script_pre);
+ 
+ 	/* Do the Install */
+@@ -199,7 +200,7 @@
+ 	pkg_action(PKG_DB_INFO, &quot;Running post-install for %s..&quot;,
+ 	    pkg_get_name(pkg));
+ 
+-	if (!fake)
++	if (!fake &amp;&amp; scripts)
+ 		pkg_run_script(pkg, prefix, pkg_script_post);
+ 
+ 	/** @todo Display contents of \@display */
+
+Modified: trunk/src/pkg_db_private.h
+===================================================================
+--- trunk/src/pkg_db_private.h	2006-07-31 06:17:03 UTC (rev 171)
++++ trunk/src/pkg_db_private.h	2006-08-01 10:41:05 UTC (rev 172)
+@@ -31,7 +31,7 @@
+ #define __LIBPKG_PKG_DB_PRIVATE_H__
+ 
+ typedef int	 pkg_db_install_pkg_callback(struct pkg_db *, struct pkg *, 
+-			const char *, int, int, pkg_db_action *);
++			const char *, int, int, int, pkg_db_action *);
+ typedef int 	 pkg_db_is_installed_callback(struct pkg_db *, struct pkg *);
+ typedef struct pkg	 *pkg_db_get_package_callback(struct pkg_db *,
+ 				const char *);
+
+Modified: trunk/tools/pkg_add/main.c
+===================================================================
+--- trunk/tools/pkg_add/main.c	2006-07-31 06:17:03 UTC (rev 171)
++++ trunk/tools/pkg_add/main.c	2006-08-01 10:41:05 UTC (rev 172)
+@@ -79,7 +79,6 @@
+ 	add.prefix = NULL;
+ 	while ((ch = getopt(argc, argv, options)) != -1) {
+ 		switch(ch) {
+-		/* Case statements marked TODO will be supported in the next release */
+ 		case 'C':
+ 			strlcpy(add.chroot, optarg, PATH_MAX);
+ 			break;
+@@ -88,7 +87,6 @@
+ 			break;
+ 		case 'I':
+ 			add.flags |= no_run_script_flag;
+-			errx(1, &quot;Unsupported argument&quot;);
+ 			break;
+ 		case 'K':
+ 			/* Save the package file in . or ${PKGDIR} */
+@@ -311,10 +309,12 @@
+ 		printf(&quot;extract: Package name is %s\n&quot;, pkg_get_name(pkg));
+ 		ret = pkg_db_install_pkg_action(db, pkg, base_prefix,
+ 		    ((flags &amp; no_record_install_flag)!= no_record_install_flag),
+-		    ((flags &amp; no_run_flag) == no_run_flag), pkg_action);
++		    ((flags &amp; no_run_script_flag) == no_run_script_flag),
++		    ((flags &amp; no_run_flag) != no_run_flag), pkg_action);
+ 	} else if ((flags &amp; no_run_flag) == 0) {
+ 		ret = pkg_db_install_pkg(db, pkg, base_prefix,
+-		    ((flags &amp; no_record_install_flag)!=no_record_install_flag));
++		    ((flags &amp; no_record_install_flag)!=no_record_install_flag),
++		    ((flags &amp; no_run_script_flag) != no_run_script_flag));
+ 	}
+ 	/*
+ 	 * Insert the installed package in a linked
+
+
+</PRE>
+
+<!--endarticle-->
+    <HR>
+    <P><UL>
+        <!--threads-->
+	
+	<LI>Next message: <A HREF="000157.html">[Libpkg-svn] r173 - in trunk: src tools/pkg_info
+</A></li>
+         <LI> <B>Messages sorted by:</B> 
+              <a href="date.html#156">[ date ]</a>
+              <a href="thread.html#156">[ thread ]</a>
+              <a href="subject.html#156">[ subject ]</a>
+              <a href="author.html#156">[ author ]</a>
+         </LI>
+       </UL>
+
+<hr>
+<a href="https://lists.berlios.de/mailman/listinfo/libpkg-svn">More information about the Libpkg-svn
+mailing list</a><br>
+</body></html>

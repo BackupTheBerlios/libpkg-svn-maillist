@@ -1,0 +1,103 @@
+<!DOCTYPE HTML PUBLIC "-//W3C//DTD HTML 4.01 Transitional//EN">
+<HTML>
+ <HEAD>
+   <TITLE> [Libpkg-svn] r213 - trunk/src
+   </TITLE>
+   <LINK REL="Index" HREF="http://lists.berlios.de/pipermail/libpkg-svn/2006-October/index.html" >
+   <LINK REL="made" HREF="mailto:libpkg-svn%40lists.berlios.de?Subject=Re%3A%20%5BLibpkg-svn%5D%20r213%20-%20trunk/src&In-Reply-To=%3C200610270541.k9R5fxCI005625%40sheep.berlios.de%3E">
+   <META NAME="robots" CONTENT="index,nofollow">
+   <style type="text/css">
+       pre {
+           white-space: pre-wrap;       /* css-2.1, curent FF, Opera, Safari */
+           }
+   </style>
+   <META http-equiv="Content-Type" content="text/html; charset=us-ascii">
+   <LINK REL="Previous"  HREF="000196.html">
+   <LINK REL="Next"  HREF="000198.html">
+ </HEAD>
+ <BODY BGCOLOR="#ffffff">
+   <H1>[Libpkg-svn] r213 - trunk/src</H1>
+    <B>zxombie at BerliOS</B> 
+    <A HREF="mailto:libpkg-svn%40lists.berlios.de?Subject=Re%3A%20%5BLibpkg-svn%5D%20r213%20-%20trunk/src&In-Reply-To=%3C200610270541.k9R5fxCI005625%40sheep.berlios.de%3E"
+       TITLE="[Libpkg-svn] r213 - trunk/src">zxombie at mail.berlios.de
+       </A><BR>
+    <I>Fri Oct 27 07:41:59 CEST 2006</I>
+    <P><UL>
+        <LI>Previous message: <A HREF="000196.html">[Libpkg-svn] r212 - trunk/src
+</A></li>
+        <LI>Next message: <A HREF="000198.html">[Libpkg-svn] r214 - trunk/src
+</A></li>
+         <LI> <B>Messages sorted by:</B> 
+              <a href="date.html#197">[ date ]</a>
+              <a href="thread.html#197">[ thread ]</a>
+              <a href="subject.html#197">[ subject ]</a>
+              <a href="author.html#197">[ author ]</a>
+         </LI>
+       </UL>
+    <HR>  
+<!--beginarticle-->
+<PRE>Author: zxombie
+Date: 2006-10-27 07:41:59 +0200 (Fri, 27 Oct 2006)
+New Revision: 213
+
+Modified:
+   trunk/src/pkg_db_freebsd.c
+Log:
+Call pkg_action in freebsd_deinstall_file
+
+
+Modified: trunk/src/pkg_db_freebsd.c
+===================================================================
+--- trunk/src/pkg_db_freebsd.c	2006-10-27 05:32:49 UTC (rev 212)
++++ trunk/src/pkg_db_freebsd.c	2006-10-27 05:41:59 UTC (rev 213)
+@@ -575,10 +575,25 @@
+  * @return -1 on error
+  */
+ static int
+-freebsd_deinstall_file(struct pkg *pkg __unused, pkg_db_action *pkg_action __unused, void *data __unused,
++freebsd_deinstall_file(struct pkg *pkg __unused, pkg_db_action *pkg_action, void *data __unused,
+ 	struct pkgfile *file)
+ {
++	const char *file_name;
++
+ 	assert(file != NULL);
++
++	file_name = pkgfile_get_name(file);
++	if (file_name[0] == '/') {
++		/* We have an absolute file */
++		pkg_action(PKG_DB_PACKAGE, &quot;Delete %s %s&quot;,
++		    pkgfile_get_type_string(file), file_name);
++	} else {
++		char dir[FILENAME_MAX];
++
++		getcwd(dir, FILENAME_MAX);
++		pkg_action(PKG_DB_PACKAGE, &quot;Delete %s %s/%s&quot;,
++		    pkgfile_get_type_string(file), dir, file_name);
++	}
+ 	return pkgfile_unlink(file);
+ }
+ /**
+
+
+</PRE>
+
+<!--endarticle-->
+    <HR>
+    <P><UL>
+        <!--threads-->
+	<LI>Previous message: <A HREF="000196.html">[Libpkg-svn] r212 - trunk/src
+</A></li>
+	<LI>Next message: <A HREF="000198.html">[Libpkg-svn] r214 - trunk/src
+</A></li>
+         <LI> <B>Messages sorted by:</B> 
+              <a href="date.html#197">[ date ]</a>
+              <a href="thread.html#197">[ thread ]</a>
+              <a href="subject.html#197">[ subject ]</a>
+              <a href="author.html#197">[ author ]</a>
+         </LI>
+       </UL>
+
+<hr>
+<a href="https://lists.berlios.de/mailman/listinfo/libpkg-svn">More information about the Libpkg-svn
+mailing list</a><br>
+</body></html>

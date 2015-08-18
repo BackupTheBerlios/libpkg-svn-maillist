@@ -1,0 +1,3229 @@
+From zxombie at mail.berlios.de  Fri Sep  1 04:38:05 2006
+From: zxombie at mail.berlios.de (zxombie at BerliOS)
+Date: Fri, 1 Sep 2006 04:38:05 +0200
+Subject: [Libpkg-svn] r183 - trunk/src
+Message-ID: <200609010238.k812c534006421@sheep.berlios.de>
+
+Author: zxombie
+Date: 2006-09-01 04:37:54 +0200 (Fri, 01 Sep 2006)
+New Revision: 183
+
+Modified:
+   trunk/src/pkgfile.c
+Log:
+Set the file length on more file types
+Return the length of a directory's name in pkgfile_get_size
+Return the directory's name in pkgfie_get_data
+Fix a bug where if a file's parent directories needed to be created checks against the file would not be taken. This removes a race between creating the directories and creating the file.
+Create a directory in pkgfile_write
+
+
+Modified: trunk/src/pkgfile.c
+===================================================================
+--- trunk/src/pkgfile.c	2006-08-31 06:19:11 UTC (rev 182)
++++ trunk/src/pkgfile.c	2006-09-01 02:37:54 UTC (rev 183)
+@@ -233,6 +233,7 @@
+ 	if (pkgfile == NULL)
+ 		return NULL;
+ 
++	pkgfile->length = strlen(data);
+ 	pkgfile->data = strdup(data);
+ 	if (pkgfile->data == NULL) {
+ 		pkgfile_free(pkgfile);
+@@ -258,6 +259,7 @@
+ 	if (pkgfile == NULL)
+ 		return NULL;
+ 
++	pkgfile->length = strlen(other_file);
+ 	pkgfile->data = strdup(other_file);
+ 	if (pkgfile->data == NULL) {
+ 		pkgfile_free(pkgfile);
+@@ -283,12 +285,6 @@
+ 	if (file == NULL)
+ 		return NULL;
+ 
+-	file->data = strdup(dir);
+-	if (file->data == NULL) {
+-		pkgfile_free(file);
+-		return NULL;
+-	}
+-
+ 	return file;
+ }
+ 
+@@ -318,11 +314,14 @@
+ 		pkgfile_open_fd(file);
+ 
+ 	assert(file->type != pkgfile_none);
+-	assert(file->type != pkgfile_dir);
+ 
+ 	switch (file->type) {
+ 		case pkgfile_none:
++			break;
+ 		case pkgfile_dir:
++			if (file->length == 0)
++				file->length = strlen(file->name);
++			return file->length;
+ 			break;
+ 		case pkgfile_hardlink:
+ 			assert(file->loc == pkgfile_loc_mem);
+@@ -365,12 +364,12 @@
+ 		pkgfile_open_fd(file);
+ 
+ 	assert(file->type != pkgfile_none);
+-	assert(file->type != pkgfile_dir);
+ 
+ 	switch (file->type) {
+ 	case pkgfile_none:
++		break;
+ 	case pkgfile_dir:
+-		break;
++		return file->name;
+ 	case pkgfile_hardlink:
+ 		assert(file->loc == pkgfile_loc_mem);
+ 		if (file->loc == pkgfile_loc_mem) {
+@@ -409,7 +408,7 @@
+ int
+ pkgfile_set_checksum_md5(struct pkgfile *file, const char *md5)
+ {
+-	if (file == NULL || md5 == NULL)
++	if (file == NULL || md5 == NULL || strlen(md5) != 32)
+ 		return -1;
+ 
+ 	strlcpy(file->md5, md5, 33);
+@@ -600,7 +599,6 @@
+ 		pkgfile_open_fd(file);
+ 
+ 	assert(file->type != pkgfile_none);
+-	assert(file->type != pkgfile_dir);
+ 
+ 	switch (file->type) {
+ 	case pkgfile_none:
+@@ -629,7 +627,8 @@
+ 					return -1;
+ 				}
+ 				/* We created the file */
+-			} else if (fstat(fileno(fd), &sb) != 0) {
++			}
++			if (fstat(fileno(fd), &sb) != 0) {
+ 				/* And fstat can find it */
+ 				fclose(fd);
+ 				return -1;
+@@ -646,8 +645,7 @@
+ 				fclose(fd);
+ 				return -1;
+ 			}
+-			if (file->data == NULL) {
+-			} else {
++			if (file->data != NULL) {
+ 				/* We can now write to the file */
+ 				buf = file->data;
+ 
+@@ -678,7 +676,13 @@
+ 			return -1;
+ 		break;
+ 	case pkgfile_dir:
+-		return -1;
++#define DEF_MODE (S_IRWXU|S_IRGRP|S_IXGRP|S_IROTH|S_IXOTH)
++		if (mkdir(file->name,
++		    (file->mode == 0 ? DEF_MODE : file->mode)) != 0) {
++			return -1;
++		}
++#undef DEF_MODE
++		break;
+ 	}
+ 
+ 	return 0;
+
+
+
+From zxombie at mail.berlios.de  Fri Sep  1 04:44:21 2006
+From: zxombie at mail.berlios.de (zxombie at BerliOS)
+Date: Fri, 1 Sep 2006 04:44:21 +0200
+Subject: [Libpkg-svn] r184 - trunk/tests
+Message-ID: <200609010244.k812iLa2007674@sheep.berlios.de>
+
+Author: zxombie
+Date: 2006-09-01 04:44:18 +0200 (Fri, 01 Sep 2006)
+New Revision: 184
+
+Modified:
+   trunk/tests/pkgfile.c
+Log:
+Add tests for directories and hardlinks
+Test pkgfile_write fails when used twice
+
+
+Modified: trunk/tests/pkgfile.c
+===================================================================
+--- trunk/tests/pkgfile.c	2006-09-01 02:37:54 UTC (rev 183)
++++ trunk/tests/pkgfile.c	2006-09-01 02:44:18 UTC (rev 184)
+@@ -31,9 +31,12 @@
+ 
+ 	fail_unless(pkgfile_get_size(file) == 0, NULL);
+ 	fail_unless(pkgfile_get_data(file) == NULL, NULL);
++
+ 	/* The md5 of an empty string is d41d8cd98f00b204e9800998ecf8427e */
+ 	fail_unless(pkgfile_set_checksum_md5(file,
+ 		"d41d8cd98f00b204e9800998ecf8427e") == 0, NULL);
++	fail_unless(strcmp(file->md5, "d41d8cd98f00b204e9800998ecf8427e") == 0,
++	    NULL);
+ 	fail_unless(pkgfile_compare_checksum_md5(file) == 0, NULL);
+ 
+ 	SETUP_TESTDIR();
+@@ -104,8 +107,12 @@
+ 
+ 	/* Check this fails with bad data */
+ 	fail_unless(pkgfile_set_checksum_md5(file, "") == -1, NULL);
++	fail_unless(strcmp(file->md5, "781e5e245d69b566979b86e28d23f2c7") == 0,
++		NULL);
+ 	fail_unless(pkgfile_set_checksum_md5(file,
+ 	    "123456789012345678901234567890123") == -1, NULL);
++	fail_unless(strcmp(file->md5, "781e5e245d69b566979b86e28d23f2c7") == 0,
++		NULL);
+ 	
+ 	fail_unless(pkgfile_set_checksum_md5(file,
+ 		"12345678901234567890123456789012") == 0, NULL);
+@@ -115,10 +122,14 @@
+ 
+ 	SETUP_TESTDIR();
+ 	fail_unless(pkgfile_write(file) == 0, NULL);
++	fail_unless(pkgfile_write(file) == -1, NULL);
++	/* Attempting to over write a file should fail */
++	fail_unless(pkgfile_write(file) == -1, NULL);
+ 	fail_unless((fd = fopen("testdir/Foo2", "r")) != NULL, NULL);
+ 	fstat(fileno(fd), &sb);
+ 	fail_unless(S_ISREG(sb.st_mode), NULL);
+ 	fail_unless(sb.st_size == 10, "Created file size is not 10");
++	fail_unless(sb.st_nlink == 1, NULL);
+ 	/* XXX Check the file contents are correct */
+ 	fclose(fd);
+ 	system("rm testdir/Foo2");
+@@ -195,6 +206,50 @@
+ }
+ END_TEST
+ 
++START_TEST(pkgfile_hardlink_test)
++{
++	struct pkgfile *file;
++	struct stat sb;
++
++	fail_unless((file = pkgfile_new_hardlink("testdir/Foo", "testdir/Bar"))
++	    != NULL, NULL);
++	fail_unless(file->type == pkgfile_hardlink, NULL);
++	fail_unless(file->loc == pkgfile_loc_mem, NULL);
++	fail_unless(file->fd == NULL, NULL);
++	fail_unless(file->mode == 0, NULL);
++	fail_unless(file->md5[0] == '\0', NULL);
++
++	/* Test the file length */
++	fail_unless(pkgfile_get_size(file) == 11, NULL);
++	fail_unless(file->length == 11, NULL);
++
++	/* Test the data */
++	fail_unless(pkgfile_get_data(file) != NULL, NULL);
++	fail_unless(strcmp(pkgfile_get_data(file), "testdir/Bar") == 0, NULL);
++	fail_unless(strcmp(file->data, "testdir/Bar") == 0, NULL);
++
++	SETUP_TESTDIR();
++	system("touch testdir/Bar");	
++	/*
++	 * pkgfile_compare_checksum_md5 will compare
++	 * against the file pointed to by the hardlink
++	 */
++	fail_unless(pkgfile_set_checksum_md5(file,
++		"d41d8cd98f00b204e9800998ecf8427e") == 0, NULL);
++	fail_unless(pkgfile_compare_checksum_md5(file) == 0, NULL);
++
++	fail_unless(pkgfile_write(file) == 0, NULL);
++	fail_unless(stat("testdir/Foo", &sb) == 0, NULL);
++	fail_unless(S_ISREG(sb.st_mode), NULL);
++	fail_unless(sb.st_nlink == 2, NULL);
++	system("rm testdir/Foo");
++	system("rm testdir/Bar");
++	CLEANUP_TESTDIR();
++
++	fail_unless(pkgfile_free(file) == 0, NULL);
++}
++END_TEST
++
+ /* Tests on creating a directory from a buffer */
+ START_TEST(pkgfile_directory_bad_test)
+ {
+@@ -203,6 +258,39 @@
+ }
+ END_TEST
+ 
++START_TEST(pkgfile_directory_test)
++{
++	struct pkgfile *file;
++	struct stat sb;
++
++	fail_unless((file = pkgfile_new_directory("testdir/newdir")) != NULL,
++	    NULL);
++	fail_unless(file->type == pkgfile_dir, NULL);
++	fail_unless(file->loc == pkgfile_loc_mem, NULL);
++	fail_unless(file->data == NULL, NULL);
++	fail_unless(file->fd == NULL, NULL);
++	fail_unless(file->mode == 0, NULL);
++	fail_unless(file->md5[0] == '\0', NULL);
++
++	/* Test the file length */
++	fail_unless(pkgfile_get_size(file) == 14, NULL);
++	fail_unless(file->length == 14, NULL);
++
++	/* Test the data */
++	fail_unless(pkgfile_get_data(file) != NULL, NULL);
++	fail_unless(strcmp(pkgfile_get_data(file), "testdir/newdir") ==0, NULL);
++
++	SETUP_TESTDIR();
++	fail_unless(pkgfile_write(file) == 0, NULL);
++	fail_unless(pkgfile_write(file) == -1, NULL);
++	fail_unless(stat("testdir/newdir", &sb) == 0, NULL);
++	fail_unless(S_ISDIR(sb.st_mode), NULL);
++	system("rmdir testdir/newdir");
++	CLEANUP_TESTDIR();
++	fail_unless(pkgfile_free(file) == 0, NULL);
++}
++END_TEST
++
+ Suite *
+ pkgfile_suite()
+ {
+@@ -228,8 +316,10 @@
+ 	tcase_add_test(tc_symlink, pkgfile_symlink_good_test);
+ 
+ 	tcase_add_test(tc_hardlink, pkgfile_hardlink_bad_test);
++	tcase_add_test(tc_hardlink, pkgfile_hardlink_test);
+ 
+ 	tcase_add_test(tc_dir, pkgfile_directory_bad_test);
++	tcase_add_test(tc_dir, pkgfile_directory_test);
+ 
+ 	return s;
+ }
+
+
+
+From zxombie at mail.berlios.de  Sun Sep  3 01:06:34 2006
+From: zxombie at mail.berlios.de (zxombie at BerliOS)
+Date: Sun, 3 Sep 2006 01:06:34 +0200
+Subject: [Libpkg-svn] r185 - trunk/tests
+Message-ID: <200609022306.k82N6YZL027989@sheep.berlios.de>
+
+Author: zxombie
+Date: 2006-09-03 01:06:32 +0200 (Sun, 03 Sep 2006)
+New Revision: 185
+
+Modified:
+   trunk/tests/Makefile
+Log:
+Add debuging malloc options to the test run
+
+
+Modified: trunk/tests/Makefile
+===================================================================
+--- trunk/tests/Makefile	2006-09-01 02:44:18 UTC (rev 184)
++++ trunk/tests/Makefile	2006-09-02 23:06:32 UTC (rev 185)
+@@ -9,6 +9,6 @@
+ WARNS=	6
+ 
+ run_test: all
+-	cd ${.OBJDIR} && ./test
++	cd ${.OBJDIR} && MALLOC_OPTIONS=AJ ./test
+ 
+ .include <bsd.prog.mk>
+
+
+
+From zxombie at mail.berlios.de  Sun Sep  3 01:25:16 2006
+From: zxombie at mail.berlios.de (zxombie at BerliOS)
+Date: Sun, 3 Sep 2006 01:25:16 +0200
+Subject: [Libpkg-svn] r186 - trunk/tests
+Message-ID: <200609022325.k82NPGrt031590@sheep.berlios.de>
+
+Author: zxombie
+Date: 2006-09-03 01:24:06 +0200 (Sun, 03 Sep 2006)
+New Revision: 186
+
+Modified:
+   trunk/tests/pkgfile.c
+Log:
+Add tests to check if pkgfile_write will fail when a file exists
+Add tests to check if pkgfile_write will create the required parent directories
+
+
+Modified: trunk/tests/pkgfile.c
+===================================================================
+--- trunk/tests/pkgfile.c	2006-09-02 23:06:32 UTC (rev 185)
++++ trunk/tests/pkgfile.c	2006-09-02 23:24:06 UTC (rev 186)
+@@ -95,8 +95,8 @@
+ 
+ 	/* Test the data */
+ 	fail_unless(pkgfile_get_data(file) != NULL, NULL);
+-	fail_unless(strcmp(pkgfile_get_data(file), "0123456789") == 0, NULL);
+-	fail_unless(strcmp(file->data, "0123456789") == 0, NULL);
++	fail_unless(strncmp(pkgfile_get_data(file), "0123456789", 10)== 0,NULL);
++	fail_unless(strncmp(file->data, "0123456789", 10) == 0, NULL);
+ 
+ 	/* The md5 of 0123456789 string is 781e5e245d69b566979b86e28d23f2c7 */
+ 	fail_unless(pkgfile_set_checksum_md5(file,
+@@ -139,6 +139,71 @@
+ }
+ END_TEST
+ 
++START_TEST(pkgfile_regular_existing_test)
++{
++	struct pkgfile *file;
++	FILE *fd;
++	char buf[6];
++
++	/* Test if pkgfile_write will fail with a regular file */
++	file = pkgfile_new_regular("testdir/Foo", "0123456789", 10);
++	SETUP_TESTDIR();
++	system("echo Hello > testdir/Foo");
++	fail_unless(pkgfile_write(file) == -1, NULL);
++	fd = fopen("testdir/Foo", "r");
++	fread(buf, 5, 1, fd);
++	/* Check the file has not been touched */
++	fail_unless(strcmp(buf, "Hello") == 0, NULL);
++	fclose(fd);
++	system("rm testdir/Foo");
++	CLEANUP_TESTDIR();
++	pkgfile_free(file);
++
++	/* Test if pkgfile_write will fail with a symlink */
++	file = pkgfile_new_regular("testdir/Foo", "0123456789", 10);
++	SETUP_TESTDIR();
++	symlink("testdir/Bar", "testdir/Foo");
++	fail_unless(pkgfile_write(file) == -1, NULL);
++	system("rm testdir/Foo");
++	CLEANUP_TESTDIR();
++	pkgfile_free(file);
++
++	/* Test if pkgfile_write will fail with a directory */
++	file = pkgfile_new_regular("testdir/Foo", "0123456789", 10);
++	SETUP_TESTDIR();
++	system("mkdir testdir/Foo");
++	fail_unless(pkgfile_write(file) == -1, NULL);
++	system("rmdir testdir/Foo");
++	CLEANUP_TESTDIR();
++	pkgfile_free(file);
++}
++END_TEST
++
++/*
++ * A test to make sure the pkgfile_write will
++ * create the parent directories required
++ */
++START_TEST(pkgfile_regular_depth_test)
++{
++	struct pkgfile *file;
++	FILE *fd;
++	char buf[11];
++
++	file = pkgfile_new_regular("testdir/foo/bar", "0123456789", 10);
++	SETUP_TESTDIR();
++	fail_unless(pkgfile_write(file) == 0, NULL);
++	fd = fopen("testdir/foo/bar", "r");
++	fread(buf, 10, 1, fd);
++	/* Check the file has been written correctly */
++	fail_unless(strcmp(buf, "0123456789") == 0, NULL);
++	fclose(fd);
++	system("rm testdir/foo/bar");
++	system("rmdir testdir/foo");
++	CLEANUP_TESTDIR();
++	pkgfile_free(file);
++}
++END_TEST
++
+ /* Tests on creating a symlink from a buffer */
+ START_TEST(pkgfile_symlink_bad_test)
+ {
+@@ -196,6 +261,79 @@
+ }
+ END_TEST
+ 
++START_TEST(pkgfile_symlink_existing_test)
++{
++	struct pkgfile *file;
++	FILE *fd;
++	char buf[6];
++
++	/* Test if pkgfile_write will fail with a regular file */
++	file = pkgfile_new_symlink("testdir/Foo", "0123456789");
++	SETUP_TESTDIR();
++	system("echo Hello > testdir/Foo");
++	fail_unless(pkgfile_write(file) == -1, NULL);
++	fd = fopen("testdir/Foo", "r");
++	fread(buf, 5, 1, fd);
++	/* Check the file has not been touched */
++	fail_unless(strcmp(buf, "Hello") == 0, NULL);
++	fclose(fd);
++	system("rm testdir/Foo");
++	CLEANUP_TESTDIR();
++	pkgfile_free(file);
++
++	/* Test if pkgfile_write will fail with a symlink */
++	file = pkgfile_new_symlink("testdir/Foo", "0123456789");
++	SETUP_TESTDIR();
++	symlink("testdir/Bar", "testdir/Foo");
++	fail_unless(pkgfile_write(file) == -1, NULL);
++	system("rm testdir/Foo");
++	CLEANUP_TESTDIR();
++	pkgfile_free(file);
++
++	/* Test if pkgfile_write will fail with a directory */
++	file = pkgfile_new_symlink("testdir/Foo", "0123456789");
++	SETUP_TESTDIR();
++	system("mkdir testdir/Foo");
++	fail_unless(pkgfile_write(file) == -1, NULL);
++	system("rmdir testdir/Foo");
++	CLEANUP_TESTDIR();
++	pkgfile_free(file);
++}
++END_TEST
++
++/*
++ * A test to make sure the pkgfile_write will
++ * create the parent directories required
++ */
++START_TEST(pkgfile_symlink_depth_test)
++{
++	struct pkgfile *file;
++	struct stat sb;
++
++	file = pkgfile_new_symlink("testdir/foo/bar", "0123456789");
++	SETUP_TESTDIR();
++	fail_unless(pkgfile_write(file) == 0, NULL);
++	fail_unless(lstat("testdir/foo/bar", &sb) == 0, NULL);
++	fail_unless(S_ISLNK(sb.st_mode), NULL);
++	system("rm testdir/foo/bar");
++	system("rmdir testdir/foo");
++	CLEANUP_TESTDIR();
++	pkgfile_free(file);
++
++	/*
++	 * Check pkgfile_write fails when there
++	 * is already a file named testdir/foo
++	 */
++	file = pkgfile_new_symlink("testdir/foo/bar", "0123456789");
++	SETUP_TESTDIR();
++	system("touch testdir/foo");
++	fail_unless(pkgfile_write(file) == -1, NULL);
++	system("rm testdir/foo");
++	CLEANUP_TESTDIR();
++	pkgfile_free(file);
++}
++END_TEST
++
+ /* Tests on creating a hardlink from a buffer */
+ START_TEST(pkgfile_hardlink_bad_test)
+ {
+@@ -311,9 +449,13 @@
+ 	tcase_add_test(tc_regular, pkgfile_regular_bad_test);
+ 	tcase_add_test(tc_regular, pkgfile_regular_empty_test);
+ 	tcase_add_test(tc_regular, pkgfile_regular_data_test);
++	tcase_add_test(tc_regular, pkgfile_regular_existing_test);
++	tcase_add_test(tc_regular, pkgfile_regular_depth_test);
+ 
+ 	tcase_add_test(tc_symlink, pkgfile_symlink_bad_test);
+ 	tcase_add_test(tc_symlink, pkgfile_symlink_good_test);
++	tcase_add_test(tc_symlink, pkgfile_symlink_existing_test);
++	tcase_add_test(tc_symlink, pkgfile_symlink_depth_test);
+ 
+ 	tcase_add_test(tc_hardlink, pkgfile_hardlink_bad_test);
+ 	tcase_add_test(tc_hardlink, pkgfile_hardlink_test);
+
+
+
+From zxombie at mail.berlios.de  Sun Sep  3 01:35:37 2006
+From: zxombie at mail.berlios.de (zxombie at BerliOS)
+Date: Sun, 3 Sep 2006 01:35:37 +0200
+Subject: [Libpkg-svn] r187 - trunk/tests
+Message-ID: <200609022335.k82NZb3v002641@sheep.berlios.de>
+
+Author: zxombie
+Date: 2006-09-03 01:35:34 +0200 (Sun, 03 Sep 2006)
+New Revision: 187
+
+Modified:
+   trunk/tests/pkgfile.c
+Log:
+Fix tests to have strings correctly null terminated
+
+
+Modified: trunk/tests/pkgfile.c
+===================================================================
+--- trunk/tests/pkgfile.c	2006-09-02 23:24:06 UTC (rev 186)
++++ trunk/tests/pkgfile.c	2006-09-02 23:35:34 UTC (rev 187)
+@@ -152,6 +152,7 @@
+ 	fail_unless(pkgfile_write(file) == -1, NULL);
+ 	fd = fopen("testdir/Foo", "r");
+ 	fread(buf, 5, 1, fd);
++	buf[5] = '\0';
+ 	/* Check the file has not been touched */
+ 	fail_unless(strcmp(buf, "Hello") == 0, NULL);
+ 	fclose(fd);
+@@ -194,6 +195,7 @@
+ 	fail_unless(pkgfile_write(file) == 0, NULL);
+ 	fd = fopen("testdir/foo/bar", "r");
+ 	fread(buf, 10, 1, fd);
++	buf[10] = '\0';
+ 	/* Check the file has been written correctly */
+ 	fail_unless(strcmp(buf, "0123456789") == 0, NULL);
+ 	fclose(fd);
+@@ -217,7 +219,6 @@
+ START_TEST(pkgfile_symlink_good_test)
+ {
+ 	struct pkgfile *file;
+-	int fd;
+ 	struct stat sb;
+ 
+ 	fail_unless((file = pkgfile_new_symlink("testdir/link", "Foo")) != NULL,
+@@ -246,14 +247,10 @@
+ 
+ 	SETUP_TESTDIR();
+ 	fail_unless(pkgfile_write(file) == 0, NULL);
+-	fail_unless((fd = open("testdir/link", O_RDONLY | O_NOFOLLOW)) != 0,
+-	    NULL);
+-	fstat(fd, &sb);
+-	fail_unless(sb.st_size == 3, "Created file size is not 3");
+ 	/* XXX Check the file contents are correct */
+-	close(fd);
+-	lstat("testdir/link", &sb);
++	fail_unless(lstat("testdir/link", &sb) == 0, NULL);
+ 	fail_unless(S_ISLNK(sb.st_mode), NULL);
++	fail_unless(sb.st_size == 3, "Created file size is not 3");
+ 	system("rm testdir/link");
+ 	CLEANUP_TESTDIR();
+ 
+@@ -274,6 +271,7 @@
+ 	fail_unless(pkgfile_write(file) == -1, NULL);
+ 	fd = fopen("testdir/Foo", "r");
+ 	fread(buf, 5, 1, fd);
++	buf[5] = '\0';
+ 	/* Check the file has not been touched */
+ 	fail_unless(strcmp(buf, "Hello") == 0, NULL);
+ 	fclose(fd);
+
+
+
+From zxombie at mail.berlios.de  Mon Sep  4 10:13:49 2006
+From: zxombie at mail.berlios.de (zxombie at BerliOS)
+Date: Mon, 4 Sep 2006 10:13:49 +0200
+Subject: [Libpkg-svn] r188 - trunk/src
+Message-ID: <200609040813.k848Dnxi030190@sheep.berlios.de>
+
+Author: zxombie
+Date: 2006-09-04 10:13:48 +0200 (Mon, 04 Sep 2006)
+New Revision: 188
+
+Modified:
+   trunk/src/pkgfile.c
+Log:
+Create the parent directories for a symlink
+
+
+Modified: trunk/src/pkgfile.c
+===================================================================
+--- trunk/src/pkgfile.c	2006-09-02 23:35:34 UTC (rev 187)
++++ trunk/src/pkgfile.c	2006-09-04 08:13:48 UTC (rev 188)
+@@ -672,8 +672,16 @@
+ 			return -1;
+ 		break;
+ 	case pkgfile_symlink:
+-		if (symlink(file->data, file->name) != 0)
+-			return -1;
++		if (symlink(file->data, file->name) != 0) {
++			char *dir_name;
++			if (errno != ENOENT)
++				return -1;
++
++			dir_name = dirname(file->name);
++			pkg_dir_build(dir_name);
++			if (symlink(file->data, file->name) != 0)
++				return -1;
++		}
+ 		break;
+ 	case pkgfile_dir:
+ #define DEF_MODE (S_IRWXU|S_IRGRP|S_IXGRP|S_IROTH|S_IXOTH)
+
+
+
+From zxombie at mail.berlios.de  Mon Sep  4 11:58:40 2006
+From: zxombie at mail.berlios.de (zxombie at BerliOS)
+Date: Mon, 4 Sep 2006 11:58:40 +0200
+Subject: [Libpkg-svn] r189 - trunk/tests
+Message-ID: <200609040958.k849we9L016947@sheep.berlios.de>
+
+Author: zxombie
+Date: 2006-09-04 11:58:40 +0200 (Mon, 04 Sep 2006)
+New Revision: 189
+
+Modified:
+   trunk/tests/pkgfile.c
+Log:
+Add hardlink and directory existing and depth tests
+
+
+Modified: trunk/tests/pkgfile.c
+===================================================================
+--- trunk/tests/pkgfile.c	2006-09-04 08:13:48 UTC (rev 188)
++++ trunk/tests/pkgfile.c	2006-09-04 09:58:40 UTC (rev 189)
+@@ -386,6 +386,90 @@
+ }
+ END_TEST
+ 
++START_TEST(pkgfile_hardlink_existing_test)
++{
++	struct pkgfile *file;
++	FILE *fd;
++	char buf[6];
++
++	/* Test if pkgfile_write will fail with a regular file */
++	file = pkgfile_new_hardlink("testdir/Foo", "testdir/Bar");
++	SETUP_TESTDIR();
++	system("touch testdir/Bar");
++	system("echo Hello > testdir/Foo");
++	fail_unless(pkgfile_write(file) == -1, NULL);
++	fd = fopen("testdir/Foo", "r");
++	fread(buf, 5, 1, fd);
++	buf[5] = '\0';
++	/* Check the file has not been touched */
++	fail_unless(strcmp(buf, "Hello") == 0, NULL);
++	fclose(fd);
++	system("rm testdir/Foo");
++	system("rm testdir/Bar");
++	CLEANUP_TESTDIR();
++	pkgfile_free(file);
++
++	/* Test if pkgfile_write will fail with a symlink */
++	file = pkgfile_new_hardlink("testdir/Foo", "testdir/Bar");
++	SETUP_TESTDIR();
++	system("touch testdir/Bar");
++	symlink("testdir/Baz", "testdir/Foo");
++	fail_unless(pkgfile_write(file) == -1, NULL);
++	system("rm testdir/Foo");
++	system("rm testdir/Bar");
++	CLEANUP_TESTDIR();
++	pkgfile_free(file);
++
++	/* Test if pkgfile_write will fail with a directory */
++	file = pkgfile_new_hardlink("testdir/Foo", "testdir/Bar");
++	SETUP_TESTDIR();
++	system("touch testdir/Bar");
++	system("mkdir testdir/Foo");
++	fail_unless(pkgfile_write(file) == -1, NULL);
++	system("rmdir testdir/Foo");
++	system("rm testdir/Bar");
++	CLEANUP_TESTDIR();
++	pkgfile_free(file);
++}
++END_TEST
++
++/*
++ * A test to make sure the pkgfile_write will
++ * create the parent directories required
++ */
++START_TEST(pkgfile_hardlink_depth_test)
++{
++	struct pkgfile *file;
++	struct stat sb;
++
++	file = pkgfile_new_hardlink("testdir/foo/bar", "testdir/Bar");
++	SETUP_TESTDIR();
++	system("touch testdir/Bar");
++	fail_unless(pkgfile_write(file) == 0, NULL);
++	fail_unless(lstat("testdir/foo/bar", &sb) == 0, NULL);
++	fail_unless(S_ISREG(sb.st_mode), NULL);
++	system("rm testdir/foo/bar");
++	system("rmdir testdir/foo");
++	system("rm testdir/Bar");
++	CLEANUP_TESTDIR();
++	pkgfile_free(file);
++
++	/*
++	 * Check pkgfile_write fails when there
++	 * is already a file named testdir/foo
++	 */
++	file = pkgfile_new_hardlink("testdir/foo/bar", "testdir/Bar");
++	SETUP_TESTDIR();
++	system("touch testdir/Bar");
++	system("touch testdir/foo");
++	fail_unless(pkgfile_write(file) == -1, NULL);
++	system("rm testdir/foo");
++	system("rm testdir/Bar");
++	CLEANUP_TESTDIR();
++	pkgfile_free(file);
++}
++END_TEST
++
+ /* Tests on creating a directory from a buffer */
+ START_TEST(pkgfile_directory_bad_test)
+ {
+@@ -418,7 +502,11 @@
+ 
+ 	SETUP_TESTDIR();
+ 	fail_unless(pkgfile_write(file) == 0, NULL);
+-	fail_unless(pkgfile_write(file) == -1, NULL);
++	/*
++	 * A directory should only fail if it is being written
++	 * with different permissions than the existing one
++	 */
++	fail_unless(pkgfile_write(file) == 0, NULL);
+ 	fail_unless(stat("testdir/newdir", &sb) == 0, NULL);
+ 	fail_unless(S_ISDIR(sb.st_mode), NULL);
+ 	system("rmdir testdir/newdir");
+@@ -427,6 +515,71 @@
+ }
+ END_TEST
+ 
++START_TEST(pkgfile_directory_existing_test)
++{
++	struct pkgfile *file;
++	FILE *fd;
++	char buf[6];
++
++	/* Test if pkgfile_write will fail with a regular file */
++	file = pkgfile_new_directory("testdir/Foo");
++	SETUP_TESTDIR();
++	system("echo Hello > testdir/Foo");
++	fail_unless(pkgfile_write(file) == -1, NULL);
++	fd = fopen("testdir/Foo", "r");
++	fread(buf, 5, 1, fd);
++	buf[5] = '\0';
++	/* Check the file has not been touched */
++	fail_unless(strcmp(buf, "Hello") == 0, NULL);
++	fclose(fd);
++	system("rm testdir/Foo");
++	CLEANUP_TESTDIR();
++	pkgfile_free(file);
++
++	/* Test if pkgfile_write will fail with a symlink */
++	file = pkgfile_new_directory("testdir/Foo");
++	SETUP_TESTDIR();
++	symlink("testdir/Bar", "testdir/Foo");
++	fail_unless(pkgfile_write(file) == -1, NULL);
++	system("rm testdir/Foo");
++	CLEANUP_TESTDIR();
++	pkgfile_free(file);
++}
++END_TEST
++
++/*
++ * A test to make sure the pkgfile_write will
++ * create the parent directories required
++ */
++START_TEST(pkgfile_directory_depth_test)
++{
++	struct pkgfile *file;
++	struct stat sb;
++
++	file = pkgfile_new_directory("testdir/foo/bar");
++	SETUP_TESTDIR();
++	fail_unless(pkgfile_write(file) == 0, NULL);
++	fail_unless(lstat("testdir/foo/bar", &sb) == 0, NULL);
++	fail_unless(S_ISDIR(sb.st_mode), NULL);
++	system("rmdir testdir/foo/bar");
++	system("rmdir testdir/foo");
++	CLEANUP_TESTDIR();
++	pkgfile_free(file);
++
++	/*
++	 * Check pkgfile_write fails when there
++	 * is already a file named testdir/foo
++	 */
++	file = pkgfile_new_directory("testdir/foo/bar");
++	SETUP_TESTDIR();
++	system("touch testdir/foo");
++	fail_unless(pkgfile_write(file) == -1, NULL);
++	system("rm testdir/foo");
++	CLEANUP_TESTDIR();
++	pkgfile_free(file);
++}
++END_TEST
++
+ Suite *
+ pkgfile_suite()
+ {
+@@ -457,9 +610,13 @@
+ 
+ 	tcase_add_test(tc_hardlink, pkgfile_hardlink_bad_test);
+ 	tcase_add_test(tc_hardlink, pkgfile_hardlink_test);
++	tcase_add_test(tc_hardlink, pkgfile_hardlink_depth_test);
++	tcase_add_test(tc_hardlink, pkgfile_hardlink_existing_test);
+ 
+ 	tcase_add_test(tc_dir, pkgfile_directory_bad_test);
+ 	tcase_add_test(tc_dir, pkgfile_directory_test);
++	tcase_add_test(tc_dir, pkgfile_directory_existing_test);
++	tcase_add_test(tc_dir, pkgfile_directory_depth_test);
+ 
+ 	return s;
+ }
+
+
+
+From zxombie at mail.berlios.de  Mon Sep  4 12:03:51 2006
+From: zxombie at mail.berlios.de (zxombie at BerliOS)
+Date: Mon, 4 Sep 2006 12:03:51 +0200
+Subject: [Libpkg-svn] r190 - trunk/src
+Message-ID: <200609041003.k84A3pD7017263@sheep.berlios.de>
+
+Author: zxombie
+Date: 2006-09-04 12:03:50 +0200 (Mon, 04 Sep 2006)
+New Revision: 190
+
+Modified:
+   trunk/src/pkg_db_freebsd.c
+   trunk/src/pkg_freebsd.c
+   trunk/src/pkg_private.h
+   trunk/src/pkg_util.c
+   trunk/src/pkgfile.c
+Log:
+Allow pkg_dir_build to set the mode on directories
+Let pkgfile_write create directories with hardlinks and directories
+
+
+Modified: trunk/src/pkg_db_freebsd.c
+===================================================================
+--- trunk/src/pkg_db_freebsd.c	2006-09-04 09:58:40 UTC (rev 189)
++++ trunk/src/pkg_db_freebsd.c	2006-09-04 10:03:50 UTC (rev 190)
+@@ -131,11 +131,12 @@
+  * @brief Callback for pkg_db_install_pkg_action()
+  * @param db The database to install to
+  * @param pkg The package to install
++ * @param prefix If non-NULL this will override the packages prefix
+  * @param reg If true register the package in the database
++ * @param scripts If true will run the packafes scripts
++ * @param fake Should we actually install the package or
++ *     just report what would have happened
+  * @param pkg_action A function to call when an action takes place
+- * @param fake Should we actually install the package or just report what would have happened
+- * @todo Run mtree
+- * @todo Register the reverse dependencies
+  * @bug When the install fails part way through remove some files are left.
+  *     Remove these.
+  * @return 0 on success, -1 on error
+@@ -341,32 +342,31 @@
+  * @return -1 on fatal error
+  */
+ static int
+-freebsd_deinstall_pkg(struct pkg_db *db, struct pkg *pkg, int scripts __unused, int fake,
++freebsd_deinstall_pkg(struct pkg_db *db, struct pkg *the_pkg, int scripts __unused, int fake,
+ 	pkg_db_action *pkg_action)
+ {
+ 	struct pkg_install_data deinstall_data;
+ 	struct pkg *real_pkg;
+-//	struct pkg **rdeps;
++	struct pkg **deps;
+ 
+ 	assert(db != NULL);
+-	assert(pkg != NULL);
++	assert(the_pkg != NULL);
+ 
+ 	/* Get the real package. The one supplyed may be an empty one */
+ 	/** @todo Check if the package suplyed is a valid package or not */
+-	real_pkg = freebsd_get_package(db, pkg_get_name(pkg));
+-# if 0
++	real_pkg = freebsd_get_package(db, pkg_get_name(the_pkg));
+ 	/* Check if the package is installed */
+ 	if (real_pkg == NULL) {
+ 		pkg_action(PKG_DB_INFO, "No such package '%s' installed",
+-		    pkg_get_name(pkg));
++		    pkg_get_name(the_pkg));
+ 		return -1;
+ 	}
+ 
+ 	/** @todo Check if package is dependended on */
+-	rdeps = pkg_get_reverse_dependencies(pkg);
+-	if (rdeps == NULL) {
++	deps = pkg_get_reverse_dependencies(real_pkg);
++	if (deps == NULL) {
+ 		return -1;
+-	} else if (rdeps[0] != NULL) {
++	} else if (deps[0] != NULL) {
+ 		unsigned int pos, buf_size, buf_used;
+ 		char *buf;
+ 		/* XXX */
+@@ -382,15 +382,15 @@
+ 			return -1;
+ 		}
+ 		/* Load the names of the packages into a buffer */
+-		for (pos = 0; rdeps[pos] != NULL; pos++) {
++		for (pos = 0; deps[pos] != NULL; pos++) {
+ 			size_t len;
+ 
+-			len = strlen(pkg_get_name(rdeps[pos]));
++			len = strlen(pkg_get_name(deps[pos]));
+ 			if (buf_used + len >= buf_size) {
+ 				buf_size += 1024;
+ 				buf = realloc(buf, buf_size);
+ 			}
+-			strlcat(buf, pkg_get_name(rdeps[pos]), buf_size);
++			strlcat(buf, pkg_get_name(deps[pos]), buf_size);
+ 			strlcat(buf, "\n", buf_size);
+ 			buf_used += len + 1;
+ 		}
+@@ -407,21 +407,37 @@
+ 		return -1;
+ 	}
+ 
+-	/** @todo Run +DEINSTALL <pkg-name> DEINSTALL, check if return value == 0 */
+ 	if (pkg_run_script(real_pkg, NULL, pkg_script_pre_deinstall) != 0) {
+ 		/* XXX */
+ 		return -1;
+ 	}
+ 
+ 	/** @todo Remove this package from other packages reverse dependencies */
++	deps = pkg_get_dependencies(real_pkg);
++	if (deps != NULL) {
++		unsigned int pos;
++		for(pos = 0; deps[pos] != NULL; pos++) {
++			struct pkgfile *file;
++			char require[FILENAME_MAX];
+ 
+-#endif
++			snprintf(require, FILENAME_MAX, "%s" DB_LOCATION
++			    "/%s/+REQUIRED_BY", db->db_base,
++			    pkg_get_name(deps[pos]));
++			pkg_remove_extra_slashes(require);
++
++			/* Remove the reverse dependency */
++			file = pkgfile_new_from_disk(require, 0);
++			pkgfile_remove_line(file, pkg_get_name(real_pkg));
++			pkgfile_free(file);
++		}
++	}
++
+ 	/* Do the deinstall */
+ 	deinstall_data.db = db;
+ 	deinstall_data.fake = fake;
+ 	deinstall_data.last_file[0] = '\0';
+ 	deinstall_data.directory[0] = '\0';
+-	if (pkg_deinstall(pkg, pkg_action, &deinstall_data,
++	if (pkg_deinstall(real_pkg, pkg_action, &deinstall_data,
+ 	    freebsd_do_chdir, freebsd_deinstall_file,
+ 	    freebsd_do_exec, freebsd_deregister) != 0) {
+ 		return -1;
+@@ -477,7 +493,7 @@
+ 	pkg_action(PKG_DB_PACKAGE, "CWD to %s", install_data->directory);
+ 
+ 	if (!install_data->fake) {
+-		pkg_dir_build(install_data->directory);
++		pkg_dir_build(install_data->directory, 0);
+ 		return chdir(install_data->directory);
+ 	}
+ 
+@@ -599,6 +615,7 @@
+ 		/** @todo Make pkgfile work to properly to create the file */
+ 		fd = fopen(required_by, "a");
+ 		name = pkg_get_name(pkg);
++		fseek(fd, 0, SEEK_END);
+ 		fwrite(name, strlen(name), 1, fd);
+ 		fwrite("\n", 1, 1, fd);
+ 		fclose(fd);
+@@ -617,10 +634,31 @@
+  * @return -1 on error
+  */
+ static int
+-freebsd_deregister(struct pkg *pkg __unused, pkg_db_action *pkg_action __unused, void *data __unused,
+-		struct pkgfile **control __unused)
++freebsd_deregister(struct pkg *pkg __unused, pkg_db_action *pkg_action __unused, void *data,
++		struct pkgfile **control)
+ {
+-	return -1;
++	unsigned int pos;
++	struct pkg_install_data *install_data;
++	struct pkgfile *dir;
++	char db_dir[FILENAME_MAX];
++
++	install_data = data;
++	assert(install_data->db != NULL);
++
++	assert(control != NULL);
++	assert(control[0] != NULL);
++	/* Remove the control files */
++	for (pos = 0; control[pos] != NULL; pos++) {
++		pkgfile_unlink(control[pos]);
++	}
++
++	snprintf(db_dir, FILENAME_MAX, "%s" DB_LOCATION "/%s/",
++	    install_data->db->db_base, pkg_get_name(pkg));
++	pkg_remove_extra_slashes(db_dir);
++	dir = pkgfile_new_from_disk(db_dir, 0);
++	if (dir == NULL)
++		return -1;
++	return pkgfile_unlink(dir);
+ }
+ 
+ #ifdef DEAD
+
+Modified: trunk/src/pkg_freebsd.c
+===================================================================
+--- trunk/src/pkg_freebsd.c	2006-09-04 09:58:40 UTC (rev 189)
++++ trunk/src/pkg_freebsd.c	2006-09-04 10:03:50 UTC (rev 190)
+@@ -72,11 +72,11 @@
+ static int		  freebsd_free(struct pkg *);
+ 
+ /* Internal functions */
+-pkg_static struct freebsd_package *freebsd_package_new(void);
+-pkg_static int			  freebsd_open_control_files(
++static struct freebsd_package	 *freebsd_package_new(void);
++static int			  freebsd_open_control_files(
+ 					struct freebsd_package *);
+-pkg_static struct pkgfile	 *freebsd_get_next_entry(struct archive *);
+-pkg_static int			  freebsd_parse_contents(
++static struct pkgfile		 *freebsd_get_next_entry(struct archive *);
++static int			  freebsd_parse_contents(
+ 					struct freebsd_package *);
+ 
+ typedef enum {
+@@ -205,7 +205,8 @@
+ 		return NULL;
+ 
+ 	pkg = pkg_new(pkg_name, freebsd_get_control_files,
+-	    freebsd_get_control_file, NULL, freebsd_get_rdeps, freebsd_free);
++	    freebsd_get_control_file, freebsd_get_deps, freebsd_get_rdeps,
++	    freebsd_free);
+ 	if (pkg == NULL)
+ 		return NULL;
+ 	pkg_add_callbacks_data(pkg, freebsd_get_version, freebsd_get_origin);
+@@ -476,12 +477,7 @@
+ 	}
+ 
+ 	/* Find the +CONTENTS file in the control files */
+-	for (pos = 0; control[pos] != NULL; pos++) {
+-		const char *pkg_filename = pkgfile_get_name(control[pos]);
+-		if (!strcmp(pkg_filename, "+CONTENTS"))
+-			break;
+-	}
+-	contents_file = control[pos];
++	contents_file = freebsd_get_control_file(pkg, "+CONTENTS");
+ 	if (contents_file == NULL) {
+ 		return -1;
+ 	}
+@@ -647,13 +643,7 @@
+ 	}
+ 
+ 	/* Find the +CONTENTS file in the control files */
+-	for (pos = 0; control[pos] != NULL; pos++) {
+-		const char *pkg_filename = pkgfile_get_name(control[pos]);
+-		if (!strcmp(basename(pkg_filename), "+CONTENTS"))
+-			break;
+-		printf("%u %s\n", pos, pkg_filename);
+-	}
+-	contents_file = control[pos];
++	contents_file = pkg_get_control_file(pkg, "+CONTENTS");
+ 	assert(contents_file != NULL);
+ 	if (contents_file == NULL) {
+ 		return -1;
+@@ -670,9 +660,9 @@
+ 	for (pos = 0; pos < contents->line_count; pos++) {
+ 		switch (contents->lines[pos].line_type) {
+ 		case PKG_LINE_IGNORE:
+-			/* Error in contents file */
+-			ret = -1;
+-			goto exit;
++			/* Skip 2 lines for the file and checksum */
++			pos += 2;
++			break;
+ 		case PKG_LINE_COMMENT:
+ 		case PKG_LINE_EXEC:
+ 		case PKG_LINE_MTREE:
+@@ -689,16 +679,18 @@
+ 				db_chdir(pkg, pkg_action, data, dir);
+ 			break;
+ 		}
++		case PKG_LINE_DIRRM:
+ 		case PKG_LINE_FILE:
+ 		{
+ 			struct pkgfile *file;
+ 
+-			/*
+-			 * This will give us the correct file as
+-			 * it is reading from the same list as us
+-			 */
+-			file = pkgfile_new_from_disk(contents->lines[pos].line,
+-			    0);
++			if (contents->lines[pos].line_type == PKG_LINE_FILE) {
++				file = pkgfile_new_from_disk(
++				    contents->lines[pos].line, 0);
++			} else {
++				file = pkgfile_new_from_disk(
++				    contents->lines[pos].data, 0);
++			}
+ 			deinstall_file(pkg, pkg_action, data, file);
+ 			break;
+ 		}
+@@ -706,22 +698,19 @@
+ 			do_exec(pkg, pkg_action, data,
+ 			    contents->lines[pos].data);
+ 			break;
+-		case PKG_LINE_DIRRM:
+-			printf("Dir rm: %s\n", contents->lines[pos].data);
+-			break;
+ 		default:
+ 			warnx("ERROR: Incorrect line in +CONTENTS file "
+ 			    "\"%s %s\"\n", contents->lines[pos].line,
+ 			    contents->lines[pos].data);
+ 		}
+ 	}
++	db_chdir(pkg, pkg_action, data, ".");
+ 	/* Register the package */
+ 	pkg_deregister(pkg, pkg_action, data, control);
+ 
+ 	/* Set the return to 0 as we have fully installed the package */
+ 	ret = 0;
+ 
+-exit:
+ 	if (contents != NULL)
+ 		pkg_freebsd_contents_free(contents);
+ 
+@@ -815,6 +804,7 @@
+ freebsd_get_deps(struct pkg *pkg)
+ {
+ 	struct freebsd_package *fpkg;
++	struct pkgfile *contents_file;
+ 	struct pkg **pkgs;
+ 	unsigned int pkg_count;
+ 	size_t pkg_size;
+@@ -825,14 +815,18 @@
+ 	fpkg = pkg->data;
+ 	assert(fpkg != NULL);
+ 	assert(fpkg->pkg_type != fpkg_unknown);
+-	assert(fpkg->pkg_type != fpkg_from_installed);
+ 	assert(fpkg->pkg_type != fpkg_from_empty);
+ 
+ 	freebsd_open_control_files(fpkg);
+ 	assert(fpkg->control != NULL);
+ 
+-	assert(strcmp("+CONTENTS", pkgfile_get_name(fpkg->control[0])) == 0);
++	freebsd_parse_contents(fpkg);
++	assert(fpkg->contents != NULL);
+ 
++	contents_file = pkg_get_control_file(pkg, "+CONTENTS");
++	if (contents_file == NULL)
++		return NULL;
++
+ 	pkg_count = 0;
+ 	pkg_size = sizeof(struct pkg *);
+ 	pkgs = malloc(pkg_size);
+
+Modified: trunk/src/pkg_private.h
+===================================================================
+--- trunk/src/pkg_private.h	2006-09-04 09:58:40 UTC (rev 189)
++++ trunk/src/pkg_private.h	2006-09-04 10:03:50 UTC (rev 190)
+@@ -160,7 +160,7 @@
+ 	pkg_run_script_callback		*pkg_run_script;
+ };
+ 
+-int pkg_dir_build(const char *);
++int pkg_dir_build(const char *, mode_t);
+ int pkg_exec(const char *, ...);
+ FILE *pkg_cached_file(FILE *, const char *);
+ 
+
+Modified: trunk/src/pkg_util.c
+===================================================================
+--- trunk/src/pkg_util.c	2006-09-04 09:58:40 UTC (rev 189)
++++ trunk/src/pkg_util.c	2006-09-04 10:03:50 UTC (rev 190)
+@@ -61,7 +61,7 @@
+  */
+ /* Based off src/bin/mkdir/mkdir.c 1.32 */
+ int
+-pkg_dir_build(const char *path)
++pkg_dir_build(const char *path, mode_t mode)
+ {
+ 	struct stat sb;
+ 	int last, retval;
+@@ -83,7 +83,8 @@
+ 		*p = '\0';
+ 		if (!last && p[1] == '\0')
+ 			last = 1;
+-		if (mkdir(str, S_IRWXU | S_IRWXG | S_IRWXO) < 0) {
++		if (mkdir(str,
++		    (mode == 0) ? (S_IRWXU | S_IRWXG | S_IRWXO) : mode) < 0) {
+ 			if (errno == EEXIST || errno == EISDIR) {
+ 				if (stat(str, &sb) < 0) {
+ 					retval = -1;
+
+Modified: trunk/src/pkgfile.c
+===================================================================
+--- trunk/src/pkgfile.c	2006-09-04 09:58:40 UTC (rev 189)
++++ trunk/src/pkgfile.c	2006-09-04 10:03:50 UTC (rev 190)
+@@ -621,7 +621,7 @@
+ 				 * on the dir and opening again
+ 				 */
+ 				dir_name = dirname(file->name);
+-				pkg_dir_build(dir_name);
++				pkg_dir_build(dir_name, 0);
+ 				fd = fopen(file->name, "a");
+ 				if (fd == NULL) {
+ 					return -1;
+@@ -668,8 +668,16 @@
+ 		}
+ 		break;
+ 	case pkgfile_hardlink:
+-		if (link(file->data, file->name) != 0)
+-			return -1;
++		if (link(file->data, file->name) != 0) {
++			char *dir_name;
++			if (errno != ENOENT)
++				return -1;
++
++			dir_name = dirname(file->name);
++			pkg_dir_build(dir_name, 0);
++			if (link(file->data, file->name) != 0)
++				return -1;
++		}
+ 		break;
+ 	case pkgfile_symlink:
+ 		if (symlink(file->data, file->name) != 0) {
+@@ -678,18 +686,14 @@
+ 				return -1;
+ 
+ 			dir_name = dirname(file->name);
+-			pkg_dir_build(dir_name);
++			pkg_dir_build(dir_name, 0);
+ 			if (symlink(file->data, file->name) != 0)
+ 				return -1;
+ 		}
+ 		break;
+ 	case pkgfile_dir:
+-#define DEF_MODE (S_IRWXU|S_IRGRP|S_IXGRP|S_IROTH|S_IXOTH)
+-		if (mkdir(file->name,
+-		    (file->mode == 0 ? DEF_MODE : file->mode)) != 0) {
++		if (pkg_dir_build(file->name, file->mode) != 0)
+ 			return -1;
+-		}
+-#undef DEF_MODE
+ 		break;
+ 	}
+ 
+
+
+
+From zxombie at mail.berlios.de  Mon Sep  4 12:23:31 2006
+From: zxombie at mail.berlios.de (zxombie at BerliOS)
+Date: Mon, 4 Sep 2006 12:23:31 +0200
+Subject: [Libpkg-svn] r191 - trunk/src
+Message-ID: <200609041023.k84ANVVu018654@sheep.berlios.de>
+
+Author: zxombie
+Date: 2006-09-04 12:23:30 +0200 (Mon, 04 Sep 2006)
+New Revision: 191
+
+Modified:
+   trunk/src/pkg_db_freebsd.c
+Log:
+Remove an unneeded __unused
+
+Revision 190 also contained:
+Make pkg_get_dependencies to work on an installed package
+Use freebsd_get_control_file in freebsd_install
+Use pkg_get_control_file in freebsd_deinstall
+Allow @ignore lines to exist and ignore them in installed packages
+Follow @dirrm run when deinstalling packages
+Force a change to the package directory after prodessing the +CONTENTS file when removing packages
+Allow freebsd_get_deps to be called with installed packages
+
+
+Modified: trunk/src/pkg_db_freebsd.c
+===================================================================
+--- trunk/src/pkg_db_freebsd.c	2006-09-04 10:03:50 UTC (rev 190)
++++ trunk/src/pkg_db_freebsd.c	2006-09-04 10:23:30 UTC (rev 191)
+@@ -634,7 +634,7 @@
+  * @return -1 on error
+  */
+ static int
+-freebsd_deregister(struct pkg *pkg __unused, pkg_db_action *pkg_action __unused, void *data,
++freebsd_deregister(struct pkg *pkg, pkg_db_action *pkg_action __unused, void *data,
+ 		struct pkgfile **control)
+ {
+ 	unsigned int pos;
+
+
+
+From zxombie at mail.berlios.de  Tue Sep  5 12:09:46 2006
+From: zxombie at mail.berlios.de (zxombie at BerliOS)
+Date: Tue, 5 Sep 2006 12:09:46 +0200
+Subject: [Libpkg-svn] r192 - trunk/tests
+Message-ID: <200609051009.k85A9kox010704@sheep.berlios.de>
+
+Author: zxombie
+Date: 2006-09-05 12:09:46 +0200 (Tue, 05 Sep 2006)
+New Revision: 192
+
+Modified:
+   trunk/tests/pkgfile.c
+Log:
+Mode the basic pkgfile test and checksum tests to seperate functions to reduce repition
+
+
+Modified: trunk/tests/pkgfile.c
+===================================================================
+--- trunk/tests/pkgfile.c	2006-09-04 10:23:30 UTC (rev 191)
++++ trunk/tests/pkgfile.c	2006-09-05 10:09:46 UTC (rev 192)
+@@ -10,9 +10,52 @@
+ #include <pkg.h>
+ #include <pkg_private.h>
+ 
++void basic_file_tests(struct pkgfile *, pkgfile_type, pkgfile_loc);
++void test_checksums(struct pkgfile *, const char *);
+ void empty_regular_file_tests(const char *);
+ 
++/*
++ * Check a pkgfile object is correct after it has been created
++ */
+ void
++basic_file_tests(struct pkgfile *file, pkgfile_type type, pkgfile_loc loc)
++{
++	fail_unless(file->loc == loc, NULL);
++	fail_unless(file->type == type, NULL);
++	fail_unless(file->fd == NULL, NULL);
++	fail_unless(file->mode == 0, NULL);
++	fail_unless(file->md5[0] == '\0', NULL);
++}
++
++void
++test_checksums(struct pkgfile *file, const char *md5)
++{
++	fail_unless(strlen(md5) == 32, NULL);
++	fail_unless(pkgfile_set_checksum_md5(file, md5) == 0, NULL);
++	fail_unless(strcmp(file->md5, md5) == 0, NULL);
++	fail_unless(pkgfile_compare_checksum_md5(file) == 0, NULL);
++
++	/* Check this fails with bad data that is too short */
++	fail_unless(pkgfile_set_checksum_md5(file, "") == -1, NULL);
++	fail_unless(strcmp(file->md5, md5) == 0, NULL);
++
++	/* Check this fails with bad data that is too long */
++	fail_unless(pkgfile_set_checksum_md5(file,
++	    "123456789012345678901234567890123") == -1, NULL);
++	fail_unless(strcmp(file->md5, md5) == 0, NULL);
++
++	/*
++	 * Check it accepts a correct length checksum
++	 * but fails to validate the file with it
++	 */
++	fail_unless(pkgfile_set_checksum_md5(file,
++		"12345678901234567890123456789012") == 0, NULL);
++	fail_unless(strcmp(file->md5, "12345678901234567890123456789012") == 0,
++		NULL);
++	fail_unless(pkgfile_compare_checksum_md5(file) == 1, NULL);
++}
++
++void
+ empty_regular_file_tests(const char *buf)
+ {
+ 	struct pkgfile *file;
+@@ -23,21 +66,13 @@
+ 	    != NULL, NULL);
+ 	fail_unless(strcmp(pkgfile_get_name(file), "testdir/Foo") == 0, NULL);
+ 	fail_unless(strcmp(file->name, "testdir/Foo") == 0, NULL);
+-	fail_unless(file->type == pkgfile_regular, NULL);
+-	fail_unless(file->loc == pkgfile_loc_mem, NULL);
+-	fail_unless(file->fd == NULL, NULL);
+-	fail_unless(file->mode == 0, NULL);
+-	fail_unless(file->md5[0] == '\0', NULL);
++	basic_file_tests(file, pkgfile_regular, pkgfile_loc_mem);
+ 
+ 	fail_unless(pkgfile_get_size(file) == 0, NULL);
+ 	fail_unless(pkgfile_get_data(file) == NULL, NULL);
+ 
+ 	/* The md5 of an empty string is d41d8cd98f00b204e9800998ecf8427e */
+-	fail_unless(pkgfile_set_checksum_md5(file,
+-		"d41d8cd98f00b204e9800998ecf8427e") == 0, NULL);
+-	fail_unless(strcmp(file->md5, "d41d8cd98f00b204e9800998ecf8427e") == 0,
+-	    NULL);
+-	fail_unless(pkgfile_compare_checksum_md5(file) == 0, NULL);
++	test_checksums(file, "d41d8cd98f00b204e9800998ecf8427e");
+ 
+ 	SETUP_TESTDIR();
+ 	fail_unless(pkgfile_write(file) == 0, NULL);
+@@ -83,11 +118,7 @@
+ 	    "0123456789", 10)) != NULL, NULL);
+ 	fail_unless(strcmp(pkgfile_get_name(file), "testdir/Foo2") == 0, NULL);
+ 	fail_unless(strcmp(file->name, "testdir/Foo2") == 0, NULL);
+-	fail_unless(file->type == pkgfile_regular, NULL);
+-	fail_unless(file->loc == pkgfile_loc_mem, NULL);
+-	fail_unless(file->fd == NULL, NULL);
+-	fail_unless(file->mode == 0, NULL);
+-	fail_unless(file->md5[0] == '\0', NULL);
++	basic_file_tests(file, pkgfile_regular, pkgfile_loc_mem);
+ 
+ 	/* Test the file length */
+ 	fail_unless(pkgfile_get_size(file) == 10, NULL);
+@@ -99,27 +130,8 @@
+ 	fail_unless(strncmp(file->data, "0123456789", 10) == 0, NULL);
+ 
+ 	/* The md5 of 0123456789 string is 781e5e245d69b566979b86e28d23f2c7 */
+-	fail_unless(pkgfile_set_checksum_md5(file,
+-		"781e5e245d69b566979b86e28d23f2c7") == 0, NULL);
+-	fail_unless(strcmp(file->md5, "781e5e245d69b566979b86e28d23f2c7") == 0,
+-		NULL);
+-	fail_unless(pkgfile_compare_checksum_md5(file) == 0, NULL);
++	test_checksums(file, "781e5e245d69b566979b86e28d23f2c7");
+ 
+-	/* Check this fails with bad data */
+-	fail_unless(pkgfile_set_checksum_md5(file, "") == -1, NULL);
+-	fail_unless(strcmp(file->md5, "781e5e245d69b566979b86e28d23f2c7") == 0,
+-		NULL);
+-	fail_unless(pkgfile_set_checksum_md5(file,
+-	    "123456789012345678901234567890123") == -1, NULL);
+-	fail_unless(strcmp(file->md5, "781e5e245d69b566979b86e28d23f2c7") == 0,
+-		NULL);
+-	
+-	fail_unless(pkgfile_set_checksum_md5(file,
+-		"12345678901234567890123456789012") == 0, NULL);
+-	fail_unless(strcmp(file->md5, "12345678901234567890123456789012") == 0,
+-		NULL);
+-	fail_unless(pkgfile_compare_checksum_md5(file) == 1, NULL);
+-
+ 	SETUP_TESTDIR();
+ 	fail_unless(pkgfile_write(file) == 0, NULL);
+ 	fail_unless(pkgfile_write(file) == -1, NULL);
+@@ -223,11 +235,7 @@
+ 
+ 	fail_unless((file = pkgfile_new_symlink("testdir/link", "Foo")) != NULL,
+ 	    NULL);
+-	fail_unless(file->type == pkgfile_symlink, NULL);
+-	fail_unless(file->loc == pkgfile_loc_mem, NULL);
+-	fail_unless(file->fd == NULL, NULL);
+-	fail_unless(file->mode == 0, NULL);
+-	fail_unless(file->md5[0] == '\0', NULL);
++	basic_file_tests(file, pkgfile_symlink, pkgfile_loc_mem);
+ 
+ 	/* Test the file length */
+ 	fail_unless(pkgfile_get_size(file) == 3, NULL);
+@@ -239,11 +247,7 @@
+ 	fail_unless(strcmp(file->data, "Foo") == 0, NULL);
+ 
+ 	/* The md5 of Foo is 1356c67d7ad1638d816bfb822dd2c25d */
+-	fail_unless(pkgfile_set_checksum_md5(file,
+-		"1356c67d7ad1638d816bfb822dd2c25d") == 0, NULL);
+-	fail_unless(strcmp(file->md5, "1356c67d7ad1638d816bfb822dd2c25d") == 0,
+-		NULL);
+-	fail_unless(pkgfile_compare_checksum_md5(file) == 0, NULL);
++	test_checksums(file, "1356c67d7ad1638d816bfb822dd2c25d");
+ 
+ 	SETUP_TESTDIR();
+ 	fail_unless(pkgfile_write(file) == 0, NULL);
+@@ -349,11 +353,7 @@
+ 
+ 	fail_unless((file = pkgfile_new_hardlink("testdir/Foo", "testdir/Bar"))
+ 	    != NULL, NULL);
+-	fail_unless(file->type == pkgfile_hardlink, NULL);
+-	fail_unless(file->loc == pkgfile_loc_mem, NULL);
+-	fail_unless(file->fd == NULL, NULL);
+-	fail_unless(file->mode == 0, NULL);
+-	fail_unless(file->md5[0] == '\0', NULL);
++	basic_file_tests(file, pkgfile_hardlink, pkgfile_loc_mem);
+ 
+ 	/* Test the file length */
+ 	fail_unless(pkgfile_get_size(file) == 11, NULL);
+@@ -370,9 +370,7 @@
+ 	 * pkgfile_compare_checksum_md5 will compare
+ 	 * against the file pointed to by the hardlink
+ 	 */
+-	fail_unless(pkgfile_set_checksum_md5(file,
+-		"d41d8cd98f00b204e9800998ecf8427e") == 0, NULL);
+-	fail_unless(pkgfile_compare_checksum_md5(file) == 0, NULL);
++	test_checksums(file, "d41d8cd98f00b204e9800998ecf8427e");
+ 
+ 	fail_unless(pkgfile_write(file) == 0, NULL);
+ 	fail_unless(stat("testdir/Foo", &sb) == 0, NULL);
+@@ -485,12 +483,7 @@
+ 
+ 	fail_unless((file = pkgfile_new_directory("testdir/newdir")) != NULL,
+ 	    NULL);
+-	fail_unless(file->type == pkgfile_dir, NULL);
+-	fail_unless(file->loc == pkgfile_loc_mem, NULL);
+-	fail_unless(file->data == NULL, NULL);
+-	fail_unless(file->fd == NULL, NULL);
+-	fail_unless(file->mode == 0, NULL);
+-	fail_unless(file->md5[0] == '\0', NULL);
++	basic_file_tests(file, pkgfile_dir, pkgfile_loc_mem);
+ 
+ 	/* Test the file length */
+ 	fail_unless(pkgfile_get_size(file) == 14, NULL);
+
+
+
+From zxombie at mail.berlios.de  Tue Sep  5 14:09:28 2006
+From: zxombie at mail.berlios.de (zxombie at BerliOS)
+Date: Tue, 5 Sep 2006 14:09:28 +0200
+Subject: [Libpkg-svn] r193 - trunk/tests
+Message-ID: <200609051209.k85C9SFi002255@sheep.berlios.de>
+
+Author: zxombie
+Date: 2006-09-05 14:09:26 +0200 (Tue, 05 Sep 2006)
+New Revision: 193
+
+Modified:
+   trunk/tests/pkgfile.c
+Log:
+Move more tests to common functions
+
+
+Modified: trunk/tests/pkgfile.c
+===================================================================
+--- trunk/tests/pkgfile.c	2006-09-05 10:09:46 UTC (rev 192)
++++ trunk/tests/pkgfile.c	2006-09-05 12:09:26 UTC (rev 193)
+@@ -10,8 +10,20 @@
+ #include <pkg.h>
+ #include <pkg_private.h>
+ 
++#define BASIC_FILE "testdir/BASIC"
++#define BASIC_FILE_LENGTH 13
++#define LINK_TARGET "testdir/TARGET"
++#define LINK_TARGET_LENGTH 14
++#define LINK_TARGET_MD5 "d544f30242ff0dab40727ba1acc0751a"
++#define DEPTH_DIR "testdir/dir"
++#define DEPTH_FILE DEPTH_DIR "/DEPTH"
++
+ void basic_file_tests(struct pkgfile *, pkgfile_type, pkgfile_loc);
+ void test_checksums(struct pkgfile *, const char *);
++void existing_regular_test(struct pkgfile *);
++void existing_symlink_test(struct pkgfile *);
++void existing_directory_test(struct pkgfile *);
++void depth_test_fail_write(struct pkgfile *);
+ void empty_regular_file_tests(const char *);
+ 
+ /*
+@@ -55,17 +67,84 @@
+ 	fail_unless(pkgfile_compare_checksum_md5(file) == 1, NULL);
+ }
+ 
++/* Tests if pkgfile_write fails when BASIC_FILE already exists and is regular*/
+ void
++existing_regular_test(struct pkgfile *file)
++{
++	FILE *fd;
++	char buf[6];
++
++	fail_unless(strcmp(file->name, BASIC_FILE) == 0, NULL);
++
++	SETUP_TESTDIR();
++	system("touch " LINK_TARGET);
++	system("echo Hello > " BASIC_FILE);
++	fail_unless(pkgfile_write(file) == -1, NULL);
++	fd = fopen(BASIC_FILE, "r");
++	fread(buf, 5, 1, fd);
++	buf[5] = '\0';
++	/* Check the file has not been touched */
++	fail_unless(strcmp(buf, "Hello") == 0, NULL);
++	fclose(fd);
++	system("rm " BASIC_FILE);
++	system("rm " LINK_TARGET);
++	CLEANUP_TESTDIR();
++}
++
++/* Tests if pkgfile_write fails if BASIC_FILE exiasts and is a symlink */
++void
++existing_symlink_test(struct pkgfile *file)
++{
++	SETUP_TESTDIR();
++	system("touch " LINK_TARGET);
++	symlink("testdir/Bar", BASIC_FILE);
++	fail_unless(pkgfile_write(file) == -1, NULL);
++	system("rm " BASIC_FILE);
++	system("rm " LINK_TARGET);
++	CLEANUP_TESTDIR();
++}
++
++/* Tests if pkgfile_write fails if BASIC_FILE exiasts and is a directory */
++void
++existing_directory_test(struct pkgfile *file)
++{
++	SETUP_TESTDIR();
++	system("touch " LINK_TARGET);
++	system("mkdir " BASIC_FILE);
++	fail_unless(pkgfile_write(file) == -1, NULL);
++	system("rmdir " BASIC_FILE);
++	system("rm " LINK_TARGET);
++	CLEANUP_TESTDIR();
++}
++
++void
++depth_test_fail_write(struct pkgfile *file)
++{
++	fail_unless(strcmp(file->name, DEPTH_FILE) == 0, NULL);
++	SETUP_TESTDIR();
++	/*
++	 * Make sure the hardlink is failing because DEPTH_DIR
++	 * exists not because it can't find LINK_TARGET
++	 */
++	system("touch " LINK_TARGET);
++	system("touch " DEPTH_DIR);
++	fail_unless(pkgfile_write(file) == -1, NULL);
++	system("rm " DEPTH_DIR);
++	system("rm " LINK_TARGET);
++	CLEANUP_TESTDIR();
++}
++
++void
+ empty_regular_file_tests(const char *buf)
+ {
+ 	struct pkgfile *file;
+ 	FILE *fd;
+ 	struct stat sb;
+ 
+-	fail_unless((file = pkgfile_new_regular("testdir/Foo", buf, 0))
++	fail_unless((file = pkgfile_new_regular(BASIC_FILE, buf, 0))
+ 	    != NULL, NULL);
+-	fail_unless(strcmp(pkgfile_get_name(file), "testdir/Foo") == 0, NULL);
+-	fail_unless(strcmp(file->name, "testdir/Foo") == 0, NULL);
++	fail_unless(strcmp(pkgfile_get_name(file), BASIC_FILE) == 0, NULL);
++	fail_unless(strcmp(file->name, BASIC_FILE) == 0, NULL);
+ 	basic_file_tests(file, pkgfile_regular, pkgfile_loc_mem);
+ 
+ 	fail_unless(pkgfile_get_size(file) == 0, NULL);
+@@ -76,15 +155,15 @@
+ 
+ 	SETUP_TESTDIR();
+ 	fail_unless(pkgfile_write(file) == 0, NULL);
+-	fail_unless((fd = fopen("testdir/Foo", "r")) != NULL, NULL);
++	fail_unless((fd = fopen(BASIC_FILE, "r")) != NULL, NULL);
+ 	fstat(fileno(fd), &sb);
+-	fail_unless(sb.st_size == 0, "Created file size is not zero");
++	fail_unless(sb.st_size == 0, NULL);
+ 	/* XXX Check the file contents are correct */
+ 	fclose(fd);
+-	system("rm testdir/Foo");
++	system("rm " BASIC_FILE);
+ 	CLEANUP_TESTDIR();
+ 
+-	fail_unless(pkgfile_free(file) == 0, "pkg_free returned non zero");
++	fail_unless(pkgfile_free(file) == 0, NULL);
+ }
+ 
+ /* Tests on creating a regular file from a buffer */
+@@ -93,7 +172,7 @@
+ 	/* Test creating a regular file from bad data fails */
+ 	fail_unless(pkgfile_new_regular(NULL, NULL, 0) == NULL, NULL);
+ 	fail_unless(pkgfile_new_regular(NULL, "", 0) == NULL, NULL);
+-	fail_unless(pkgfile_new_regular("", NULL, 1) == NULL, NULL);
++	fail_unless(pkgfile_new_regular(BASIC_FILE, NULL, 1) == NULL, NULL);
+ }
+ END_TEST
+ 
+@@ -114,10 +193,10 @@
+ 	struct stat sb;
+ 
+ 	/* Create a file with data */
+-	fail_unless((file = pkgfile_new_regular("testdir/Foo2",
+-	    "0123456789", 10)) != NULL, NULL);
+-	fail_unless(strcmp(pkgfile_get_name(file), "testdir/Foo2") == 0, NULL);
+-	fail_unless(strcmp(file->name, "testdir/Foo2") == 0, NULL);
++	fail_unless((file = pkgfile_new_regular(BASIC_FILE, "0123456789", 10))
++	    != NULL, NULL);
++	fail_unless(strcmp(pkgfile_get_name(file), BASIC_FILE) == 0, NULL);
++	fail_unless(strcmp(file->name, BASIC_FILE) == 0, NULL);
+ 	basic_file_tests(file, pkgfile_regular, pkgfile_loc_mem);
+ 
+ 	/* Test the file length */
+@@ -137,57 +216,37 @@
+ 	fail_unless(pkgfile_write(file) == -1, NULL);
+ 	/* Attempting to over write a file should fail */
+ 	fail_unless(pkgfile_write(file) == -1, NULL);
+-	fail_unless((fd = fopen("testdir/Foo2", "r")) != NULL, NULL);
++	fail_unless((fd = fopen(BASIC_FILE, "r")) != NULL, NULL);
+ 	fstat(fileno(fd), &sb);
+ 	fail_unless(S_ISREG(sb.st_mode), NULL);
+-	fail_unless(sb.st_size == 10, "Created file size is not 10");
++	fail_unless(sb.st_size == 10, NULL);
+ 	fail_unless(sb.st_nlink == 1, NULL);
+ 	/* XXX Check the file contents are correct */
+ 	fclose(fd);
+-	system("rm testdir/Foo2");
++	system("rm " BASIC_FILE);
+ 	CLEANUP_TESTDIR();
+ 
+-	fail_unless(pkgfile_free(file) == 0, "pkg_free returned non zero");
++	fail_unless(pkgfile_free(file) == 0, NULL);
+ }
+ END_TEST
+ 
+ START_TEST(pkgfile_regular_existing_test)
+ {
+ 	struct pkgfile *file;
+-	FILE *fd;
+-	char buf[6];
+ 
+ 	/* Test if pkgfile_write will fail with a regular file */
+-	file = pkgfile_new_regular("testdir/Foo", "0123456789", 10);
+-	SETUP_TESTDIR();
+-	system("echo Hello > testdir/Foo");
+-	fail_unless(pkgfile_write(file) == -1, NULL);
+-	fd = fopen("testdir/Foo", "r");
+-	fread(buf, 5, 1, fd);
+-	buf[5] = '\0';
+-	/* Check the file has not been touched */
+-	fail_unless(strcmp(buf, "Hello") == 0, NULL);
+-	fclose(fd);
+-	system("rm testdir/Foo");
+-	CLEANUP_TESTDIR();
++	file = pkgfile_new_regular(BASIC_FILE, "0123456789", 10);
++	existing_regular_test(file);
+ 	pkgfile_free(file);
+ 
+ 	/* Test if pkgfile_write will fail with a symlink */
+-	file = pkgfile_new_regular("testdir/Foo", "0123456789", 10);
+-	SETUP_TESTDIR();
+-	symlink("testdir/Bar", "testdir/Foo");
+-	fail_unless(pkgfile_write(file) == -1, NULL);
+-	system("rm testdir/Foo");
+-	CLEANUP_TESTDIR();
++	file = pkgfile_new_regular(BASIC_FILE, "0123456789", 10);
++	existing_symlink_test(file);
+ 	pkgfile_free(file);
+ 
+ 	/* Test if pkgfile_write will fail with a directory */
+-	file = pkgfile_new_regular("testdir/Foo", "0123456789", 10);
+-	SETUP_TESTDIR();
+-	system("mkdir testdir/Foo");
+-	fail_unless(pkgfile_write(file) == -1, NULL);
+-	system("rmdir testdir/Foo");
+-	CLEANUP_TESTDIR();
++	file = pkgfile_new_regular(BASIC_FILE, "0123456789", 10);
++	existing_directory_test(file);
+ 	pkgfile_free(file);
+ }
+ END_TEST
+@@ -202,19 +261,24 @@
+ 	FILE *fd;
+ 	char buf[11];
+ 
+-	file = pkgfile_new_regular("testdir/foo/bar", "0123456789", 10);
++	file = pkgfile_new_regular(DEPTH_FILE, "0123456789", 10);
+ 	SETUP_TESTDIR();
+ 	fail_unless(pkgfile_write(file) == 0, NULL);
+-	fd = fopen("testdir/foo/bar", "r");
++	fd = fopen(DEPTH_FILE, "r");
+ 	fread(buf, 10, 1, fd);
+ 	buf[10] = '\0';
+ 	/* Check the file has been written correctly */
+ 	fail_unless(strcmp(buf, "0123456789") == 0, NULL);
+ 	fclose(fd);
+-	system("rm testdir/foo/bar");
+-	system("rmdir testdir/foo");
++	system("rm " DEPTH_FILE);
++	system("rmdir " DEPTH_DIR);
+ 	CLEANUP_TESTDIR();
+ 	pkgfile_free(file);
++
++	/* Test pkg_write will fail when it can't create a parent directory */
++	file = pkgfile_new_regular(DEPTH_FILE, "0123456789", 10);
++	depth_test_fail_write(file);
++	pkgfile_free(file);
+ }
+ END_TEST
+ 
+@@ -223,8 +287,8 @@
+ {
+ 	/* Test creating a symlink from bad data fails */
+ 	fail_unless(pkgfile_new_symlink(NULL, NULL) == NULL, NULL);
+-	fail_unless(pkgfile_new_symlink("", NULL) == NULL, NULL);
+-	fail_unless(pkgfile_new_symlink(NULL, "") == NULL, NULL);
++	fail_unless(pkgfile_new_symlink(BASIC_FILE, NULL) == NULL, NULL);
++	fail_unless(pkgfile_new_symlink(NULL, LINK_TARGET) == NULL, NULL);
+ }
+ END_TEST
+ 
+@@ -233,29 +297,29 @@
+ 	struct pkgfile *file;
+ 	struct stat sb;
+ 
+-	fail_unless((file = pkgfile_new_symlink("testdir/link", "Foo")) != NULL,
+-	    NULL);
++	fail_unless((file = pkgfile_new_symlink(BASIC_FILE, LINK_TARGET))
++	    != NULL, NULL);
+ 	basic_file_tests(file, pkgfile_symlink, pkgfile_loc_mem);
+ 
+ 	/* Test the file length */
+-	fail_unless(pkgfile_get_size(file) == 3, NULL);
+-	fail_unless(file->length == 3, NULL);
++	fail_unless(pkgfile_get_size(file) == LINK_TARGET_LENGTH, NULL);
++	fail_unless(file->length == LINK_TARGET_LENGTH, NULL);
+ 
+ 	/* Test the data */
+ 	fail_unless(pkgfile_get_data(file) != NULL, NULL);
+-	fail_unless(strcmp(pkgfile_get_data(file), "Foo") == 0, NULL);
+-	fail_unless(strcmp(file->data, "Foo") == 0, NULL);
++	fail_unless(strcmp(pkgfile_get_data(file), LINK_TARGET) == 0, NULL);
++	fail_unless(strcmp(file->data, LINK_TARGET) == 0, NULL);
+ 
+ 	/* The md5 of Foo is 1356c67d7ad1638d816bfb822dd2c25d */
+-	test_checksums(file, "1356c67d7ad1638d816bfb822dd2c25d");
++	test_checksums(file, LINK_TARGET_MD5);
+ 
+ 	SETUP_TESTDIR();
+ 	fail_unless(pkgfile_write(file) == 0, NULL);
+ 	/* XXX Check the file contents are correct */
+-	fail_unless(lstat("testdir/link", &sb) == 0, NULL);
++	fail_unless(lstat(BASIC_FILE, &sb) == 0, NULL);
+ 	fail_unless(S_ISLNK(sb.st_mode), NULL);
+-	fail_unless(sb.st_size == 3, "Created file size is not 3");
+-	system("rm testdir/link");
++	fail_unless(sb.st_size == LINK_TARGET_LENGTH, NULL);
++	system("rm " BASIC_FILE);
+ 	CLEANUP_TESTDIR();
+ 
+ 	fail_unless(pkgfile_free(file) == 0, NULL);
+@@ -265,40 +329,20 @@
+ START_TEST(pkgfile_symlink_existing_test)
+ {
+ 	struct pkgfile *file;
+-	FILE *fd;
+-	char buf[6];
+ 
+ 	/* Test if pkgfile_write will fail with a regular file */
+-	file = pkgfile_new_symlink("testdir/Foo", "0123456789");
+-	SETUP_TESTDIR();
+-	system("echo Hello > testdir/Foo");
+-	fail_unless(pkgfile_write(file) == -1, NULL);
+-	fd = fopen("testdir/Foo", "r");
+-	fread(buf, 5, 1, fd);
+-	buf[5] = '\0';
+-	/* Check the file has not been touched */
+-	fail_unless(strcmp(buf, "Hello") == 0, NULL);
+-	fclose(fd);
+-	system("rm testdir/Foo");
+-	CLEANUP_TESTDIR();
++	file = pkgfile_new_symlink(BASIC_FILE, LINK_TARGET);
++	existing_regular_test(file);
+ 	pkgfile_free(file);
+ 
+ 	/* Test if pkgfile_write will fail with a symlink */
+-	file = pkgfile_new_symlink("testdir/Foo", "0123456789");
+-	SETUP_TESTDIR();
+-	symlink("testdir/Bar", "testdir/Foo");
+-	fail_unless(pkgfile_write(file) == -1, NULL);
+-	system("rm testdir/Foo");
+-	CLEANUP_TESTDIR();
++	file = pkgfile_new_symlink(BASIC_FILE, LINK_TARGET);
++	existing_symlink_test(file);
+ 	pkgfile_free(file);
+ 
+ 	/* Test if pkgfile_write will fail with a directory */
+-	file = pkgfile_new_symlink("testdir/Foo", "0123456789");
+-	SETUP_TESTDIR();
+-	system("mkdir testdir/Foo");
+-	fail_unless(pkgfile_write(file) == -1, NULL);
+-	system("rmdir testdir/Foo");
+-	CLEANUP_TESTDIR();
++	file = pkgfile_new_symlink(BASIC_FILE, LINK_TARGET);
++	existing_directory_test(file);
+ 	pkgfile_free(file);
+ }
+ END_TEST
+@@ -312,13 +356,13 @@
+ 	struct pkgfile *file;
+ 	struct stat sb;
+ 
+-	file = pkgfile_new_symlink("testdir/foo/bar", "0123456789");
++	file = pkgfile_new_symlink(DEPTH_FILE, LINK_TARGET);
+ 	SETUP_TESTDIR();
+ 	fail_unless(pkgfile_write(file) == 0, NULL);
+-	fail_unless(lstat("testdir/foo/bar", &sb) == 0, NULL);
++	fail_unless(lstat(DEPTH_FILE, &sb) == 0, NULL);
+ 	fail_unless(S_ISLNK(sb.st_mode), NULL);
+-	system("rm testdir/foo/bar");
+-	system("rmdir testdir/foo");
++	system("rm " DEPTH_FILE);
++	system("rmdir " DEPTH_DIR);
+ 	CLEANUP_TESTDIR();
+ 	pkgfile_free(file);
+ 
+@@ -326,12 +370,8 @@
+ 	 * Check pkgfile_write fails when there
+ 	 * is already a file named testdir/foo
+ 	 */
+-	file = pkgfile_new_symlink("testdir/foo/bar", "0123456789");
+-	SETUP_TESTDIR();
+-	system("touch testdir/foo");
+-	fail_unless(pkgfile_write(file) == -1, NULL);
+-	system("rm testdir/foo");
+-	CLEANUP_TESTDIR();
++	file = pkgfile_new_symlink(DEPTH_FILE, LINK_TARGET);
++	depth_test_fail_write(file);
+ 	pkgfile_free(file);
+ }
+ END_TEST
+@@ -341,8 +381,8 @@
+ {
+ 	/* Test creating a hard link from bad data fails */
+ 	fail_unless(pkgfile_new_hardlink(NULL, NULL) == NULL, NULL);
+-	fail_unless(pkgfile_new_hardlink("", NULL) == NULL, NULL);
+-	fail_unless(pkgfile_new_hardlink(NULL, "") == NULL, NULL);
++	fail_unless(pkgfile_new_hardlink(BASIC_FILE, NULL) == NULL, NULL);
++	fail_unless(pkgfile_new_hardlink(NULL, LINK_TARGET) == NULL, NULL);
+ }
+ END_TEST
+ 
+@@ -351,21 +391,21 @@
+ 	struct pkgfile *file;
+ 	struct stat sb;
+ 
+-	fail_unless((file = pkgfile_new_hardlink("testdir/Foo", "testdir/Bar"))
++	fail_unless((file = pkgfile_new_hardlink(BASIC_FILE, LINK_TARGET))
+ 	    != NULL, NULL);
+ 	basic_file_tests(file, pkgfile_hardlink, pkgfile_loc_mem);
+ 
+ 	/* Test the file length */
+-	fail_unless(pkgfile_get_size(file) == 11, NULL);
+-	fail_unless(file->length == 11, NULL);
++	fail_unless(pkgfile_get_size(file) == LINK_TARGET_LENGTH, NULL);
++	fail_unless(file->length == LINK_TARGET_LENGTH, NULL);
+ 
+ 	/* Test the data */
+ 	fail_unless(pkgfile_get_data(file) != NULL, NULL);
+-	fail_unless(strcmp(pkgfile_get_data(file), "testdir/Bar") == 0, NULL);
+-	fail_unless(strcmp(file->data, "testdir/Bar") == 0, NULL);
++	fail_unless(strcmp(pkgfile_get_data(file), LINK_TARGET) == 0, NULL);
++	fail_unless(strcmp(file->data, LINK_TARGET) == 0, NULL);
+ 
+ 	SETUP_TESTDIR();
+-	system("touch testdir/Bar");	
++	system("touch " LINK_TARGET);
+ 	/*
+ 	 * pkgfile_compare_checksum_md5 will compare
+ 	 * against the file pointed to by the hardlink
+@@ -373,11 +413,11 @@
+ 	test_checksums(file, "d41d8cd98f00b204e9800998ecf8427e");
+ 
+ 	fail_unless(pkgfile_write(file) == 0, NULL);
+-	fail_unless(stat("testdir/Foo", &sb) == 0, NULL);
++	fail_unless(stat(BASIC_FILE, &sb) == 0, NULL);
+ 	fail_unless(S_ISREG(sb.st_mode), NULL);
+ 	fail_unless(sb.st_nlink == 2, NULL);
+-	system("rm testdir/Foo");
+-	system("rm testdir/Bar");
++	system("rm " BASIC_FILE);
++	system("rm " LINK_TARGET);
+ 	CLEANUP_TESTDIR();
+ 
+ 	fail_unless(pkgfile_free(file) == 0, NULL);
+@@ -387,46 +427,20 @@
+ START_TEST(pkgfile_hardlink_existing_test)
+ {
+ 	struct pkgfile *file;
+-	FILE *fd;
+-	char buf[6];
+ 
+ 	/* Test if pkgfile_write will fail with a regular file */
+-	file = pkgfile_new_hardlink("testdir/Foo", "testdir/Bar");
+-	SETUP_TESTDIR();
+-	system("touch testdir/Bar");
+-	system("echo Hello > testdir/Foo");
+-	fail_unless(pkgfile_write(file) == -1, NULL);
+-	fd = fopen("testdir/Foo", "r");
+-	fread(buf, 5, 1, fd);
+-	buf[5] = '\0';
+-	/* Check the file has not been touched */
+-	fail_unless(strcmp(buf, "Hello") == 0, NULL);
+-	fclose(fd);
+-	system("rm testdir/Foo");
+-	system("rm testdir/Bar");
+-	CLEANUP_TESTDIR();
++	file = pkgfile_new_hardlink(BASIC_FILE, LINK_TARGET);
++	existing_regular_test(file);
+ 	pkgfile_free(file);
+ 
+ 	/* Test if pkgfile_write will fail with a symlink */
+-	file = pkgfile_new_hardlink("testdir/Foo", "testdir/Bar");
+-	SETUP_TESTDIR();
+-	system("touch testdir/Bar");
+-	symlink("testdir/Baz", "testdir/Foo");
+-	fail_unless(pkgfile_write(file) == -1, NULL);
+-	system("rm testdir/Foo");
+-	system("rm testdir/Bar");
+-	CLEANUP_TESTDIR();
++	file = pkgfile_new_hardlink(BASIC_FILE, LINK_TARGET);
++	existing_symlink_test(file);
+ 	pkgfile_free(file);
+ 
+ 	/* Test if pkgfile_write will fail with a directory */
+-	file = pkgfile_new_hardlink("testdir/Foo", "testdir/Bar");
+-	SETUP_TESTDIR();
+-	system("touch testdir/Bar");
+-	system("mkdir testdir/Foo");
+-	fail_unless(pkgfile_write(file) == -1, NULL);
+-	system("rmdir testdir/Foo");
+-	system("rm testdir/Bar");
+-	CLEANUP_TESTDIR();
++	file = pkgfile_new_hardlink(BASIC_FILE, LINK_TARGET);
++	existing_directory_test(file);
+ 	pkgfile_free(file);
+ }
+ END_TEST
+@@ -440,15 +454,15 @@
+ 	struct pkgfile *file;
+ 	struct stat sb;
+ 
+-	file = pkgfile_new_hardlink("testdir/foo/bar", "testdir/Bar");
++	file = pkgfile_new_hardlink(DEPTH_FILE, LINK_TARGET);
+ 	SETUP_TESTDIR();
+-	system("touch testdir/Bar");
++	system("touch " LINK_TARGET);
+ 	fail_unless(pkgfile_write(file) == 0, NULL);
+-	fail_unless(lstat("testdir/foo/bar", &sb) == 0, NULL);
++	fail_unless(lstat(DEPTH_FILE, &sb) == 0, NULL);
+ 	fail_unless(S_ISREG(sb.st_mode), NULL);
+-	system("rm testdir/foo/bar");
+-	system("rmdir testdir/foo");
+-	system("rm testdir/Bar");
++	system("rm " DEPTH_FILE);
++	system("rmdir " DEPTH_DIR);
++	system("rm " LINK_TARGET);
+ 	CLEANUP_TESTDIR();
+ 	pkgfile_free(file);
+ 
+@@ -456,14 +470,8 @@
+ 	 * Check pkgfile_write fails when there
+ 	 * is already a file named testdir/foo
+ 	 */
+-	file = pkgfile_new_hardlink("testdir/foo/bar", "testdir/Bar");
+-	SETUP_TESTDIR();
+-	system("touch testdir/Bar");
+-	system("touch testdir/foo");
+-	fail_unless(pkgfile_write(file) == -1, NULL);
+-	system("rm testdir/foo");
+-	system("rm testdir/Bar");
+-	CLEANUP_TESTDIR();
++	file = pkgfile_new_hardlink(DEPTH_FILE, LINK_TARGET);
++	depth_test_fail_write(file);
+ 	pkgfile_free(file);
+ }
+ END_TEST
+@@ -481,17 +489,16 @@
+ 	struct pkgfile *file;
+ 	struct stat sb;
+ 
+-	fail_unless((file = pkgfile_new_directory("testdir/newdir")) != NULL,
+-	    NULL);
++	fail_unless((file = pkgfile_new_directory(BASIC_FILE)) != NULL, NULL);
+ 	basic_file_tests(file, pkgfile_dir, pkgfile_loc_mem);
+ 
+ 	/* Test the file length */
+-	fail_unless(pkgfile_get_size(file) == 14, NULL);
+-	fail_unless(file->length == 14, NULL);
++	fail_unless(pkgfile_get_size(file) == BASIC_FILE_LENGTH, NULL);
++	fail_unless(file->length == BASIC_FILE_LENGTH, NULL);
+ 
+ 	/* Test the data */
+ 	fail_unless(pkgfile_get_data(file) != NULL, NULL);
+-	fail_unless(strcmp(pkgfile_get_data(file), "testdir/newdir") ==0, NULL);
++	fail_unless(strcmp(pkgfile_get_data(file), BASIC_FILE) ==0, NULL);
+ 
+ 	SETUP_TESTDIR();
+ 	fail_unless(pkgfile_write(file) == 0, NULL);
+@@ -500,9 +507,9 @@
+ 	 * with different permissions than the existing one
+ 	 */
+ 	fail_unless(pkgfile_write(file) == 0, NULL);
+-	fail_unless(stat("testdir/newdir", &sb) == 0, NULL);
++	fail_unless(stat(BASIC_FILE, &sb) == 0, NULL);
+ 	fail_unless(S_ISDIR(sb.st_mode), NULL);
+-	system("rmdir testdir/newdir");
++	system("rmdir " BASIC_FILE);
+ 	CLEANUP_TESTDIR();
+ 	fail_unless(pkgfile_free(file) == 0, NULL);
+ }
+@@ -511,31 +518,15 @@
+ START_TEST(pkgfile_directory_existing_test)
+ {
+ 	struct pkgfile *file;
+-	FILE *fd;
+-	char buf[6];
+ 
+-	/* Test if pkgfile_write will fail with a regular file */
+-	file = pkgfile_new_directory("testdir/Foo");
+-	SETUP_TESTDIR();
+-	system("echo Hello > testdir/Foo");
+-	fail_unless(pkgfile_write(file) == -1, NULL);
+-	fd = fopen("testdir/Foo", "r");
+-	fread(buf, 5, 1, fd);
+-	buf[5] = '\0';
+-	/* Check the file has not been touched */
+-	fail_unless(strcmp(buf, "Hello") == 0, NULL);
+-	fclose(fd);
+-	system("rm testdir/Foo");
+-	CLEANUP_TESTDIR();
++	/* Test if pkgfile_write should fail with a regular file */
++	file = pkgfile_new_directory(BASIC_FILE);
++	existing_regular_test(file);
+ 	pkgfile_free(file);
+ 
+-	/* Test if pkgfile_write will fail with a symlink */
+-	file = pkgfile_new_directory("testdir/Foo");
+-	SETUP_TESTDIR();
+-	symlink("testdir/Bar", "testdir/Foo");
+-	fail_unless(pkgfile_write(file) == -1, NULL);
+-	system("rm testdir/Foo");
+-	CLEANUP_TESTDIR();
++	/* Test if pkgfile_write should fail with a symlink */
++	file = pkgfile_new_directory(BASIC_FILE);
++	existing_symlink_test(file);
+ 	pkgfile_free(file);
+ }
+ END_TEST
+@@ -549,13 +540,13 @@
+ 	struct pkgfile *file;
+ 	struct stat sb;
+ 
+-	file = pkgfile_new_directory("testdir/foo/bar");
++	file = pkgfile_new_directory(DEPTH_FILE);
+ 	SETUP_TESTDIR();
+ 	fail_unless(pkgfile_write(file) == 0, NULL);
+-	fail_unless(lstat("testdir/foo/bar", &sb) == 0, NULL);
++	fail_unless(lstat(DEPTH_FILE, &sb) == 0, NULL);
+ 	fail_unless(S_ISDIR(sb.st_mode), NULL);
+-	system("rmdir testdir/foo/bar");
+-	system("rmdir testdir/foo");
++	system("rmdir " DEPTH_FILE);
++	system("rmdir " DEPTH_DIR);
+ 	CLEANUP_TESTDIR();
+ 	pkgfile_free(file);
+ 
+@@ -563,12 +554,8 @@
+ 	 * Check pkgfile_write fails when there
+ 	 * is already a file named testdir/foo
+ 	 */
+-	file = pkgfile_new_directory("testdir/foo/bar");
+-	SETUP_TESTDIR();
+-	system("touch testdir/foo");
+-	fail_unless(pkgfile_write(file) == -1, NULL);
+-	system("rm testdir/foo");
+-	CLEANUP_TESTDIR();
++	file = pkgfile_new_directory(DEPTH_FILE);
++	depth_test_fail_write(file);
+ 	pkgfile_free(file);
+ }
+ END_TEST
+
+
+
+From zxombie at mail.berlios.de  Thu Sep  7 13:12:28 2006
+From: zxombie at mail.berlios.de (zxombie at BerliOS)
+Date: Thu, 7 Sep 2006 13:12:28 +0200
+Subject: [Libpkg-svn] r194 - trunk/tests
+Message-ID: <200609071112.k87BCS92017979@sheep.berlios.de>
+
+Author: zxombie
+Date: 2006-09-07 13:12:28 +0200 (Thu, 07 Sep 2006)
+New Revision: 194
+
+Modified:
+   trunk/tests/pkgfile.c
+Log:
+Move more test into basic_file_tests
+
+
+Modified: trunk/tests/pkgfile.c
+===================================================================
+--- trunk/tests/pkgfile.c	2006-09-05 12:09:26 UTC (rev 193)
++++ trunk/tests/pkgfile.c	2006-09-07 11:12:28 UTC (rev 194)
+@@ -18,7 +18,8 @@
+ #define DEPTH_DIR "testdir/dir"
+ #define DEPTH_FILE DEPTH_DIR "/DEPTH"
+ 
+-void basic_file_tests(struct pkgfile *, pkgfile_type, pkgfile_loc);
++void basic_file_tests(struct pkgfile *, pkgfile_type, pkgfile_loc, const char *,
++	unsigned int);
+ void test_checksums(struct pkgfile *, const char *);
+ void existing_regular_test(struct pkgfile *);
+ void existing_symlink_test(struct pkgfile *);
+@@ -30,13 +31,35 @@
+  * Check a pkgfile object is correct after it has been created
+  */
+ void
+-basic_file_tests(struct pkgfile *file, pkgfile_type type, pkgfile_loc loc)
++basic_file_tests(struct pkgfile *file, pkgfile_type type, pkgfile_loc loc,
++	const char *data, unsigned int length)
+ {
+ 	fail_unless(file->loc == loc, NULL);
+ 	fail_unless(file->type == type, NULL);
+ 	fail_unless(file->fd == NULL, NULL);
+ 	fail_unless(file->mode == 0, NULL);
+ 	fail_unless(file->md5[0] == '\0', NULL);
++
++	/* Test the file length */
++	fail_unless(pkgfile_get_size(file) == length, NULL);
++	fail_unless(file->length == length, NULL);
++
++	/* Test the data */
++	if (data != NULL) {
++		fail_unless(pkgfile_get_data(file) != NULL, NULL);
++		fail_unless(strncmp(pkgfile_get_data(file), data, length) == 0,
++		    NULL);
++
++		if (file->type != pkgfile_dir) {
++			fail_unless(file->data != NULL, NULL);
++			fail_unless(strncmp(file->data, data, length) == 0,
++			    NULL);
++		} else {
++			fail_unless(file->data == NULL, NULL);
++			fail_unless(strncmp(file->name, data, length) == 0,
++			    NULL);
++		}
++	}
+ }
+ 
+ void
+@@ -79,6 +102,8 @@
+ 	SETUP_TESTDIR();
+ 	system("touch " LINK_TARGET);
+ 	system("echo Hello > " BASIC_FILE);
++
++	/* This should fail as BASIC_FILE already exists */
+ 	fail_unless(pkgfile_write(file) == -1, NULL);
+ 	fd = fopen(BASIC_FILE, "r");
+ 	fread(buf, 5, 1, fd);
+@@ -145,9 +170,8 @@
+ 	    != NULL, NULL);
+ 	fail_unless(strcmp(pkgfile_get_name(file), BASIC_FILE) == 0, NULL);
+ 	fail_unless(strcmp(file->name, BASIC_FILE) == 0, NULL);
+-	basic_file_tests(file, pkgfile_regular, pkgfile_loc_mem);
++	basic_file_tests(file, pkgfile_regular, pkgfile_loc_mem, NULL, 0);
+ 
+-	fail_unless(pkgfile_get_size(file) == 0, NULL);
+ 	fail_unless(pkgfile_get_data(file) == NULL, NULL);
+ 
+ 	/* The md5 of an empty string is d41d8cd98f00b204e9800998ecf8427e */
+@@ -197,12 +221,9 @@
+ 	    != NULL, NULL);
+ 	fail_unless(strcmp(pkgfile_get_name(file), BASIC_FILE) == 0, NULL);
+ 	fail_unless(strcmp(file->name, BASIC_FILE) == 0, NULL);
+-	basic_file_tests(file, pkgfile_regular, pkgfile_loc_mem);
++	basic_file_tests(file, pkgfile_regular, pkgfile_loc_mem, "0123456789",
++	    10);
+ 
+-	/* Test the file length */
+-	fail_unless(pkgfile_get_size(file) == 10, NULL);
+-	fail_unless(file->length == 10, NULL);
+-
+ 	/* Test the data */
+ 	fail_unless(pkgfile_get_data(file) != NULL, NULL);
+ 	fail_unless(strncmp(pkgfile_get_data(file), "0123456789", 10)== 0,NULL);
+@@ -299,12 +320,9 @@
+ 
+ 	fail_unless((file = pkgfile_new_symlink(BASIC_FILE, LINK_TARGET))
+ 	    != NULL, NULL);
+-	basic_file_tests(file, pkgfile_symlink, pkgfile_loc_mem);
++	basic_file_tests(file, pkgfile_symlink, pkgfile_loc_mem, LINK_TARGET,
++	    LINK_TARGET_LENGTH);
+ 
+-	/* Test the file length */
+-	fail_unless(pkgfile_get_size(file) == LINK_TARGET_LENGTH, NULL);
+-	fail_unless(file->length == LINK_TARGET_LENGTH, NULL);
+-
+ 	/* Test the data */
+ 	fail_unless(pkgfile_get_data(file) != NULL, NULL);
+ 	fail_unless(strcmp(pkgfile_get_data(file), LINK_TARGET) == 0, NULL);
+@@ -393,12 +411,9 @@
+ 
+ 	fail_unless((file = pkgfile_new_hardlink(BASIC_FILE, LINK_TARGET))
+ 	    != NULL, NULL);
+-	basic_file_tests(file, pkgfile_hardlink, pkgfile_loc_mem);
++	basic_file_tests(file, pkgfile_hardlink, pkgfile_loc_mem, LINK_TARGET,
++	    LINK_TARGET_LENGTH);
+ 
+-	/* Test the file length */
+-	fail_unless(pkgfile_get_size(file) == LINK_TARGET_LENGTH, NULL);
+-	fail_unless(file->length == LINK_TARGET_LENGTH, NULL);
+-
+ 	/* Test the data */
+ 	fail_unless(pkgfile_get_data(file) != NULL, NULL);
+ 	fail_unless(strcmp(pkgfile_get_data(file), LINK_TARGET) == 0, NULL);
+@@ -490,7 +505,8 @@
+ 	struct stat sb;
+ 
+ 	fail_unless((file = pkgfile_new_directory(BASIC_FILE)) != NULL, NULL);
+-	basic_file_tests(file, pkgfile_dir, pkgfile_loc_mem);
++	basic_file_tests(file, pkgfile_dir, pkgfile_loc_mem, BASIC_FILE,
++	    BASIC_FILE_LENGTH);
+ 
+ 	/* Test the file length */
+ 	fail_unless(pkgfile_get_size(file) == BASIC_FILE_LENGTH, NULL);
+
+
+
+From zxombie at mail.berlios.de  Thu Sep  7 13:58:37 2006
+From: zxombie at mail.berlios.de (zxombie at BerliOS)
+Date: Thu, 7 Sep 2006 13:58:37 +0200
+Subject: [Libpkg-svn] r195 - trunk/tests
+Message-ID: <200609071158.k87Bwb45026191@sheep.berlios.de>
+
+Author: zxombie
+Date: 2006-09-07 13:58:37 +0200 (Thu, 07 Sep 2006)
+New Revision: 195
+
+Modified:
+   trunk/tests/pkgfile.c
+Log:
+Add check_regular_file_data to check a named regular file is correct
+Make all pkgfile specific functions static
+Remove the local testing og file->data as it is already being tested for in basic_file_tests
+
+
+Modified: trunk/tests/pkgfile.c
+===================================================================
+--- trunk/tests/pkgfile.c	2006-09-07 11:12:28 UTC (rev 194)
++++ trunk/tests/pkgfile.c	2006-09-07 11:58:37 UTC (rev 195)
+@@ -18,19 +18,20 @@
+ #define DEPTH_DIR "testdir/dir"
+ #define DEPTH_FILE DEPTH_DIR "/DEPTH"
+ 
+-void basic_file_tests(struct pkgfile *, pkgfile_type, pkgfile_loc, const char *,
+-	unsigned int);
+-void test_checksums(struct pkgfile *, const char *);
+-void existing_regular_test(struct pkgfile *);
+-void existing_symlink_test(struct pkgfile *);
+-void existing_directory_test(struct pkgfile *);
+-void depth_test_fail_write(struct pkgfile *);
+-void empty_regular_file_tests(const char *);
++static void basic_file_tests(struct pkgfile *, pkgfile_type, pkgfile_loc,
++	const char *, unsigned int);
++static void test_checksums(struct pkgfile *, const char *);
++static void existing_regular_test(struct pkgfile *);
++static void existing_symlink_test(struct pkgfile *);
++static void existing_directory_test(struct pkgfile *);
++static void depth_test_fail_write(struct pkgfile *);
++static void empty_regular_file_tests(const char *);
++static void check_regular_file_data(const char *, const char *, int, int);
+ 
+ /*
+  * Check a pkgfile object is correct after it has been created
+  */
+-void
++static void
+ basic_file_tests(struct pkgfile *file, pkgfile_type type, pkgfile_loc loc,
+ 	const char *data, unsigned int length)
+ {
+@@ -62,7 +63,7 @@
+ 	}
+ }
+ 
+-void
++static void
+ test_checksums(struct pkgfile *file, const char *md5)
+ {
+ 	fail_unless(strlen(md5) == 32, NULL);
+@@ -73,6 +74,7 @@
+ 	/* Check this fails with bad data that is too short */
+ 	fail_unless(pkgfile_set_checksum_md5(file, "") == -1, NULL);
+ 	fail_unless(strcmp(file->md5, md5) == 0, NULL);
++	fail_unless(pkgfile_compare_checksum_md5(file) == 0, NULL);
+ 
+ 	/* Check this fails with bad data that is too long */
+ 	fail_unless(pkgfile_set_checksum_md5(file,
+@@ -91,33 +93,25 @@
+ }
+ 
+ /* Tests if pkgfile_write fails when BASIC_FILE already exists and is regular*/
+-void
++static void
+ existing_regular_test(struct pkgfile *file)
+ {
+-	FILE *fd;
+-	char buf[6];
+-
+ 	fail_unless(strcmp(file->name, BASIC_FILE) == 0, NULL);
+ 
+ 	SETUP_TESTDIR();
+ 	system("touch " LINK_TARGET);
+-	system("echo Hello > " BASIC_FILE);
++	system("echo -n Hello > " BASIC_FILE);
+ 
+ 	/* This should fail as BASIC_FILE already exists */
+ 	fail_unless(pkgfile_write(file) == -1, NULL);
+-	fd = fopen(BASIC_FILE, "r");
+-	fread(buf, 5, 1, fd);
+-	buf[5] = '\0';
+-	/* Check the file has not been touched */
+-	fail_unless(strcmp(buf, "Hello") == 0, NULL);
+-	fclose(fd);
++	check_regular_file_data(BASIC_FILE, "Hello", 5, 1);
+ 	system("rm " BASIC_FILE);
+ 	system("rm " LINK_TARGET);
+ 	CLEANUP_TESTDIR();
+ }
+ 
+ /* Tests if pkgfile_write fails if BASIC_FILE exiasts and is a symlink */
+-void
++static void
+ existing_symlink_test(struct pkgfile *file)
+ {
+ 	SETUP_TESTDIR();
+@@ -130,7 +124,7 @@
+ }
+ 
+ /* Tests if pkgfile_write fails if BASIC_FILE exiasts and is a directory */
+-void
++static void
+ existing_directory_test(struct pkgfile *file)
+ {
+ 	SETUP_TESTDIR();
+@@ -142,7 +136,7 @@
+ 	CLEANUP_TESTDIR();
+ }
+ 
+-void
++static void
+ depth_test_fail_write(struct pkgfile *file)
+ {
+ 	fail_unless(strcmp(file->name, DEPTH_FILE) == 0, NULL);
+@@ -159,7 +153,7 @@
+ 	CLEANUP_TESTDIR();
+ }
+ 
+-void
++static void
+ empty_regular_file_tests(const char *buf)
+ {
+ 	struct pkgfile *file;
+@@ -190,6 +184,32 @@
+ 	fail_unless(pkgfile_free(file) == 0, NULL);
+ }
+ 
++static void
++check_regular_file_data(const char *filename, const char *expected_data,
++    int length, int link_count)
++{
++	struct stat sb;
++	FILE *fd;
++	char *buf;
++
++
++	fail_unless((fd = fopen(filename, "r")) != NULL, NULL);
++
++	/* Check the file looks correct */
++	fstat(fileno(fd), &sb);
++	fail_unless(S_ISREG(sb.st_mode), NULL);
++	fail_unless(sb.st_size == length, NULL);
++	fail_unless(sb.st_nlink == link_count, "%d %d", sb.st_nlink, link_count);
++
++	fail_unless((buf = calloc(length + 1, 1)) != NULL, NULL);
++	fread(buf, length, 1, fd);
++	/* Check the file has been written correctly */
++	fail_unless(strcmp(buf, expected_data) == 0, NULL);
++	free(buf);
++
++	fclose(fd);
++}
++
+ /* Tests on creating a regular file from a buffer */
+ START_TEST(pkgfile_regular_bad_test)
+ {
+@@ -213,8 +233,6 @@
+ START_TEST(pkgfile_regular_data_test)
+ {
+ 	struct pkgfile *file;
+-	FILE *fd;
+-	struct stat sb;
+ 
+ 	/* Create a file with data */
+ 	fail_unless((file = pkgfile_new_regular(BASIC_FILE, "0123456789", 10))
+@@ -224,26 +242,14 @@
+ 	basic_file_tests(file, pkgfile_regular, pkgfile_loc_mem, "0123456789",
+ 	    10);
+ 
+-	/* Test the data */
+-	fail_unless(pkgfile_get_data(file) != NULL, NULL);
+-	fail_unless(strncmp(pkgfile_get_data(file), "0123456789", 10)== 0,NULL);
+-	fail_unless(strncmp(file->data, "0123456789", 10) == 0, NULL);
+-
+ 	/* The md5 of 0123456789 string is 781e5e245d69b566979b86e28d23f2c7 */
+ 	test_checksums(file, "781e5e245d69b566979b86e28d23f2c7");
+ 
+ 	SETUP_TESTDIR();
+ 	fail_unless(pkgfile_write(file) == 0, NULL);
+-	fail_unless(pkgfile_write(file) == -1, NULL);
+ 	/* Attempting to over write a file should fail */
+ 	fail_unless(pkgfile_write(file) == -1, NULL);
+-	fail_unless((fd = fopen(BASIC_FILE, "r")) != NULL, NULL);
+-	fstat(fileno(fd), &sb);
+-	fail_unless(S_ISREG(sb.st_mode), NULL);
+-	fail_unless(sb.st_size == 10, NULL);
+-	fail_unless(sb.st_nlink == 1, NULL);
+-	/* XXX Check the file contents are correct */
+-	fclose(fd);
++	check_regular_file_data(BASIC_FILE, "0123456789", 10, 1);
+ 	system("rm " BASIC_FILE);
+ 	CLEANUP_TESTDIR();
+ 
+@@ -279,18 +285,11 @@
+ START_TEST(pkgfile_regular_depth_test)
+ {
+ 	struct pkgfile *file;
+-	FILE *fd;
+-	char buf[11];
+ 
+ 	file = pkgfile_new_regular(DEPTH_FILE, "0123456789", 10);
+ 	SETUP_TESTDIR();
+ 	fail_unless(pkgfile_write(file) == 0, NULL);
+-	fd = fopen(DEPTH_FILE, "r");
+-	fread(buf, 10, 1, fd);
+-	buf[10] = '\0';
+-	/* Check the file has been written correctly */
+-	fail_unless(strcmp(buf, "0123456789") == 0, NULL);
+-	fclose(fd);
++	check_regular_file_data(DEPTH_FILE, "0123456789", 10, 1);
+ 	system("rm " DEPTH_FILE);
+ 	system("rmdir " DEPTH_DIR);
+ 	CLEANUP_TESTDIR();
+@@ -323,11 +322,6 @@
+ 	basic_file_tests(file, pkgfile_symlink, pkgfile_loc_mem, LINK_TARGET,
+ 	    LINK_TARGET_LENGTH);
+ 
+-	/* Test the data */
+-	fail_unless(pkgfile_get_data(file) != NULL, NULL);
+-	fail_unless(strcmp(pkgfile_get_data(file), LINK_TARGET) == 0, NULL);
+-	fail_unless(strcmp(file->data, LINK_TARGET) == 0, NULL);
+-
+ 	/* The md5 of Foo is 1356c67d7ad1638d816bfb822dd2c25d */
+ 	test_checksums(file, LINK_TARGET_MD5);
+ 
+@@ -407,30 +401,27 @@
+ START_TEST(pkgfile_hardlink_test)
+ {
+ 	struct pkgfile *file;
+-	struct stat sb;
+ 
+ 	fail_unless((file = pkgfile_new_hardlink(BASIC_FILE, LINK_TARGET))
+ 	    != NULL, NULL);
+ 	basic_file_tests(file, pkgfile_hardlink, pkgfile_loc_mem, LINK_TARGET,
+ 	    LINK_TARGET_LENGTH);
+ 
+-	/* Test the data */
+-	fail_unless(pkgfile_get_data(file) != NULL, NULL);
+-	fail_unless(strcmp(pkgfile_get_data(file), LINK_TARGET) == 0, NULL);
+-	fail_unless(strcmp(file->data, LINK_TARGET) == 0, NULL);
+-
+ 	SETUP_TESTDIR();
+-	system("touch " LINK_TARGET);
++	system("echo -n 0123456789 > " LINK_TARGET);
+ 	/*
+ 	 * pkgfile_compare_checksum_md5 will compare
+ 	 * against the file pointed to by the hardlink
+ 	 */
+-	test_checksums(file, "d41d8cd98f00b204e9800998ecf8427e");
++	test_checksums(file, "781e5e245d69b566979b86e28d23f2c7");
+ 
++	/* Test the file is correct before writing to it */
++	check_regular_file_data(LINK_TARGET, "0123456789", 10, 1);
++
++	/* Write to the file then test both link points */
+ 	fail_unless(pkgfile_write(file) == 0, NULL);
+-	fail_unless(stat(BASIC_FILE, &sb) == 0, NULL);
+-	fail_unless(S_ISREG(sb.st_mode), NULL);
+-	fail_unless(sb.st_nlink == 2, NULL);
++	check_regular_file_data(BASIC_FILE, "0123456789", 10, 2);
++	check_regular_file_data(LINK_TARGET, "0123456789", 10, 2);
+ 	system("rm " BASIC_FILE);
+ 	system("rm " LINK_TARGET);
+ 	CLEANUP_TESTDIR();
+@@ -467,14 +458,12 @@
+ START_TEST(pkgfile_hardlink_depth_test)
+ {
+ 	struct pkgfile *file;
+-	struct stat sb;
+ 
+ 	file = pkgfile_new_hardlink(DEPTH_FILE, LINK_TARGET);
+ 	SETUP_TESTDIR();
+-	system("touch " LINK_TARGET);
++	system("echo -n 0123456789 > " LINK_TARGET);
+ 	fail_unless(pkgfile_write(file) == 0, NULL);
+-	fail_unless(lstat(DEPTH_FILE, &sb) == 0, NULL);
+-	fail_unless(S_ISREG(sb.st_mode), NULL);
++	check_regular_file_data(LINK_TARGET, "0123456789", 10, 2);
+ 	system("rm " DEPTH_FILE);
+ 	system("rmdir " DEPTH_DIR);
+ 	system("rm " LINK_TARGET);
+@@ -512,10 +501,6 @@
+ 	fail_unless(pkgfile_get_size(file) == BASIC_FILE_LENGTH, NULL);
+ 	fail_unless(file->length == BASIC_FILE_LENGTH, NULL);
+ 
+-	/* Test the data */
+-	fail_unless(pkgfile_get_data(file) != NULL, NULL);
+-	fail_unless(strcmp(pkgfile_get_data(file), BASIC_FILE) ==0, NULL);
+-
+ 	SETUP_TESTDIR();
+ 	fail_unless(pkgfile_write(file) == 0, NULL);
+ 	/*
+
+
+
+From zxombie at mail.berlios.de  Thu Sep  7 14:22:17 2006
+From: zxombie at mail.berlios.de (zxombie at BerliOS)
+Date: Thu, 7 Sep 2006 14:22:17 +0200
+Subject: [Libpkg-svn] r196 - trunk/tests
+Message-ID: <200609071222.k87CMHrU029689@sheep.berlios.de>
+
+Author: zxombie
+Date: 2006-09-07 14:22:17 +0200 (Thu, 07 Sep 2006)
+New Revision: 196
+
+Modified:
+   trunk/tests/pkgfile.c
+Log:
+Add test check_symlink_data to check symlink data is correct
+Remove an old comment about the md5 of a file
+Revert a test failure message back to the default
+
+
+Modified: trunk/tests/pkgfile.c
+===================================================================
+--- trunk/tests/pkgfile.c	2006-09-07 11:58:37 UTC (rev 195)
++++ trunk/tests/pkgfile.c	2006-09-07 12:22:17 UTC (rev 196)
+@@ -1,5 +1,6 @@
+ #include "test.h"
+ 
++#include <sys/param.h>
+ #include <sys/types.h>
+ #include <sys/stat.h>
+ #include <fcntl.h>
+@@ -27,6 +28,7 @@
+ static void depth_test_fail_write(struct pkgfile *);
+ static void empty_regular_file_tests(const char *);
+ static void check_regular_file_data(const char *, const char *, int, int);
++static void check_symlink_data(const char *, const char *);
+ 
+ /*
+  * Check a pkgfile object is correct after it has been created
+@@ -110,7 +112,7 @@
+ 	CLEANUP_TESTDIR();
+ }
+ 
+-/* Tests if pkgfile_write fails if BASIC_FILE exiasts and is a symlink */
++/* Tests if pkgfile_write fails if BASIC_FILE exists and is a symlink */
+ static void
+ existing_symlink_test(struct pkgfile *file)
+ {
+@@ -118,6 +120,7 @@
+ 	system("touch " LINK_TARGET);
+ 	symlink("testdir/Bar", BASIC_FILE);
+ 	fail_unless(pkgfile_write(file) == -1, NULL);
++	check_symlink_data(BASIC_FILE, "testdir/Bar");
+ 	system("rm " BASIC_FILE);
+ 	system("rm " LINK_TARGET);
+ 	CLEANUP_TESTDIR();
+@@ -199,7 +202,7 @@
+ 	fstat(fileno(fd), &sb);
+ 	fail_unless(S_ISREG(sb.st_mode), NULL);
+ 	fail_unless(sb.st_size == length, NULL);
+-	fail_unless(sb.st_nlink == link_count, "%d %d", sb.st_nlink, link_count);
++	fail_unless(sb.st_nlink == link_count, NULL);
+ 
+ 	fail_unless((buf = calloc(length + 1, 1)) != NULL, NULL);
+ 	fread(buf, length, 1, fd);
+@@ -210,6 +213,24 @@
+ 	fclose(fd);
+ }
+ 
++static void
++check_symlink_data(const char *filename, const char *expected_data)
++{
++	struct stat sb;
++	char buf[MAXPATHLEN];
++	int len;
++
++	/* XXX Check the file contents are correct */
++	fail_unless(lstat(filename, &sb) == 0, NULL);
++	fail_unless(S_ISLNK(sb.st_mode), NULL);
++	fail_unless(sb.st_size == strlen(expected_data), NULL);
++
++	fail_unless((len = readlink(filename, buf, MAXPATHLEN)) != -1, NULL);
++	fail_unless(len <= MAXPATHLEN, NULL);
++	buf[len] = '\0';
++	fail_unless(strcmp(buf, expected_data) == 0, NULL);
++}
++
+ /* Tests on creating a regular file from a buffer */
+ START_TEST(pkgfile_regular_bad_test)
+ {
+@@ -315,22 +336,16 @@
+ START_TEST(pkgfile_symlink_good_test)
+ {
+ 	struct pkgfile *file;
+-	struct stat sb;
+ 
+ 	fail_unless((file = pkgfile_new_symlink(BASIC_FILE, LINK_TARGET))
+ 	    != NULL, NULL);
+ 	basic_file_tests(file, pkgfile_symlink, pkgfile_loc_mem, LINK_TARGET,
+ 	    LINK_TARGET_LENGTH);
+-
+-	/* The md5 of Foo is 1356c67d7ad1638d816bfb822dd2c25d */
+ 	test_checksums(file, LINK_TARGET_MD5);
+ 
+ 	SETUP_TESTDIR();
+ 	fail_unless(pkgfile_write(file) == 0, NULL);
+-	/* XXX Check the file contents are correct */
+-	fail_unless(lstat(BASIC_FILE, &sb) == 0, NULL);
+-	fail_unless(S_ISLNK(sb.st_mode), NULL);
+-	fail_unless(sb.st_size == LINK_TARGET_LENGTH, NULL);
++	check_symlink_data(BASIC_FILE, LINK_TARGET);
+ 	system("rm " BASIC_FILE);
+ 	CLEANUP_TESTDIR();
+ 
+@@ -366,13 +381,11 @@
+ START_TEST(pkgfile_symlink_depth_test)
+ {
+ 	struct pkgfile *file;
+-	struct stat sb;
+ 
+ 	file = pkgfile_new_symlink(DEPTH_FILE, LINK_TARGET);
+ 	SETUP_TESTDIR();
+ 	fail_unless(pkgfile_write(file) == 0, NULL);
+-	fail_unless(lstat(DEPTH_FILE, &sb) == 0, NULL);
+-	fail_unless(S_ISLNK(sb.st_mode), NULL);
++	check_symlink_data(DEPTH_FILE, LINK_TARGET);
+ 	system("rm " DEPTH_FILE);
+ 	system("rmdir " DEPTH_DIR);
+ 	CLEANUP_TESTDIR();
+
+
+
+From zxombie at mail.berlios.de  Thu Sep  7 14:32:59 2006
+From: zxombie at mail.berlios.de (zxombie at BerliOS)
+Date: Thu, 7 Sep 2006 14:32:59 +0200
+Subject: [Libpkg-svn] r197 - trunk/tests
+Message-ID: <200609071232.k87CWx1B030904@sheep.berlios.de>
+
+Author: zxombie
+Date: 2006-09-07 14:32:59 +0200 (Thu, 07 Sep 2006)
+New Revision: 197
+
+Modified:
+   trunk/tests/pkgfile.c
+Log:
+Add check_directory_data to test if a directory is correct
+
+
+Modified: trunk/tests/pkgfile.c
+===================================================================
+--- trunk/tests/pkgfile.c	2006-09-07 12:22:17 UTC (rev 196)
++++ trunk/tests/pkgfile.c	2006-09-07 12:32:59 UTC (rev 197)
+@@ -29,6 +29,7 @@
+ static void empty_regular_file_tests(const char *);
+ static void check_regular_file_data(const char *, const char *, int, int);
+ static void check_symlink_data(const char *, const char *);
++static void check_directory_data(const char *);
+ 
+ /*
+  * Check a pkgfile object is correct after it has been created
+@@ -231,6 +232,12 @@
+ 	fail_unless(strcmp(buf, expected_data) == 0, NULL);
+ }
+ 
++static void
++check_directory_data(const char *directory)
++{
++	fail_unless(stat(directory, &sb) == 0, NULL);
++	fail_unless(S_ISDIR(sb.st_mode), NULL);
++}
+ /* Tests on creating a regular file from a buffer */
+ START_TEST(pkgfile_regular_bad_test)
+ {
+@@ -521,8 +528,7 @@
+ 	 * with different permissions than the existing one
+ 	 */
+ 	fail_unless(pkgfile_write(file) == 0, NULL);
+-	fail_unless(stat(BASIC_FILE, &sb) == 0, NULL);
+-	fail_unless(S_ISDIR(sb.st_mode), NULL);
++	check_directory_data(BASIC_FILE);
+ 	system("rmdir " BASIC_FILE);
+ 	CLEANUP_TESTDIR();
+ 	fail_unless(pkgfile_free(file) == 0, NULL);
+@@ -557,8 +563,7 @@
+ 	file = pkgfile_new_directory(DEPTH_FILE);
+ 	SETUP_TESTDIR();
+ 	fail_unless(pkgfile_write(file) == 0, NULL);
+-	fail_unless(lstat(DEPTH_FILE, &sb) == 0, NULL);
+-	fail_unless(S_ISDIR(sb.st_mode), NULL);
++	check_directory_data(DEPTH_FILE)
+ 	system("rmdir " DEPTH_FILE);
+ 	system("rmdir " DEPTH_DIR);
+ 	CLEANUP_TESTDIR();
+
+
+
+From zxombie at mail.berlios.de  Thu Sep  7 15:34:06 2006
+From: zxombie at mail.berlios.de (zxombie at BerliOS)
+Date: Thu, 7 Sep 2006 15:34:06 +0200
+Subject: [Libpkg-svn] r198 - trunk/src
+Message-ID: <200609071334.k87DY6Is004049@sheep.berlios.de>
+
+Author: zxombie
+Date: 2006-09-07 15:34:05 +0200 (Thu, 07 Sep 2006)
+New Revision: 198
+
+Modified:
+   trunk/src/pkg.h
+   trunk/src/pkgfile.c
+Log:
+Update pkgfile_remove_line to work with a file in memory
+Add pkgfile_append to append data to an existing file
+
+
+Modified: trunk/src/pkg.h
+===================================================================
+--- trunk/src/pkg.h	2006-09-07 12:32:59 UTC (rev 197)
++++ trunk/src/pkg.h	2006-09-07 13:34:05 UTC (rev 198)
+@@ -59,6 +59,7 @@
+ int		 pkgfile_compare_checksum_md5(struct pkgfile *);
+ int		 pkgfile_seek(struct pkgfile *, uint64_t, int);
+ int		 pkgfile_set_mode(struct pkgfile *, mode_t);
++int		 pkgfile_append(struct pkgfile *, const char *, uint64_t);
+ int		 pkgfile_remove_line(struct pkgfile *, const char *);
+ int		 pkgfile_write(struct pkgfile *);
+ int		 pkgfile_unlink(struct pkgfile *);
+
+Modified: trunk/src/pkgfile.c
+===================================================================
+--- trunk/src/pkgfile.c	2006-09-07 12:32:59 UTC (rev 197)
++++ trunk/src/pkgfile.c	2006-09-07 13:34:05 UTC (rev 198)
+@@ -552,11 +552,10 @@
+ 	if (file == NULL || line == NULL)
+ 		return -1;
+ 
+-	assert(file->loc == pkgfile_loc_disk);
++	assert(file->type == pkgfile_regular);
+ 
+ 	/* Read in the file */
+ 	pkgfile_get_data(file);
+-	assert(file->type == pkgfile_regular);
+ 
+ 	buf = file->data;
+ 	while ((buf = memmem(buf, file->length, line, strlen(line))) != NULL) {
+@@ -574,12 +573,46 @@
+ 	ptr = buf + strlen(line) + 1;
+ 	memcpy(buf, ptr, file->length - (ptr - file->data));
+ 	file->length -= strlen(line) + 1;
+-	fseek(file->fd, 0, SEEK_SET);
+-	if (fwrite(file->data, 1, file->length, file->fd) != file->length) {
+-		assert(0);
++
++	if (file->loc == pkgfile_loc_disk) {
++		fseek(file->fd, 0, SEEK_SET);
++		if (fwrite(file->data, 1, file->length, file->fd) !=
++		    file->length) {
++			assert(0);
++			return -1;
++		}
++		ftruncate(fileno(file->fd), file->length);
++	}
++
++	return 0;
++}
++
++int
++pkgfile_append(struct pkgfile *file, const char *data, uint64_t length)
++{
++	if (file == NULL)
+ 		return -1;
++
++	if (data == NULL && length != 0)
++		return -1;
++
++	assert(file->loc == pkgfile_loc_mem);
++	assert(file->type == pkgfile_regular);
++
++	assert(file->data != NULL);
++	if (file->data != NULL) {
++		char *new_data;
++
++		new_data = realloc(file->data, file->length + length);
++		if (new_data == NULL)
++			return -1;
++
++		/* Update the internal pointer and copy the new data */
++		file->data = new_data;
++		memcpy(file->data + file->length, data, length);
++		file->length += length;
++		
+ 	}
+-	ftruncate(fileno(file->fd), file->length);
+ 
+ 	return 0;
+ }
+
+
+
+From zxombie at mail.berlios.de  Thu Sep  7 15:35:08 2006
+From: zxombie at mail.berlios.de (zxombie at BerliOS)
+Date: Thu, 7 Sep 2006 15:35:08 +0200
+Subject: [Libpkg-svn] r199 - trunk/tests
+Message-ID: <200609071335.k87DZ883004246@sheep.berlios.de>
+
+Author: zxombie
+Date: 2006-09-07 15:35:07 +0200 (Thu, 07 Sep 2006)
+New Revision: 199
+
+Modified:
+   trunk/tests/pkgfile.c
+Log:
+Fix the tests to build
+Add tests that modify the data in a file
+
+
+Modified: trunk/tests/pkgfile.c
+===================================================================
+--- trunk/tests/pkgfile.c	2006-09-07 13:34:05 UTC (rev 198)
++++ trunk/tests/pkgfile.c	2006-09-07 13:35:07 UTC (rev 199)
+@@ -196,7 +196,6 @@
+ 	FILE *fd;
+ 	char *buf;
+ 
+-
+ 	fail_unless((fd = fopen(filename, "r")) != NULL, NULL);
+ 
+ 	/* Check the file looks correct */
+@@ -235,9 +234,12 @@
+ static void
+ check_directory_data(const char *directory)
+ {
++	struct stat sb;
++
+ 	fail_unless(stat(directory, &sb) == 0, NULL);
+ 	fail_unless(S_ISDIR(sb.st_mode), NULL);
+ }
++
+ /* Tests on creating a regular file from a buffer */
+ START_TEST(pkgfile_regular_bad_test)
+ {
+@@ -330,6 +332,45 @@
+ }
+ END_TEST
+ 
++START_TEST(pkgfile_regular_modify_test)
++{
++	struct pkgfile *file;
++	char data[12];
++
++	sprintf(data, "12345\n");
++	file = pkgfile_new_regular(DEPTH_FILE, data, 6);
++	basic_file_tests(file, pkgfile_regular, pkgfile_loc_mem, data, 6);
++	fail_unless(pkgfile_append(file, "67890", 5) == 0, NULL);
++	sprintf(data, "12345\n67890");
++	basic_file_tests(file, pkgfile_regular, pkgfile_loc_mem, data, 11);
++	pkgfile_free(file);
++
++	/* Remove the first line in a file */
++	sprintf(data, "12345\n67890");
++	file = pkgfile_new_regular(DEPTH_FILE, data, 11);
++	fail_unless(pkgfile_remove_line(file, "12345") == 0, NULL);
++	sprintf(data, "67890");
++	basic_file_tests(file, pkgfile_regular, pkgfile_loc_mem, data, 5);
++	pkgfile_free(file);
++
++	/* Remove a middle line from a file */
++	sprintf(data, "12345\n67\n89");
++	file = pkgfile_new_regular(DEPTH_FILE, data, 11);
++	fail_unless(pkgfile_remove_line(file, "67") == 0, NULL);
++	sprintf(data, "12345\n89");
++	basic_file_tests(file, pkgfile_regular, pkgfile_loc_mem, data, 8);
++	pkgfile_free(file);
++
++	/* Remove the Last line in a file */
++	sprintf(data, "12345\n67890");
++	file = pkgfile_new_regular(DEPTH_FILE, data, 11);
++	fail_unless(pkgfile_remove_line(file, "12345") == 0, NULL);
++	sprintf(data, "67890");
++	basic_file_tests(file, pkgfile_regular, pkgfile_loc_mem, data, 5);
++	pkgfile_free(file);
++}
++END_TEST
++
+ /* Tests on creating a symlink from a buffer */
+ START_TEST(pkgfile_symlink_bad_test)
+ {
+@@ -511,7 +552,6 @@
+ START_TEST(pkgfile_directory_test)
+ {
+ 	struct pkgfile *file;
+-	struct stat sb;
+ 
+ 	fail_unless((file = pkgfile_new_directory(BASIC_FILE)) != NULL, NULL);
+ 	basic_file_tests(file, pkgfile_dir, pkgfile_loc_mem, BASIC_FILE,
+@@ -558,12 +598,11 @@
+ START_TEST(pkgfile_directory_depth_test)
+ {
+ 	struct pkgfile *file;
+-	struct stat sb;
+ 
+ 	file = pkgfile_new_directory(DEPTH_FILE);
+ 	SETUP_TESTDIR();
+ 	fail_unless(pkgfile_write(file) == 0, NULL);
+-	check_directory_data(DEPTH_FILE)
++	check_directory_data(DEPTH_FILE);
+ 	system("rmdir " DEPTH_FILE);
+ 	system("rmdir " DEPTH_DIR);
+ 	CLEANUP_TESTDIR();
+@@ -601,6 +640,7 @@
+ 	tcase_add_test(tc_regular, pkgfile_regular_data_test);
+ 	tcase_add_test(tc_regular, pkgfile_regular_existing_test);
+ 	tcase_add_test(tc_regular, pkgfile_regular_depth_test);
++	tcase_add_test(tc_regular, pkgfile_regular_modify_test);
+ 
+ 	tcase_add_test(tc_symlink, pkgfile_symlink_bad_test);
+ 	tcase_add_test(tc_symlink, pkgfile_symlink_good_test);
+
+
+
+From zxombie at mail.berlios.de  Thu Sep 28 08:03:51 2006
+From: zxombie at mail.berlios.de (zxombie at BerliOS)
+Date: Thu, 28 Sep 2006 08:03:51 +0200
+Subject: [Libpkg-svn] r200 - trunk/src
+Message-ID: <200609280603.k8S63p0s007010@sheep.berlios.de>
+
+Author: zxombie
+Date: 2006-09-28 08:03:51 +0200 (Thu, 28 Sep 2006)
+New Revision: 200
+
+Modified:
+   trunk/src/pkgfile.c
+Log:
+Change pkgfile_get_type to be static
+Allow some pkgfile functions to return -1 when the file type is incorrect
+
+
+Modified: trunk/src/pkgfile.c
+===================================================================
+--- trunk/src/pkgfile.c	2006-09-07 13:35:07 UTC (rev 199)
++++ trunk/src/pkgfile.c	2006-09-28 06:03:51 UTC (rev 200)
+@@ -131,7 +131,7 @@
+  * @return  0 on success
+  * @return -1 on error
+  */
+-int
++static int
+ pkgfile_get_type(struct pkgfile *file)
+ {
+ 	assert(file != NULL);
+@@ -479,6 +479,9 @@
+ 	if (file == NULL)
+ 		return -1;
+ 
++	if (file->loc == pkgfile_loc_mem)
++		return -1;
++
+ 	assert(file->loc == pkgfile_loc_disk);
+ 
+ 	pkgfile_get_type(file);
+@@ -499,9 +502,11 @@
+ 	if (file == NULL)
+ 		return -1;
+ 
+-	if (file->loc == pkgfile_loc_disk)
+-		pkgfile_open_fd(file);
++	if (file->loc == pkgfile_loc_mem)
++		return -1;
+ 
++	pkgfile_open_fd(file);
++
+ 	assert(file->type != pkgfile_none);
+ 	assert(file->type != pkgfile_hardlink);
+ 	assert(file->type != pkgfile_symlink);
+@@ -552,7 +557,8 @@
+ 	if (file == NULL || line == NULL)
+ 		return -1;
+ 
+-	assert(file->type == pkgfile_regular);
++	if (file->type != pkgfile_regular)
++		return -1;
+ 
+ 	/* Read in the file */
+ 	pkgfile_get_data(file);
+@@ -597,7 +603,8 @@
+ 		return -1;
+ 
+ 	assert(file->loc == pkgfile_loc_mem);
+-	assert(file->type == pkgfile_regular);
++	if (file->type != pkgfile_regular)
++		return -1;
+ 
+ 	assert(file->data != NULL);
+ 	if (file->data != NULL) {
+
+
+
+From zxombie at mail.berlios.de  Thu Sep 28 08:08:36 2006
+From: zxombie at mail.berlios.de (zxombie at BerliOS)
+Date: Thu, 28 Sep 2006 08:08:36 +0200
+Subject: [Libpkg-svn] r201 - trunk/src
+Message-ID: <200609280608.k8S68ahF007242@sheep.berlios.de>
+
+Author: zxombie
+Date: 2006-09-28 08:08:36 +0200 (Thu, 28 Sep 2006)
+New Revision: 201
+
+Modified:
+   trunk/src/pkg_db.c
+   trunk/src/pkg_db_freebsd.c
+   trunk/src/pkg_freebsd_contents.c
+   trunk/src/pkgfile.c
+Log:
+Change handeling -> handling in comments
+
+
+Modified: trunk/src/pkg_db.c
+===================================================================
+--- trunk/src/pkg_db.c	2006-09-28 06:03:51 UTC (rev 200)
++++ trunk/src/pkg_db.c	2006-09-28 06:08:36 UTC (rev 201)
+@@ -125,7 +125,7 @@
+ 
+ /**
+  * @defgroup PackageDB Package database functions
+- * @brief Package database handeling functions
++ * @brief Package database handling functions
+  *
+  * These are the functions to talk to a package database.
+  * The database is created by a system dependent constructor.
+
+Modified: trunk/src/pkg_db_freebsd.c
+===================================================================
+--- trunk/src/pkg_db_freebsd.c	2006-09-28 06:03:51 UTC (rev 200)
++++ trunk/src/pkg_db_freebsd.c	2006-09-28 06:08:36 UTC (rev 201)
+@@ -97,7 +97,7 @@
+ 				const char *, const char *);
+ 
+ /**
+- * @defgroup PackageDBFreebsd FreeBSD Package Database handeling
++ * @defgroup PackageDBFreebsd FreeBSD Package Database handling
+  * @ingroup PackageDB
+  *
+  * @{
+
+Modified: trunk/src/pkg_freebsd_contents.c
+===================================================================
+--- trunk/src/pkg_freebsd_contents.c	2006-09-28 06:03:51 UTC (rev 200)
++++ trunk/src/pkg_freebsd_contents.c	2006-09-28 06:08:36 UTC (rev 201)
+@@ -41,7 +41,7 @@
+ #include "pkg_freebsd_private.h"
+ 
+ /**
+- * @defgroup FreebsdContents FreeBSD +CONTENTS handeling
++ * @defgroup FreebsdContents FreeBSD +CONTENTS handling
+  *
+  * @{
+  */
+
+Modified: trunk/src/pkgfile.c
+===================================================================
+--- trunk/src/pkgfile.c	2006-09-28 06:03:51 UTC (rev 200)
++++ trunk/src/pkgfile.c	2006-09-28 06:08:36 UTC (rev 201)
+@@ -164,7 +164,7 @@
+  */
+ 
+ /**
+- * @defgroup PackageFile Safe file handeling functions
++ * @defgroup PackageFile Safe file handling functions
+  * @{
+  */
+ 
+
+
+

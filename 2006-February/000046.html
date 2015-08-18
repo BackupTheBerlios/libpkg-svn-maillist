@@ -1,0 +1,129 @@
+<!DOCTYPE HTML PUBLIC "-//W3C//DTD HTML 4.01 Transitional//EN">
+<HTML>
+ <HEAD>
+   <TITLE> [Libpkg-svn] r61 - trunk/tools/pkg_info
+   </TITLE>
+   <LINK REL="Index" HREF="http://lists.berlios.de/pipermail/libpkg-svn/2006-February/index.html" >
+   <LINK REL="made" HREF="mailto:libpkg-svn%40lists.berlios.de?Subject=Re%3A%20%5BLibpkg-svn%5D%20r61%20-%20trunk/tools/pkg_info&In-Reply-To=%3C200602030041.k130fs01000699%40sheep.berlios.de%3E">
+   <META NAME="robots" CONTENT="index,nofollow">
+   <style type="text/css">
+       pre {
+           white-space: pre-wrap;       /* css-2.1, curent FF, Opera, Safari */
+           }
+   </style>
+   <META http-equiv="Content-Type" content="text/html; charset=us-ascii">
+   <LINK REL="Previous"  HREF="000045.html">
+   <LINK REL="Next"  HREF="000047.html">
+ </HEAD>
+ <BODY BGCOLOR="#ffffff">
+   <H1>[Libpkg-svn] r61 - trunk/tools/pkg_info</H1>
+    <B>zxombie at BerliOS</B> 
+    <A HREF="mailto:libpkg-svn%40lists.berlios.de?Subject=Re%3A%20%5BLibpkg-svn%5D%20r61%20-%20trunk/tools/pkg_info&In-Reply-To=%3C200602030041.k130fs01000699%40sheep.berlios.de%3E"
+       TITLE="[Libpkg-svn] r61 - trunk/tools/pkg_info">zxombie at berlios.de
+       </A><BR>
+    <I>Fri Feb  3 01:41:54 CET 2006</I>
+    <P><UL>
+        <LI>Previous message: <A HREF="000045.html">[Libpkg-svn] r60 - trunk/tools/pkg_info
+</A></li>
+        <LI>Next message: <A HREF="000047.html">[Libpkg-svn] r62 - trunk/tools/pkg_info
+</A></li>
+         <LI> <B>Messages sorted by:</B> 
+              <a href="date.html#46">[ date ]</a>
+              <a href="thread.html#46">[ thread ]</a>
+              <a href="subject.html#46">[ subject ]</a>
+              <a href="author.html#46">[ author ]</a>
+         </LI>
+       </UL>
+    <HR>  
+<!--beginarticle-->
+<PRE>Author: zxombie
+Date: 2006-02-03 01:41:09 +0100 (Fri, 03 Feb 2006)
+New Revision: 61
+
+Modified:
+   trunk/tools/pkg_info/main.c
+Log:
+Reduce the amount of code by merging the MATCH_ALL, MATCH_REGEX and MATCH_EREGEX cases
+
+
+Modified: trunk/tools/pkg_info/main.c
+===================================================================
+--- trunk/tools/pkg_info/main.c	2006-02-03 00:37:20 UTC (rev 60)
++++ trunk/tools/pkg_info/main.c	2006-02-03 00:41:09 UTC (rev 61)
+@@ -204,8 +204,16 @@
+ 
+ 	switch(info.match_type) {
+ 	case MATCH_ALL:
++	case MATCH_REGEX:
++	case MATCH_EREGEX:
+ 		/* Display all packages installed */
+-		pkgs = pkg_db_get_installed(info.db);
++		if (info.match_type == MATCH_ALL)
++			pkgs = pkg_db_get_installed(info.db);
++		else
++			pkgs = match_regex(info.db, info.pkgs,
++			    (info.match_type == MATCH_EREGEX));
++
++		/* Sort the packages and display them */
+ 		if (pkgs == NULL) {
+ 			/* XXX Error message */
+ 			return 1;
+@@ -218,34 +226,6 @@
+ 		}
+ 		retval = 0;
+ 		break;
+-	case MATCH_REGEX:
+-	case MATCH_EREGEX:
+-		/* Match all packages that match one of the [e]regex given */
+-		{
+-		char *prev;
+-
+-		//pkgs = pkg_db_get_installed(info.db);
+-		//if (pkgs == NULL) {
+-			/* XXX Error message */
+-		//	break;
+-		//}
+-
+-		pkgs = match_regex(info.db, info.pkgs,
+-		    (info.match_type == MATCH_EREGEX));
+-
+-		/* Display all packages that matches atleast one regex */
+-		prev = NULL;
+-		for (cur = 0; pkgs[cur] != NULL; cur++) {
+-			/* Only show one instance of each package */
+-			if (prev == NULL ||
+-			    strcmp(prev, pkg_get_name(pkgs[cur])) != 0) {
+-				show(info.db, pkgs[cur], info.flags, info.quiet);
+-			}
+-			prev = pkg_get_name(pkgs[cur]);
+-		}
+-		}
+-		retval = 0;
+-		break;
+ 	case MATCH_GLOB:
+ 	case MATCH_NGLOB:
+ 		errx(1, &quot;Unsupported match type (use -x or -X)&quot;);
+
+
+</PRE>
+
+<!--endarticle-->
+    <HR>
+    <P><UL>
+        <!--threads-->
+	<LI>Previous message: <A HREF="000045.html">[Libpkg-svn] r60 - trunk/tools/pkg_info
+</A></li>
+	<LI>Next message: <A HREF="000047.html">[Libpkg-svn] r62 - trunk/tools/pkg_info
+</A></li>
+         <LI> <B>Messages sorted by:</B> 
+              <a href="date.html#46">[ date ]</a>
+              <a href="thread.html#46">[ thread ]</a>
+              <a href="subject.html#46">[ subject ]</a>
+              <a href="author.html#46">[ author ]</a>
+         </LI>
+       </UL>
+
+<hr>
+<a href="https://lists.berlios.de/mailman/listinfo/libpkg-svn">More information about the Libpkg-svn
+mailing list</a><br>
+</body></html>

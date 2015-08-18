@@ -1,0 +1,1200 @@
+<!DOCTYPE HTML PUBLIC "-//W3C//DTD HTML 4.01 Transitional//EN">
+<HTML>
+ <HEAD>
+   <TITLE> [Libpkg-svn] r280 - trunk/src
+   </TITLE>
+   <LINK REL="Index" HREF="http://lists.berlios.de/pipermail/libpkg-svn/2007-March/index.html" >
+   <LINK REL="made" HREF="mailto:libpkg-svn%40lists.berlios.de?Subject=Re%3A%20%5BLibpkg-svn%5D%20r280%20-%20trunk/src&In-Reply-To=%3C200703092205.l29M5ZAs023795%40sheep.berlios.de%3E">
+   <META NAME="robots" CONTENT="index,nofollow">
+   <style type="text/css">
+       pre {
+           white-space: pre-wrap;       /* css-2.1, curent FF, Opera, Safari */
+           }
+   </style>
+   <META http-equiv="Content-Type" content="text/html; charset=us-ascii">
+   <LINK REL="Previous"  HREF="000263.html">
+   <LINK REL="Next"  HREF="000265.html">
+ </HEAD>
+ <BODY BGCOLOR="#ffffff">
+   <H1>[Libpkg-svn] r280 - trunk/src</H1>
+    <B>zxombie at BerliOS</B> 
+    <A HREF="mailto:libpkg-svn%40lists.berlios.de?Subject=Re%3A%20%5BLibpkg-svn%5D%20r280%20-%20trunk/src&In-Reply-To=%3C200703092205.l29M5ZAs023795%40sheep.berlios.de%3E"
+       TITLE="[Libpkg-svn] r280 - trunk/src">zxombie at mail.berlios.de
+       </A><BR>
+    <I>Fri Mar  9 23:05:35 CET 2007</I>
+    <P><UL>
+        <LI>Previous message: <A HREF="000263.html">[Libpkg-svn] r279 - trunk
+</A></li>
+        <LI>Next message: <A HREF="000265.html">[Libpkg-svn] r281 - trunk/src
+</A></li>
+         <LI> <B>Messages sorted by:</B> 
+              <a href="date.html#264">[ date ]</a>
+              <a href="thread.html#264">[ thread ]</a>
+              <a href="subject.html#264">[ subject ]</a>
+              <a href="author.html#264">[ author ]</a>
+         </LI>
+       </UL>
+    <HR>  
+<!--beginarticle-->
+<PRE>Author: zxombie
+Date: 2007-03-09 23:05:33 +0100 (Fri, 09 Mar 2007)
+New Revision: 280
+
+Modified:
+   trunk/src/Makefile
+   trunk/src/pkg.c
+   trunk/src/pkg.h
+   trunk/src/pkg_freebsd.c
+   trunk/src/pkg_freebsd_parser.y
+   trunk/src/pkg_manifest.c
+   trunk/src/pkg_private.h
+   trunk/src/pkgfile.c
+Log:
+Add a STAILQ to store package dependencies, conflicts and items to the manifest
+Move FreeBSD specific manifest parts to a seperate file
+Add pkg_manifest_add_dependency to append a dependency to a manifest
+Add pkg_manifest_add_conflict to append a conflict string to a manifest
+Add pkg_manifest_set_name to set the package's name
+Add pkg_manifest_set_attr to set manifest attributes
+Add pkg_manifest_get_file to get a pkgfile containing the manifest
+Add pkg_manifest_item_set_data to change the data in a manifest item
+Remove unused manifest item attributes
+Update the FreeBSD parser for new manifest API
+Implement pkg_new_freebsd_empty
+Add pkg_set_origin to set the ofigin on a package
+Fix a buf in pkgfile_get_fileptr where a variable wass being used before it was initilised
+Document pkgfile_append
+Add pkgfile_append_string to append a string to a file
+
+
+Modified: trunk/src/Makefile
+===================================================================
+--- trunk/src/Makefile	2007-03-06 03:13:38 UTC (rev 279)
++++ trunk/src/Makefile	2007-03-09 22:05:33 UTC (rev 280)
+@@ -6,7 +6,7 @@
+ SRCS		+= pkg.c pkg_freebsd.c
+ 
+ # Package Manifest handeling
+-SRCS		+= pkg_manifest.c
++SRCS		+= pkg_manifest.c pkg_manifest_freebsd.c
+ 
+ # Handle FreeBSD +CONTENTS files
+ SRCS		+= pkg_freebsd_contents.c pkg_freebsd_parser.c pkg_freebsd_lexer.c
+
+Modified: trunk/src/pkg.c
+===================================================================
+--- trunk/src/pkg.c	2007-03-06 03:13:38 UTC (rev 279)
++++ trunk/src/pkg.c	2007-03-09 22:05:33 UTC (rev 280)
+@@ -90,6 +90,7 @@
+ 	/* Set the other callbacks to NULL */
+ 	pkg-&gt;pkg_get_version = NULL;
+ 	pkg-&gt;pkg_get_origin = NULL;
++	pkg-&gt;pkg_set_origin = NULL;
+ 	pkg-&gt;pkg_add_depend = NULL;
+ 	pkg-&gt;pkg_add_file = NULL;
+ 	pkg-&gt;pkg_get_next_file = NULL;
+@@ -110,18 +111,22 @@
+  * @param pkg The package returned by pkg_new()
+  * @param get_version A callback to be used by pkg_get_version()
+  * @param get_origin A callback to be used by pkg_get_origin()
+- * @return 0 on success, -1 on error.
++ * @param set_origin A callback to be used by pkg_set_origin()
++ * @return  0 on success
++ * @return -1 on error
+  */
+ int
+ pkg_add_callbacks_data(struct pkg *pkg,
+ 		pkg_get_version_callback *get_version,
+-		pkg_get_origin_callback *get_origin)
++		pkg_get_origin_callback *get_origin,
++		pkg_set_origin_callback *set_origin)
+ {
+ 	if (pkg == NULL)
+ 		return -1;
+ 
+ 	pkg-&gt;pkg_get_version = get_version;
+ 	pkg-&gt;pkg_get_origin = get_origin;
++	pkg-&gt;pkg_set_origin = set_origin;
+ 	return 0;
+ }
+ 
+@@ -406,6 +411,29 @@
+ }
+ 
+ /**
++ * @brief Gets a packages origin
++ * @param pkg The package
++ * @param origin The new origin
++ *
++ * This is used to set the package's origin.
++ * It is intended to be used for empty packages and building a new package.
++ * Not all package formats have an origin.
++ * @return  0 on success
++ * @return -1 on failure
++ */
++int
++pkg_set_origin(struct pkg *pkg, const char *origin)
++{
++	if (pkg == NULL || origin == NULL)
++		return -1;
++
++	if (pkg-&gt;pkg_set_origin)
++		return pkg-&gt;pkg_set_origin(pkg, origin);
++
++	return -1;
++}
++
++/**
+  * @brief Get the package format version
+  * @param pkg The package
+  *
+
+Modified: trunk/src/pkg.h
+===================================================================
+--- trunk/src/pkg.h	2007-03-06 03:13:38 UTC (rev 279)
++++ trunk/src/pkg.h	2007-03-09 22:05:33 UTC (rev 280)
+@@ -35,6 +35,10 @@
+ 
+ #include &lt;stdio.h&gt;	/* FILE */
+ 
++#ifndef __unused
++#define __unused
++#endif
++
+ /**
+  * @addtogroup PackageFile
+  *
+@@ -63,6 +67,7 @@
+ int		 pkgfile_seek(struct pkgfile *, int64_t, int);
+ int		 pkgfile_set_mode(struct pkgfile *, mode_t);
+ int		 pkgfile_append(struct pkgfile *, const char *, uint64_t);
++int		 pkgfile_append_string(struct pkgfile *, const char *, ...);
+ const char	*pkgfile_find_line(struct pkgfile *, const char *);
+ int		 pkgfile_remove_line(struct pkgfile *, const char *);
+ int		 pkgfile_write(struct pkgfile *);
+@@ -107,9 +112,7 @@
+ struct pkg		 *pkg_new_empty(const char *);
+ struct pkg		 *pkg_new_freebsd_from_file(FILE *);
+ struct pkg		 *pkg_new_freebsd_installed(const char *, const char *);
+-#ifndef DOXYGEN_SHOULD_SKIP_THIS
+ struct pkg		 *pkg_new_freebsd_empty(const char *);
+-#endif
+ int			  pkg_compare(const void *, const void *);
+ int			  pkg_set_prefix(struct pkg *, const char *);
+ const char		 *pkg_get_prefix(struct pkg *);
+@@ -120,6 +123,7 @@
+ const char		 *pkg_get_name(struct pkg *);
+ struct pkgfile		 *pkg_get_next_file(struct pkg *);
+ const char		 *pkg_get_origin(struct pkg *);
++int			  pkg_set_origin(struct pkg *, const char *);
+ const char		 *pkg_get_version(struct pkg *);
+ int			  pkg_run_script(struct pkg *, const char *,pkg_script);
+ int			  pkg_add_dependency(struct pkg *, struct pkg *);
+@@ -154,9 +158,6 @@
+ 	pmt_chdir,	/**&lt; The item indicates a new directory to change to */
+ 	pmt_output,	/**&lt; The item indicates some message to display to the user */
+ 	pmt_comment,	/**&lt; The item is a comment */
+-	pmt_pkgname,	/**&lt; The item is the name of the package */
+-	pmt_conflict,	/**&lt; The item is a name of a conflicting package */
+-	pmt_dependency,	/**&lt; The item is the name of a dependent package */
+ 	pmt_execute	/**&lt; The item is a program to execute */
+ } pkg_manifest_item_type;
+ 
+@@ -168,13 +169,15 @@
+ 	pmia_ignore,		/**&lt; Ignore the current item */
+ 	pmia_deinstall,		/**&lt; The item is for deinstall rather than install */
+ 	pmia_md5,		/**&lt; Set the MD5 checksum of an item */
++	pmia_max		/**&lt; The largest possible attribute */
+ } pkg_manifest_item_attr;
+ 
+ struct pkg_manifest_item *pkg_manifest_item_new(pkg_manifest_item_type,
+ 	    const char *);
+ int	pkg_manifest_item_free(struct pkg_manifest_item *);
+ int	pkg_manifest_item_set_attr(struct pkg_manifest_item *,
+-	    pkg_manifest_item_attr, char *);
++	    pkg_manifest_item_attr, const char *);
++int	pkg_manifest_item_set_data(struct pkg_manifest_item *, const char *);
+ 
+ /**
+  * @}
+@@ -192,11 +195,27 @@
+  */
+ struct pkg_manifest;
+ 
++typedef enum _pkg_manifest_attr {
++	pkgm_other = 0,	/**&lt; Package dependant attribute */
++	pkgm_origin,	/**&lt; The package's origin */
++	pkgm_prefix,	/**&lt; Where the package will install files to */
++	pkgm_max	/**&lt; The largest attribute */
++} pkg_manifest_attr;
++
+ struct pkg_manifest	*pkg_manifest_new(void);
+ struct pkg_manifest	*pkg_manifest_new_freebsd_pkgfile(struct pkgfile *);
+ int			 pkg_manifest_free(struct pkg_manifest *);
++int			 pkg_manifest_add_dependency(struct pkg_manifest *,
++			    struct pkg *);
++int			 pkg_manifest_add_conflict(struct pkg_manifest *,
++			    const char *);
++int			 pkg_manifest_set_name(struct pkg_manifest *,
++			    const char *);
++int			 pkg_manifest_set_attr(struct pkg_manifest *,
++			    pkg_manifest_attr, const char *);
+ int			 pkg_manifest_append_item(struct pkg_manifest *,
+ 			    struct pkg_manifest_item *);
++struct pkgfile		*pkg_manifest_get_file(struct pkg_manifest *);
+ 
+ /**
+  * @}
+
+Modified: trunk/src/pkg_freebsd.c
+===================================================================
+--- trunk/src/pkg_freebsd.c	2007-03-06 03:13:38 UTC (rev 279)
++++ trunk/src/pkg_freebsd.c	2007-03-09 22:05:33 UTC (rev 280)
+@@ -48,6 +48,7 @@
+ /* Callbacks */
+ static const char	 *freebsd_get_version(struct pkg *);
+ static const char	 *freebsd_get_origin(struct pkg *);
++static int		  freebsd_set_origin(struct pkg *, const char *);
+ #ifdef NOT_YET
+ static int		  freebsd_add_depend(struct pkg *,struct pkg *);
+ static int		  freebsd_add_file(struct pkg *,
+@@ -91,7 +92,7 @@
+ 	struct archive *archive;
+ 	char *db_dir;
+ 	const char *version;
+-	const char *origin;
++	char *origin;
+ 	struct pkgfile **control;
+ 	struct pkg_freebsd_contents *contents;
+ 	struct pkgfile *next_file;
+@@ -164,7 +165,8 @@
+ 		/** @todo cleanup */
+ 		return NULL;
+ 	}
+-	pkg_add_callbacks_data(pkg, freebsd_get_version, freebsd_get_origin);
++	pkg_add_callbacks_data(pkg, freebsd_get_version, freebsd_get_origin,
++	    freebsd_set_origin);
+ 	pkg_add_callbacks_install(pkg, freebsd_install, NULL,
+ 	    freebsd_get_next_file, freebsd_run_script);
+ 	pkg-&gt;data = fpkg;
+@@ -209,9 +211,10 @@
+ 	    freebsd_free);
+ 	if (pkg == NULL)
+ 		return NULL;
+-	pkg_add_callbacks_data(pkg, freebsd_get_version, freebsd_get_origin);
++	pkg_add_callbacks_data(pkg, freebsd_get_version, freebsd_get_origin,
++	    freebsd_set_origin);
+ 	pkg_add_callbacks_install(pkg, NULL, freebsd_deinstall,
+-	   freebsd_get_next_file, freebsd_run_script);
++	    freebsd_get_next_file, freebsd_run_script);
+ 
+ 	fpkg = freebsd_package_new();
+ 	if (fpkg == NULL) {
+@@ -230,7 +233,6 @@
+ 	return pkg;
+ }
+ 
+-#ifndef DOXYGEN_SHOULD_SKIP_THIS
+ /**
+  * @brief Creates an empty FreeBSD package to add files to
+  * @param pkg_name The name of the package
+@@ -241,12 +243,33 @@
+  * @return A package object or NULL
+  */
+ struct pkg *
+-pkg_new_freebsd_empty(const char *pkg_name __unused)
++pkg_new_freebsd_empty(const char *pkg_name)
+ {
+-	assert(0);
+-	return NULL;
++	struct pkg *pkg;
++	struct freebsd_package *fpkg;
++
++	/* Create the package */
++	pkg = pkg_new(pkg_name, freebsd_get_control_files,
++	    freebsd_get_control_file, freebsd_get_deps, freebsd_get_rdeps,
++	    freebsd_free);
++	if (pkg == NULL)
++		return NULL;
++
++	/* Add the data callbacks */
++	pkg_add_callbacks_data(pkg, freebsd_get_version, freebsd_get_origin,
++	    freebsd_set_origin);
++
++	/* Create the FreeBSD data and add it to the package */
++	fpkg = freebsd_package_new();
++	if (fpkg == NULL) {
++		pkg_free(pkg);
++		return NULL;
++	}
++	pkg-&gt;data = fpkg;
++	fpkg-&gt;pkg_type = fpkg_from_empty;
++
++	return pkg;
+ }
+-#endif
+ 
+ /**
+  * @brief Gets the contents struct from a package
+@@ -337,8 +360,11 @@
+ 	fpkg = pkg-&gt;data;
+ 	assert(fpkg != NULL);
+ 	assert(fpkg-&gt;pkg_type != fpkg_unknown);
+-	assert(fpkg-&gt;pkg_type != fpkg_from_empty);
+ 
++	/* The origin must be set previously on an empty package */
++	if (fpkg-&gt;pkg_type == fpkg_from_empty)
++		return fpkg-&gt;origin;
++
+ 	/* Find the origin line and cache it */
+ 	if (fpkg-&gt;origin == NULL) {
+ 		unsigned int line;
+@@ -366,6 +392,34 @@
+ 	return fpkg-&gt;origin;
+ }
+ 
++/**
++ * @brief Callback for pkg_get_origin()
++ * @param pkg The package to set the origin for
++ * @param origin The new origin to set
++ * @return  0 on success
++ * @return -1 on error
++ */
++static int
++freebsd_set_origin(struct pkg *pkg, const char *origin)
++{
++	struct freebsd_package *fpkg;
++
++	assert(pkg != NULL);
++
++	fpkg = pkg-&gt;data;
++	assert(fpkg != NULL);
++	assert(fpkg-&gt;pkg_type != fpkg_unknown);
++
++	if (fpkg-&gt;origin != NULL)
++		free(fpkg-&gt;origin);
++
++	fpkg-&gt;origin = strdup(origin);
++	if (fpkg-&gt;origin == NULL)
++		return -1;
++
++	return 0;
++}
++
+ #ifdef NOT_YET
+ /**
+  * @brief Callback for pkg_add_dependency()
+@@ -1071,6 +1125,9 @@
+ 		if (fpkg-&gt;db_dir != NULL)
+ 			free(fpkg-&gt;db_dir);
+ 
++		if (fpkg-&gt;origin != NULL)
++			free(fpkg-&gt;origin);
++
+ 		if (fpkg-&gt;next_file != NULL)
+ 			pkgfile_free(fpkg-&gt;next_file);
+ 
+
+Modified: trunk/src/pkg_freebsd_parser.y
+===================================================================
+--- trunk/src/pkg_freebsd_parser.y	2007-03-06 03:13:38 UTC (rev 279)
++++ trunk/src/pkg_freebsd_parser.y	2007-03-09 22:05:33 UTC (rev 280)
+@@ -1,6 +1,7 @@
+ %{
+ #include &quot;pkg.h&quot;
+ 
++#include &lt;assert.h&gt;
+ #include &lt;errno.h&gt;
+ #include &lt;stdio.h&gt;
+ 
+@@ -11,8 +12,9 @@
+ int pkg_freebsd_parse(YYPARSE_PARAM_TYPE);
+ void pkg_freebsd_error(const char *);
+ 
+-struct pkg_manifest_item *curitem = NULL;
+-struct pkg_manifest *pkg_manifest = NULL;
++static struct pkg_manifest_item *curitem = NULL;
++static struct pkg *curdep = NULL;
++static struct pkg_manifest *pkg_manifest = NULL;
+ %}
+ 
+ %union {
+@@ -28,72 +30,108 @@
+ 
+ %%
+ contents_file:
+-	COMMENT FORMAT_1_1 NL data_1_1 { (*YYPARSE_PARAM) = pkg_manifest; }
++	COMMENT FORMAT_1_1 NL head_1_1 data_1_1 {
++		(*YYPARSE_PARAM) = pkg_manifest;
+ 
++		/* Reset static values for the next run */
++		curitem = NULL;
++		curdep = NULL;
++		pkg_manifest = NULL;
++	}
++
++head_1_1:
++	NAME NL COMMENT ORIGIN NL CWD NL {
++		assert(pkg_manifest == NULL);
++		if (pkg_manifest == NULL)
++			pkg_manifest = pkg_manifest_new();
++		pkg_manifest_set_name(pkg_manifest, $1);
++		free($1);
++
++		/* Set the package origin */
++		pkg_manifest_set_attr(pkg_manifest, pkgm_origin, $4);
++		free($4);
++
++		/* Set the package prefix */
++		pkg_manifest_set_attr(pkg_manifest, pkgm_prefix, $6);
++		free($6);
++	}
++
+ data_1_1:
+ 	| data_1_1 contents_line NL {
+ 		if (pkg_manifest == NULL)
+ 			pkg_manifest = pkg_manifest_new();
+ 		pkg_manifest_append_item(pkg_manifest, $2);
+ 	}
+-	| data_1_1 COMMENT comment_value NL
++	| data_1_1 PKGDEP NL {
++		struct pkg *pkg;
++		assert(pkg_manifest != NULL);
+ 
++		pkg = pkg_new_freebsd_empty($2);
++		pkg_manifest_add_dependency(pkg_manifest, pkg);
++		free($2);
++		curdep = pkg;
++		curitem = NULL;
++	}
++	| data_1_1 CONFLICTS NL {
++		assert(pkg_manifest != NULL);
++
++		pkg_manifest_add_conflict(pkg_manifest, $2);
++		free($2);
++		curdep = NULL;
++		curitem = NULL;
++	}
++	| data_1_1 COMMENT comment_value NL;
++
+ contents_line
+ 	: PKGFILE {
+ 		$$ = pkg_manifest_item_new(pmt_file, $1);
+ 		free($1);
+ 		curitem = $$;
++		curdep = NULL;
+ 	}
+ 	| CWD {
+ 		$$ = pkg_manifest_item_new(pmt_chdir, $1);
+ 		free($1);
+ 		curitem = $$;
++		curdep = NULL;
+ 	}
+-	| NAME {
+-		$$ = pkg_manifest_item_new(pmt_pkgname, $1);
+-		free($1);
+-		curitem = $$;
+-	}
+-	| PKGDEP {
+-		$$ = pkg_manifest_item_new(pmt_dependency, $1);
+-		free($1);
+-		curitem = $$;
+-	}
+-	| CONFLICTS {
+-		$$ = pkg_manifest_item_new(pmt_conflict, $1);
+-		free($1);
+-		curitem = $$;
+-	}
+ 	| EXEC {
+ 		$$ = pkg_manifest_item_new(pmt_execute, $1);
+ 		free($1);
+ 		curitem = $$;
++		curdep = NULL;
+ 	}
+ 	| UNEXEC {
+ 		$$ = pkg_manifest_item_new(pmt_execute, $1);
++		pkg_manifest_item_set_attr($$, pmia_deinstall, &quot;YES&quot;);
+ 		free($1);
+ 		curitem = $$;
++		curdep = NULL;
+ 	}
+ 	| DIRRM {
+ 		$$ = pkg_manifest_item_new(pmt_dir, $1);
+ 		free($1);
+ 		curitem = $$;
++		curdep = NULL;
+ 	}
+ 	| MTREE {
+ 		$$ = pkg_manifest_item_new(pmt_dirlist, $1);
+ 		free($1);
+ 		curitem = $$;
++		curdep = NULL;
+ 	}
+ 	| DISPLAY {
+ 		$$ = pkg_manifest_item_new(pmt_output, $1);
+ 		free($1);
+ 		curitem = $$;
++		curdep = NULL;
+ 	}
+ 	| IGNORE NL PKGFILE {
+ 		$$ = pkg_manifest_item_new(pmt_file, $3);
+ 		free($3);
+ 		pkg_manifest_item_set_attr(curitem, pmia_ignore, NULL);
+ 		curitem = $$;
++		curdep = NULL;
+ 	}
+ 	;
+ 
+@@ -103,13 +141,9 @@
+ 		free($1);
+ 	}
+ 	| DEPORIGIN {
+-		pkg_manifest_item_set_attr(curitem, pmia_other, $1);
++		pkg_set_origin(curdep, $1);
+ 		free($1);
+ 	}
+-	| ORIGIN {
+-		pkg_manifest_item_set_attr(curitem, pmia_other, $1);
+-		free($1);
+-	}
+ 	| MD5 {
+ 		pkg_manifest_item_set_attr(curitem, pmia_md5, $1);
+ 		free($1);
+
+Modified: trunk/src/pkg_manifest.c
+===================================================================
+--- trunk/src/pkg_manifest.c	2007-03-06 03:13:38 UTC (rev 279)
++++ trunk/src/pkg_manifest.c	2007-03-09 22:05:33 UTC (rev 280)
+@@ -28,38 +28,14 @@
+  */
+ 
+ #include &quot;pkg.h&quot;
++#include &quot;pkg_private.h&quot;
+ 
+ #include &lt;assert.h&gt;
+ #include &lt;stdlib.h&gt;
+ #include &lt;string.h&gt;
+ #include &lt;unistd.h&gt;
+ 
+-struct pkg_manifest_item_attr {
+-	pkg_manifest_item_attr attr;
+-	char *data;
+-};
+ 
+-struct pkg_manifest_item {
+-	pkg_manifest_item_type type;
+-	void		*data;
+-
+-	struct pkg_manifest_item_attr *attrs;
+-	unsigned int	 attr_count;
+-	size_t		 attr_size;
+-};
+-
+-struct pkg_manifest {
+-	void		*data;
+-
+-	struct pkg_manifest_item **items;
+-	unsigned int	 item_count;
+-	size_t		 item_size;
+-};
+-
+-/* These are used by the FreeBSD parser */
+-extern FILE *pkg_freebsd_in;
+-int pkg_freebsd_parse(struct pkg_manifest **);
+-
+ /**
+  * @defgroup PackageManifest Package manifest functions
+  * 
+@@ -78,6 +54,7 @@
+ struct pkg_manifest *
+ pkg_manifest_new()
+ {
++	unsigned int pos;
+ 	struct pkg_manifest *manifest;
+ 
+ 	manifest = malloc(sizeof(struct pkg_manifest));
+@@ -85,29 +62,18 @@
+ 		return NULL;
+ 
+ 	manifest-&gt;data = NULL;
+-	manifest-&gt;items = NULL;
+-	manifest-&gt;item_count = 0;
+-	manifest-&gt;item_size = 0;
++	manifest-&gt;file = NULL;
++	manifest-&gt;name = NULL;
+ 
+-	return manifest;
+-}
++	for (pos = 0; pos &lt; pkgm_max; pos++) {
++		manifest-&gt;attrs[pos] = NULL;
++	}
++	STAILQ_INIT(&amp;manifest-&gt;deps);
++	STAILQ_INIT(&amp;manifest-&gt;conflicts);
++	STAILQ_INIT(&amp;manifest-&gt;items);
+ 
+-/**
+- * @brief Creates a new FreeBSD package manifest from a struct pkgfile
+- * @param file The file to create the manifest from
+- * @return A new package manifest
+- * @return NULL on error
+- * @todo Check if pkg_freebsd_parse is thread safe
+- */
+-struct pkg_manifest *
+-pkg_manifest_new_freebsd_pkgfile(struct pkgfile *file)
+-{
+-	struct pkg_manifest *manifest;
++	manifest-&gt;manifest_get_file = NULL;
+ 
+-	pkgfile_seek(file, 0, SEEK_SET);
+-	pkg_freebsd_in = pkgfile_get_fileptr(file);
+-	pkg_freebsd_parse(&amp;manifest);
+-
+ 	return manifest;
+ }
+ 
+@@ -120,22 +86,167 @@
+ int
+ pkg_manifest_free(struct pkg_manifest *manifest)
+ {
++	struct pkgm_deps *dep;
++	struct pkgm_conflicts *conflict;
++	struct pkgm_items *item;
+ 	unsigned int pos;
+ 
+ 	if (manifest == NULL)
+ 		return -1;
+ 
+-	for (pos = 0; pos &lt; manifest-&gt;item_count; pos++) {
+-		assert(manifest-&gt;items[pos] != NULL);
+-		pkg_manifest_item_free(manifest-&gt;items[pos]);
++	while ((dep = STAILQ_FIRST(&amp;manifest-&gt;deps)) != NULL) {
++		STAILQ_REMOVE_HEAD(&amp;manifest-&gt;deps, list);
++		pkg_free(dep-&gt;pkg);
++		free(dep);
+ 	}
+ 
+-	free(manifest-&gt;items);
++	while ((conflict = STAILQ_FIRST(&amp;manifest-&gt;conflicts)) != NULL) {
++		STAILQ_REMOVE_HEAD(&amp;manifest-&gt;conflicts, list);
++		free(conflict-&gt;conflict);
++		free(conflict);
++	}
++
++	while ((item = STAILQ_FIRST(&amp;manifest-&gt;items)) != NULL) {
++		STAILQ_REMOVE_HEAD(&amp;manifest-&gt;items, list);
++		pkg_manifest_item_free(item-&gt;item);
++		free(item);
++	}
++
++	for (pos = 0; pos &lt; pkgm_max; pos++) {
++		if (manifest-&gt;attrs[pos] != NULL &amp;&amp;
++		    manifest-&gt;attrs[pos] != (char *)0x1)
++			free(manifest-&gt;attrs[pos]);
++	}
++
++	if (manifest-&gt;name != NULL)
++		free(manifest-&gt;name);
++
++	pkgfile_free(manifest-&gt;file);
++
+ 	free(manifest);
++
+ 	return 0;
+ }
+ 
+ /**
++ * @brief Adds a dependency to the package manifest
++ * @param manifest The manifest to add the dependency to
++ * @param dep The package to depend on
++ * @return  0 on success
++ * @return -1 on error
++ */
++int
++pkg_manifest_add_dependency(struct pkg_manifest *manifest, struct pkg *dep)
++{
++	struct pkgm_deps *the_dep;
++
++	if (manifest == NULL || dep == NULL)
++		return -1;
++
++	/* Create the new dependency */
++	the_dep = malloc(sizeof(struct pkgm_deps));
++	if (the_dep == NULL)
++		return -1;
++	the_dep-&gt;pkg = dep;
++
++	/* Add the dependency to the list */
++	STAILQ_INSERT_TAIL(&amp;manifest-&gt;deps, the_dep, list);
++
++	return 0;
++}
++
++/**
++ * @brief Adds a conflict to the package manifest
++ * @param manifest The manifest to add the dependency to
++ * @param conflict The package to conflict with
++ * @return  0 on success
++ * @return -1 on error
++ */
++int
++pkg_manifest_add_conflict(struct pkg_manifest *manifest, const char *conflict)
++{
++	struct pkgm_conflicts *the_conflict;
++
++	if (manifest == NULL || conflict == NULL)
++		return -1;
++
++	/* Create the new conflict */
++	the_conflict = malloc(sizeof(struct pkgm_conflicts));
++	if (the_conflict == NULL)
++		return -1;
++	the_conflict-&gt;conflict = strdup(conflict);
++
++	/* Add the conflict to the list */
++	STAILQ_INSERT_TAIL(&amp;manifest-&gt;conflicts, the_conflict, list);
++
++	return 0;
++}
++
++/**
++ * @brief Sets the package's name in it's manifest
++ * @param manifest The package manifest
++ * @param name The package's name
++ * @return  0 on success
++ * @return -1 on error
++ */
++int
++pkg_manifest_set_name(struct pkg_manifest *manifest, const char *name)
++{
++	char *new_name;
++	if (manifest == NULL || name == NULL)
++		return -1;
++
++	new_name = strdup(name);
++	if (new_name == NULL)
++		return -1;
++
++	if (manifest-&gt;name != NULL)
++		free(manifest-&gt;name);
++
++	manifest-&gt;name = new_name;
++	return -0;
++}
++
++/**
++ * @brief Adds an attribute to the package manifest
++ * @param manifest The manifest to add attribute to
++ * @param attr The attribute to add
++ * @param data The value of the data
++ * @return  0 on success
++ * @return -1 on error
++ */
++int
++pkg_manifest_set_attr(struct pkg_manifest *manifest, pkg_manifest_attr attr,
++    const char *data)
++{
++	char *new_attr;
++
++	if (manifest == NULL)
++		return -1;
++
++	if (attr &gt;= pkgm_max)
++		return -1;
++
++	/* Set new_attr to the new value for the attribute */
++	if (data == NULL) {
++		new_attr = NULL;
++	} else {
++		new_attr = strdup(data);
++		if (new_attr == NULL)
++			return -1;
++	}
++
++	/* If the old attribure was set free it */
++	if (manifest-&gt;attrs[attr] != NULL) {
++		free(manifest-&gt;attrs[attr]);
++	}
++
++	/* assign the new attribute */
++	manifest-&gt;attrs[attr] = new_attr;
++	return 0;
++}
++
++/**
+  * @brief Adds a manifest item to a package manifest
+  * @param manifest The manifest to append the item to
+  * @param item The item to append to the manifest
+@@ -146,35 +257,44 @@
+ pkg_manifest_append_item(struct pkg_manifest *manifest,
+     struct pkg_manifest_item *item)
+ {
+-	struct pkg_manifest_item **new_items;
++	struct pkgm_items *the_item;
+ 
+-	if (manifest == NULL)
++	if (manifest == NULL || item == NULL)
+ 		return -1;
+-	if (manifest-&gt;items == NULL) {
+-		manifest-&gt;item_size = sizeof(struct pkg_manifest_item *) * 2;
+-		manifest-&gt;items = malloc(manifest-&gt;item_size);
+-		if (manifest-&gt;items == NULL) {
+-			manifest-&gt;item_size = 0;
+-			return -1;
+-		}
+-	} else {
+-		manifest-&gt;item_size += sizeof(struct pkg_manifest_item *);
+-		new_items = realloc(manifest-&gt;items, manifest-&gt;item_size);
+-		if (new_items == NULL) {
+-			manifest-&gt;item_size -=
+-			    sizeof(struct pkg_manifest_item *);
+-			return -1;
+-		}
+-		manifest-&gt;items = new_items;
+-	}
+-	manifest-&gt;items[manifest-&gt;item_count] = item;
+-	manifest-&gt;item_count++;
+-	manifest-&gt;items[manifest-&gt;item_count] = NULL;
+ 
++	/* Create the new item */
++	the_item = malloc(sizeof(struct pkgm_items));
++	if (the_item == NULL)
++		return -1;
++	the_item-&gt;item = item;
++
++	/* Add the conflict to the list */
++	STAILQ_INSERT_TAIL(&amp;manifest-&gt;items, the_item, list);
++
+ 	return 0;
+ }
+ 
+ /**
++ * @brief Gets a pkgfile of the given manifest
++ * @param manifest The manifest to read
++ * @return A pkgfile containing the manifest
++ * @return NULL on error
++ */
++struct pkgfile *
++pkg_manifest_get_file(struct pkg_manifest *manifest)
++{
++	if (manifest == NULL)
++		return NULL;
++
++	if (manifest-&gt;file == NULL) {
++		if (manifest-&gt;manifest_get_file != NULL)
++			manifest-&gt;manifest_get_file(manifest);
++	}
++
++	return manifest-&gt;file;
++}
++
++/**
+  * @}
+  */
+ 
+@@ -206,8 +326,6 @@
+ 
+ 	item-&gt;type = type;
+ 	item-&gt;attrs = NULL;
+-	item-&gt;attr_count = 0;
+-	item-&gt;attr_size = 0;
+ 
+ 	if (data == NULL) {
+ 		item-&gt;data = NULL;
+@@ -235,9 +353,10 @@
+ 
+ 	if (item-&gt;attrs != NULL) {
+ 		unsigned int pos;
+-		for (pos = 0; pos &lt; item-&gt;attr_count; pos++) {
+-			if (item-&gt;attrs[pos].data != NULL)
+-				free(item-&gt;attrs[pos].data);
++		for (pos = 0; pos &lt; pmia_max; pos++) {
++			if (item-&gt;attrs[pos] != NULL &amp;&amp;
++			    item-&gt;attrs[pos] != (char *)0x1)
++				free(item-&gt;attrs[pos]);
+ 		}
+ 		free(item-&gt;attrs);
+ 	}
+@@ -257,54 +376,61 @@
+  */
+ int
+ pkg_manifest_item_set_attr(struct pkg_manifest_item *item,
+-    pkg_manifest_item_attr attr, char *data)
++    pkg_manifest_item_attr attr, const char *data)
+ {
+-	unsigned int pos;
+-
+ 	if (item == NULL)
+ 		return -1;
+ 
+-	/*
+-	 * If there are attr's already check if the one
+-	 * we are setting is there. If it is replace the
+-	 * old data with the new data.
+-	 */
+-	if (item-&gt;attrs != NULL) {
+-		for (pos = 0; pos &lt; item-&gt;attr_count; pos++) {
+-			if (item-&gt;attrs[pos].attr == attr) {
+-				if (item-&gt;attrs[pos].data != NULL)
+-					free(item-&gt;attrs[pos].data);
+-				item-&gt;attrs[pos].data = strdup(data);
+-				return 0;
+-			}
+-		}
+-	}
+-
+ 	if (item-&gt;attrs == NULL) {
+-		/* Create the attribute array */
+-		item-&gt;attr_size = sizeof(struct pkg_manifest_item_attr);
+-		item-&gt;attrs = malloc(item-&gt;attr_size);
++		item-&gt;attrs = malloc(pmia_max * sizeof(pkg_manifest_item_attr));
+ 		if (item-&gt;attrs == NULL)
+ 			return -1;
++		memset(item-&gt;attrs, 0, pmia_max *
++		    sizeof(pkg_manifest_item_attr));
++	}
++
++	if (item-&gt;attrs[attr] != NULL &amp;&amp; item-&gt;attrs[attr] != (char *)0x1) {
++		free(item-&gt;attrs[attr]);
++	}
++
++	if (data == NULL) {
++		item-&gt;attrs[attr] = (char *)0x1;
+ 	} else {
+-		/* Increase the size of the attribute array */
+-		struct pkg_manifest_item_attr *new_attr;
+-		item-&gt;attr_size += sizeof(struct pkg_manifest_item_attr);
+-		new_attr = realloc(item-&gt;attrs, item-&gt;attr_size);
+-		if (new_attr == NULL) {
+-			item-&gt;attr_size -=sizeof(struct pkg_manifest_item_attr);
++		item-&gt;attrs[attr] = strdup(data);
++		if (item-&gt;attrs[attr] == NULL)
+ 			return -1;
+-		}
+-		item-&gt;attrs = new_attr;
+ 	}
+-	/* Set the new attribute */
+-	item-&gt;attrs[item-&gt;attr_count].attr = attr;
+-	item-&gt;attrs[item-&gt;attr_count].data = strdup(data);
+-	item-&gt;attr_count++;
+ 
+ 	return 0;
+ }
+ 
+ /**
++ * @brief Sets the data of the given item
++ * @param item The manifest item
++ * @param data The new data value
++ * @return  0 on success
++ * @return -1 on error
++ */
++int
++pkg_manifest_item_set_data(struct pkg_manifest_item *item, const char *data)
++{
++	if (item == NULL)
++		return -1;
++
++	if (item-&gt;data != NULL)
++		free(item-&gt;data);
++
++	if (data == NULL) {
++		item-&gt;data = NULL;
++	} else {
++		item-&gt;data = strdup(data);
++		if (item-&gt;data == NULL)
++			return -1;
++	}
++
++	return 0;
++}
++
++/**
+  * @}
+  */
+
+Modified: trunk/src/pkg_private.h
+===================================================================
+--- trunk/src/pkg_private.h	2007-03-06 03:13:38 UTC (rev 279)
++++ trunk/src/pkg_private.h	2007-03-09 22:05:33 UTC (rev 280)
+@@ -30,6 +30,7 @@
+ #ifndef __LIBPKG_PKG_PRIVATE_H__
+ #define __LIBPKG_PKG_PRIVATE_H__
+ 
++#include &lt;sys/queue.h&gt;
+ #include &lt;archive.h&gt;
+ #include &quot;pkg_db.h&quot;
+ 
+@@ -69,6 +70,51 @@
+ };
+ 
+ /*
++ * Package Manifest Item Object
++ */
++struct pkg_manifest_item {
++	pkg_manifest_item_type type;
++	void		*data;
++
++	char **attrs;
++};
++
++/*
++ * Package Manifest Object
++ */
++
++typedef struct pkgfile	*pkg_manifest_get_file_callback(struct pkg_manifest *);
++
++/* List objects for the dependencies, conflicts and items */
++struct pkgm_deps {
++	STAILQ_ENTRY(pkgm_deps) list;
++	struct pkg	*pkg;
++};
++
++struct pkgm_conflicts {
++	STAILQ_ENTRY(pkgm_conflicts) list;
++	char		*conflict;
++};
++
++struct pkgm_items {
++	STAILQ_ENTRY(pkgm_items) list;
++	struct pkg_manifest_item *item;
++};
++struct pkg_manifest {
++	void		*data;
++
++	struct pkgfile	*file;
++	char		*name;
++
++	char		*attrs[pkgm_max];
++	STAILQ_HEAD(, pkgm_deps) deps;
++	STAILQ_HEAD(, pkgm_conflicts) conflicts;
++	STAILQ_HEAD(, pkgm_items) items;
++
++	pkg_manifest_get_file_callback	*manifest_get_file;
++};
++
++/*
+  * Package Object
+  */
+ 
+@@ -89,9 +135,11 @@
+ /* Callbacks to get data from a package, eg. the description */
+ typedef const char	 *pkg_get_version_callback(struct pkg *);
+ typedef const char	 *pkg_get_origin_callback(struct pkg *);
++typedef int		  pkg_set_origin_callback(struct pkg *, const char *);
+ int			  pkg_add_callbacks_data(struct pkg *,
+ 				pkg_get_version_callback *,
+-				pkg_get_origin_callback *);
++				pkg_get_origin_callback *,
++				pkg_set_origin_callback *);
+ 
+ /* Callbacks used with empty packages to add files to */
+ typedef int		  pkg_add_dependency_callback(struct pkg *,
+@@ -153,6 +201,7 @@
+ 
+ 	pkg_get_version_callback	*pkg_get_version;
+ 	pkg_get_origin_callback		*pkg_get_origin;
++	pkg_set_origin_callback		*pkg_set_origin;
+ 
+ 	/* Callbacks usally used with empty packages */
+ 	pkg_add_dependency_callback	*pkg_add_depend;
+
+Modified: trunk/src/pkgfile.c
+===================================================================
+--- trunk/src/pkgfile.c	2007-03-06 03:13:38 UTC (rev 279)
++++ trunk/src/pkgfile.c	2007-03-09 22:05:33 UTC (rev 280)
+@@ -36,6 +36,7 @@
+ #include &lt;libgen.h&gt;
+ #include &lt;limits.h&gt;
+ #include &lt;md5.h&gt;
++#include &lt;stdarg.h&gt;
+ #include &lt;stdio.h&gt;
+ #include &lt;stdlib.h&gt;
+ #include &lt;string.h&gt;
+@@ -203,11 +204,11 @@
+ {
+ 	struct pkgfile *file;
+ 
++	file = pkgfile;
+ 	if (len &lt;= 0 || file-&gt;offset &gt;= file-&gt;length)
+ 		return 0;
+ 
+ 	/* Read in the data */
+-	file = pkgfile;
+ 	pkgfile_get_data(file);
+ 
+ 	/* Stop reading past the end of the file */
+@@ -774,6 +775,14 @@
+ 	return 0;
+ }
+ 
++/**
++ * @brief Appends data to the end of a file
++ * @param file The file to append data to
++ * @param data The data to append
++ * @param length The length of the data to append
++ * @return  0 on success
++ * @return -1 on error
++ */
+ int
+ pkgfile_append(struct pkgfile *file, const char *data, uint64_t length)
+ {
+@@ -811,6 +820,36 @@
+ }
+ 
+ /**
++ * @brief Appends a null terminated string to the end of a file
++ * @param file The file to append
++ * @param format A printf(3) like format string
++ * @return  0 on success
++ * @return -1 on failure
++ */
++int
++pkgfile_append_string(struct pkgfile *file, const char *format, ...)
++{
++	char *buf;
++	int len, ret;
++	va_list ap;
++
++	if (file == NULL || format == NULL)
++		return -1;
++
++	/* Build a buffer from the format string */
++	va_start(ap, format);
++	len = vasprintf(&amp;buf, format, ap);
++	if (buf == NULL)
++		return -1;
++	va_end(ap);
++
++	ret = pkgfile_append(file, buf, len);
++	free(buf);
++
++	return ret;
++}
++
++/**
+  * @brief Writes a pkgfile to disk
+  * @return  0 on success
+  * @return -1 on error
+
+
+</PRE>
+
+<!--endarticle-->
+    <HR>
+    <P><UL>
+        <!--threads-->
+	<LI>Previous message: <A HREF="000263.html">[Libpkg-svn] r279 - trunk
+</A></li>
+	<LI>Next message: <A HREF="000265.html">[Libpkg-svn] r281 - trunk/src
+</A></li>
+         <LI> <B>Messages sorted by:</B> 
+              <a href="date.html#264">[ date ]</a>
+              <a href="thread.html#264">[ thread ]</a>
+              <a href="subject.html#264">[ subject ]</a>
+              <a href="author.html#264">[ author ]</a>
+         </LI>
+       </UL>
+
+<hr>
+<a href="https://lists.berlios.de/mailman/listinfo/libpkg-svn">More information about the Libpkg-svn
+mailing list</a><br>
+</body></html>

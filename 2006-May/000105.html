@@ -1,0 +1,193 @@
+<!DOCTYPE HTML PUBLIC "-//W3C//DTD HTML 4.01 Transitional//EN">
+<HTML>
+ <HEAD>
+   <TITLE> [Libpkg-svn] r121 - trunk/src
+   </TITLE>
+   <LINK REL="Index" HREF="http://lists.berlios.de/pipermail/libpkg-svn/2006-May/index.html" >
+   <LINK REL="made" HREF="mailto:libpkg-svn%40lists.berlios.de?Subject=Re%3A%20%5BLibpkg-svn%5D%20r121%20-%20trunk/src&In-Reply-To=%3C200605011218.k41CIgWL010647%40sheep.berlios.de%3E">
+   <META NAME="robots" CONTENT="index,nofollow">
+   <style type="text/css">
+       pre {
+           white-space: pre-wrap;       /* css-2.1, curent FF, Opera, Safari */
+           }
+   </style>
+   <META http-equiv="Content-Type" content="text/html; charset=us-ascii">
+   <LINK REL="Previous"  HREF="000104.html">
+   <LINK REL="Next"  HREF="000106.html">
+ </HEAD>
+ <BODY BGCOLOR="#ffffff">
+   <H1>[Libpkg-svn] r121 - trunk/src</H1>
+    <B>zxombie at BerliOS</B> 
+    <A HREF="mailto:libpkg-svn%40lists.berlios.de?Subject=Re%3A%20%5BLibpkg-svn%5D%20r121%20-%20trunk/src&In-Reply-To=%3C200605011218.k41CIgWL010647%40sheep.berlios.de%3E"
+       TITLE="[Libpkg-svn] r121 - trunk/src">zxombie at berlios.de
+       </A><BR>
+    <I>Mon May  1 14:18:42 CEST 2006</I>
+    <P><UL>
+        <LI>Previous message: <A HREF="000104.html">[Libpkg-svn] r120 - trunk/src
+</A></li>
+        <LI>Next message: <A HREF="000106.html">[Libpkg-svn] r122 - trunk/tools/pkg_add
+</A></li>
+         <LI> <B>Messages sorted by:</B> 
+              <a href="date.html#105">[ date ]</a>
+              <a href="thread.html#105">[ thread ]</a>
+              <a href="subject.html#105">[ subject ]</a>
+              <a href="author.html#105">[ author ]</a>
+         </LI>
+       </UL>
+    <HR>  
+<!--beginarticle-->
+<PRE>Author: zxombie
+Date: 2006-05-01 14:18:41 +0200 (Mon, 01 May 2006)
+New Revision: 121
+
+Modified:
+   trunk/src/pkg_repo.h
+   trunk/src/pkg_repo_ftp.c
+Log:
+Add support to save the file fetched to a given directory
+
+
+Modified: trunk/src/pkg_repo.h
+===================================================================
+--- trunk/src/pkg_repo.h	2006-05-01 12:17:18 UTC (rev 120)
++++ trunk/src/pkg_repo.h	2006-05-01 12:18:41 UTC (rev 121)
+@@ -37,7 +37,7 @@
+ struct pkg_repo;
+ 
+ struct pkg_repo	*pkg_repo_new_files(void);
+-struct pkg_repo	*pkg_repo_new_ftp(const char *, const char *);
++struct pkg_repo	*pkg_repo_new_ftp(const char *, const char *, const char *);
+ struct pkg_repo	*pkg_repo_new_local_freebsd(void);
+ struct pkg	*pkg_repo_get_pkg(struct pkg_repo *, const char *);
+ int		 pkg_repo_free(struct pkg_repo *);
+
+Modified: trunk/src/pkg_repo_ftp.c
+===================================================================
+--- trunk/src/pkg_repo_ftp.c	2006-05-01 12:17:18 UTC (rev 120)
++++ trunk/src/pkg_repo_ftp.c	2006-05-01 12:18:41 UTC (rev 121)
+@@ -45,7 +45,7 @@
+ #include &quot;pkg_repo_private.h&quot;
+ 
+ #define MAX_VERSION 9999999
+-static struct {
++static const struct {
+         int lowver;     /* Lowest version number to match */
+         int hiver;      /* Highest version number to match */
+         const char *directory;  /* Directory it lives in */
+@@ -82,7 +82,8 @@
+ struct ftp_repo {
+ 	char	*site;
+ 	char	*path;
+-	FILE	*fd;
++	int	 cache;
++	char	 cache_dir[MAXPATHLEN];
+ };
+ 
+ int getosreldate(void);
+@@ -92,7 +93,8 @@
+ pkg_static int		 ftp_free(struct pkg_repo *);
+ /* Internal */
+ pkg_static FILE		*ftp_get_fd(const char *, struct ftp_repo *);
+-pkg_static struct ftp_repo	*ftp_create_repo(const char *, const char *);
++pkg_static struct ftp_repo	*ftp_create_repo(const char *, const char *,
++					const char *);
+ /*pkg_static int		 pkg_in_All(const char *); */
+ pkg_static int		 pkg_name_has_extension(const char *);
+ 
+@@ -106,12 +108,13 @@
+ /**
+  * @brief Creates a pkg_repo with the given sie and path
+  * @param site The ftp site to use. If NULL will use ftp.freebsd.org
+- * @param path The path to the top level of the packages.
++ * @param path The path to the top level of the packages
++ * @param cached_dir The directory to save a copy of each package file in or NULL
+  *     If NULL will use the default path
+  * @return A pkg_repo object or NULL
+  */
+ struct pkg_repo *
+-pkg_repo_new_ftp(const char *site, const char *path)
++pkg_repo_new_ftp(const char *site, const char *path, const char *cache_dir)
+ {
+ 	struct pkg_repo *repo;
+ 
+@@ -120,7 +123,7 @@
+ 		return NULL;
+ 	}
+ 	
+-	repo-&gt;data = ftp_create_repo(site, path);
++	repo-&gt;data = ftp_create_repo(site, path, cache_dir);
+ 	if (!repo-&gt;data) {
+ 		ftp_free(repo);
+ 		return NULL;
+@@ -147,7 +150,7 @@
+ static struct pkg *
+ ftp_get_pkg(struct pkg_repo *repo, const char *pkg_name)
+ {
+-	FILE *fd;
++	FILE *fd, *fd2;
+ 	struct pkg *pkg;
+ 	struct ftp_repo *f_repo;
+ 
+@@ -160,7 +163,15 @@
+ 	fd = ftp_get_fd(pkg_name, f_repo);
+ 	if (fd == NULL)
+ 		return NULL;
+-	
++
++	if (f_repo-&gt;cache) {
++		char cache_file[FILENAME_MAX];
++
++		fd2 = fd;
++		snprintf(cache_file, FILENAME_MAX, &quot;%s/%s.tbz&quot;,
++		    f_repo-&gt;cache_dir, pkg_name);
++		fd = pkg_cached_file(fd2, cache_file);
++	}	
+ 	pkg = pkg_new_freebsd_from_file(fd);
+ 	if (!pkg) {
+ 		fclose(fd);
+@@ -273,7 +284,7 @@
+  * @return A ftp_repo object or NULL
+  */
+ static struct ftp_repo *
+-ftp_create_repo(const char *site, const char *path)
++ftp_create_repo(const char *site, const char *path, const char *cache_dir)
+ {
+ 	struct ftp_repo *f_repo;
+ 
+@@ -322,6 +333,12 @@
+ 		return NULL;
+ 	}
+ 
++	f_repo-&gt;cache = 0;
++	if (cache_dir != NULL) {
++		f_repo-&gt;cache = 1;
++		snprintf(f_repo-&gt;cache_dir, MAXPATHLEN, &quot;%s&quot;, cache_dir);
++	}
++
+ 	return f_repo;
+ }
+ 
+
+
+</PRE>
+
+<!--endarticle-->
+    <HR>
+    <P><UL>
+        <!--threads-->
+	<LI>Previous message: <A HREF="000104.html">[Libpkg-svn] r120 - trunk/src
+</A></li>
+	<LI>Next message: <A HREF="000106.html">[Libpkg-svn] r122 - trunk/tools/pkg_add
+</A></li>
+         <LI> <B>Messages sorted by:</B> 
+              <a href="date.html#105">[ date ]</a>
+              <a href="thread.html#105">[ thread ]</a>
+              <a href="subject.html#105">[ subject ]</a>
+              <a href="author.html#105">[ author ]</a>
+         </LI>
+       </UL>
+
+<hr>
+<a href="https://lists.berlios.de/mailman/listinfo/libpkg-svn">More information about the Libpkg-svn
+mailing list</a><br>
+</body></html>

@@ -1,0 +1,604 @@
+<!DOCTYPE HTML PUBLIC "-//W3C//DTD HTML 4.01 Transitional//EN">
+<HTML>
+ <HEAD>
+   <TITLE> [Libpkg-svn] r18 - trunk/src
+   </TITLE>
+   <LINK REL="Index" HREF="http://lists.berlios.de/pipermail/libpkg-svn/2005-November/index.html" >
+   <LINK REL="made" HREF="mailto:libpkg-svn%40lists.berlios.de?Subject=Re%3A%20%5BLibpkg-svn%5D%20r18%20-%20trunk/src&In-Reply-To=%3C200511140947.jAE9lLOU024895%40sheep.berlios.de%3E">
+   <META NAME="robots" CONTENT="index,nofollow">
+   <style type="text/css">
+       pre {
+           white-space: pre-wrap;       /* css-2.1, curent FF, Opera, Safari */
+           }
+   </style>
+   <META http-equiv="Content-Type" content="text/html; charset=us-ascii">
+   <LINK REL="Previous"  HREF="000008.html">
+   <LINK REL="Next"  HREF="000010.html">
+ </HEAD>
+ <BODY BGCOLOR="#ffffff">
+   <H1>[Libpkg-svn] r18 - trunk/src</H1>
+    <B>Andrew Turner at BerliOS</B> 
+    <A HREF="mailto:libpkg-svn%40lists.berlios.de?Subject=Re%3A%20%5BLibpkg-svn%5D%20r18%20-%20trunk/src&In-Reply-To=%3C200511140947.jAE9lLOU024895%40sheep.berlios.de%3E"
+       TITLE="[Libpkg-svn] r18 - trunk/src">zxombie at berlios.de
+       </A><BR>
+    <I>Mon Nov 14 10:47:21 CET 2005</I>
+    <P><UL>
+        <LI>Previous message: <A HREF="000008.html">[Libpkg-svn] r17 - trunk/src
+</A></li>
+        <LI>Next message: <A HREF="000010.html">[Libpkg-svn] r19 - trunk/demo
+</A></li>
+         <LI> <B>Messages sorted by:</B> 
+              <a href="date.html#9">[ date ]</a>
+              <a href="thread.html#9">[ thread ]</a>
+              <a href="subject.html#9">[ subject ]</a>
+              <a href="author.html#9">[ author ]</a>
+         </LI>
+       </UL>
+    <HR>  
+<!--beginarticle-->
+<PRE>Author: zxombie
+Date: 2005-11-14 10:47:20 +0100 (Mon, 14 Nov 2005)
+New Revision: 18
+
+Modified:
+   trunk/src/pkg.c
+   trunk/src/pkg.h
+   trunk/src/pkg_freebsd.c
+   trunk/src/pkg_repo.c
+   trunk/src/pkg_repo.h
+   trunk/src/pkg_repo_files.c
+   trunk/src/pkg_repo_ftp.c
+   trunk/src/pkg_repo_private.h
+Log:
+Remove unused callbacks
+Add pkg_repo_find_pkg. This finds a given package in the current repo and adds the assiciated data to the package object to install this package.
+Move the getting of a ftp package FILE pointer and the struct ftp_repo to a seperate function
+Add pkg_get_name to return the packages name
+
+While I'm here add more comments on what is ment to be happening
+
+
+Modified: trunk/src/pkg.c
+===================================================================
+--- trunk/src/pkg.c	2005-11-14 01:04:52 UTC (rev 17)
++++ trunk/src/pkg.c	2005-11-14 09:47:20 UTC (rev 18)
+@@ -128,3 +128,11 @@
+ 
+ 	return 0;
+ }
++
++char *
++pkg_get_name(struct pkg *pkg)
++{
++	if (!pkg)
++		return NULL;
++	return pkg-&gt;pkg_name;
++}
+
+Modified: trunk/src/pkg.h
+===================================================================
+--- trunk/src/pkg.h	2005-11-14 01:04:52 UTC (rev 17)
++++ trunk/src/pkg.h	2005-11-14 09:47:20 UTC (rev 18)
+@@ -62,4 +62,6 @@
+ struct pkg_file		*pkg_get_next_file(struct pkg *);
+ int			 pkg_free(struct pkg *);
+ 
++char			*pkg_get_name(struct pkg *);
++
+ #endif /* __LIBPKG_PKG_H__ */
+
+Modified: trunk/src/pkg_freebsd.c
+===================================================================
+--- trunk/src/pkg_freebsd.c	2005-11-14 01:04:52 UTC (rev 17)
++++ trunk/src/pkg_freebsd.c	2005-11-14 09:47:20 UTC (rev 18)
+@@ -86,6 +86,7 @@
+ 	return pkg;
+ }
+ 
++/* XXX Make this a callback */
+ struct pkg *
+ pkg_make_freebsd(struct pkg *pkg, FILE *fd)
+ {
+@@ -98,6 +99,9 @@
+ 	return pkg;
+ }
+ 
++/*
++ * Returns a pointer to be placed into the data of the Package object
++ */
+ static struct freebsd_package *
+ freebsd_get_package(FILE *fd)
+ {
+@@ -111,11 +115,15 @@
+ 		return NULL;
+ 	}
+ 
++	/* Init the struct */
+ 	f_pkg-&gt;next = NULL;
+ 	f_pkg-&gt;control = NULL;
+ 	f_pkg-&gt;contents = NULL;
+ 	f_pkg-&gt;fd = fd;
+ 
++	/* We only need to read from gzip and bzip2 as they
++	 * are the only posible file types for FreeBSD packages
++	 */
+ 	f_pkg-&gt;archive = archive_read_new();
+ 	archive_read_support_compression_bzip2(f_pkg-&gt;archive);
+ 	archive_read_support_compression_gzip(f_pkg-&gt;archive);
+@@ -138,6 +146,9 @@
+ 		freebsd_free_package(f_pkg);
+ 		return NULL;
+ 	}
++	/* Set the control files array to be big enough for
++	 * the +CONTENTS file and a null terminator
++	 */
+ 	f_pkg-&gt;contents = pkg_freebsd_contents_new(file-&gt;contents);
+ 	control_size = sizeof(struct pkg_file *) * 2;
+ 	f_pkg-&gt;control = malloc(control_size);
+@@ -145,7 +156,7 @@
+ 	f_pkg-&gt;control[1] = NULL;
+ 	control_pos = 1;
+ 
+-	/* Add all the control files to the control pkg_files_list */
++	/* Add all the control files to the control array */
+ 	while (1) {
+ 		file = freebsd_get_next_entry(f_pkg-&gt;archive);
+ 		if (file == NULL) {
+@@ -165,6 +176,7 @@
+ 	return f_pkg;
+ }
+ 
++/* Return the array of control files */
+ static struct pkg_file **
+ freebsd_get_control_files(struct pkg *pkg)
+ {
+@@ -177,7 +189,8 @@
+ 	return f_pkg-&gt;control;
+ }
+ 
+-static struct pkg_file	*
++/* Get the next file in the package */
++static struct pkg_file *
+ freebsd_get_next_file(struct pkg *pkg)
+ {
+ 	struct freebsd_package *f_pkg;
+@@ -198,6 +211,10 @@
+ 	return freebsd_get_next_entry(f_pkg-&gt;archive);
+ }
+ 
++/*
++ * Find all the packages that depend on this package
++ * and return an array of empty package objects
++ */
+ static struct pkg **
+ freebsd_get_deps(struct pkg *pkg)
+ {
+@@ -230,6 +247,7 @@
+ 	return pkgs;
+ }
+ 
++/* Free the package */
+ static int
+ freebsd_free(struct pkg *pkg)
+ {
+@@ -240,6 +258,7 @@
+ 	return 0;
+ }
+ 
++/* Return a pointer to the next file in the archive `a' */
+ static struct pkg_file *
+ freebsd_get_next_entry(struct archive *a)
+ {
+@@ -255,6 +274,7 @@
+ 		return NULL;
+ 	}
+ 
++	/* Allocate enough space for the file and copy it to the string */
+ 	length = archive_entry_size(entry);
+ 	str = malloc(length+1);
+ 	if (!str) {
+@@ -263,7 +283,10 @@
+ 	archive_read_data_into_buffer(a, str, length);
+ 	str[length] = '\0';
+ 
++	/* Get the needed struct stat from the archive */
+ 	sb = archive_entry_stat(entry);
++
++	/* Create the pkg_file and return it */
+ 	return pkg_file_new_from_buffer(archive_entry_pathname(entry),
+ 		length, str, sb);
+ }
+@@ -331,6 +354,8 @@
+ 	free(f_pkg-&gt;control);
+ 	f_pkg-&gt;control = NULL;
+ 
++	if (f_pkg-&gt;next)
++		pkg_file_free(f_pkg-&gt;next);
+ 	pkg_freebsd_contents_free(f_pkg-&gt;contents);
+ 
+ 	free(f_pkg);
+
+Modified: trunk/src/pkg_repo.c
+===================================================================
+--- trunk/src/pkg_repo.c	2005-11-14 01:04:52 UTC (rev 17)
++++ trunk/src/pkg_repo.c	2005-11-14 09:47:20 UTC (rev 18)
+@@ -39,7 +39,8 @@
+  */
+ struct pkg_repo *
+ pkg_repo_new(pkg_repo_get_pkg_callback *pkg_get,
+-             pkg_repo_free_callback *pfree)
++	     pkg_repo_find_pkg_callback *pkg_find,
++	     pkg_repo_free_callback *pfree)
+ {
+ 	struct pkg_repo *repo;
+ 
+@@ -49,6 +50,7 @@
+ 	}
+ 
+ 	repo-&gt;pkg_get = pkg_get;
++	repo-&gt;pkg_find = pkg_find;
+ 	repo-&gt;pkg_free = pfree;
+ 
+ 	repo-&gt;data = NULL;
+@@ -75,6 +77,21 @@
+ }
+ 
+ /*
++ * Finds a package in a repo and sets the appropriate callbacks and data
++ */
++struct pkg *
++pkg_repo_find_pkg(struct pkg_repo *repo, struct pkg *pkg)
++{
++	if (!repo || !pkg)
++		return NULL;
++
++	if (!repo-&gt;pkg_find)
++		return NULL;
++
++	return repo-&gt;pkg_find(repo, pkg);
++}
++
++/*
+  * Frees the struct pkg_repo
+  */
+ int
+
+Modified: trunk/src/pkg_repo.h
+===================================================================
+--- trunk/src/pkg_repo.h	2005-11-14 01:04:52 UTC (rev 17)
++++ trunk/src/pkg_repo.h	2005-11-14 09:47:20 UTC (rev 18)
+@@ -39,6 +39,7 @@
+ struct pkg_repo	*pkg_repo_new_files(void);
+ struct pkg_repo	*pkg_repo_new_ftp(const char *, const char *);
+ struct pkg	*pkg_repo_get_pkg(struct pkg_repo *, const char *);
++struct pkg	*pkg_repo_find_pkg(struct pkg_repo *, struct pkg *);
+ int		 pkg_repo_free(struct pkg_repo *);
+ 
+ #endif /* __LIBPKG_PKG_REPO_H__ */
+
+Modified: trunk/src/pkg_repo_files.c
+===================================================================
+--- trunk/src/pkg_repo_files.c	2005-11-14 01:04:52 UTC (rev 17)
++++ trunk/src/pkg_repo_files.c	2005-11-14 09:47:20 UTC (rev 18)
+@@ -46,7 +46,7 @@
+ struct pkg_repo *
+ pkg_repo_new_files()
+ {
+-	return pkg_repo_new(file_get_pkg, NULL);
++	return pkg_repo_new(file_get_pkg, NULL, NULL);
+ }
+ 
+ static struct pkg *
+
+Modified: trunk/src/pkg_repo_ftp.c
+===================================================================
+--- trunk/src/pkg_repo_ftp.c	2005-11-14 01:04:52 UTC (rev 17)
++++ trunk/src/pkg_repo_ftp.c	2005-11-14 09:47:20 UTC (rev 18)
+@@ -86,8 +86,11 @@
+ int getosreldate(void);
+ 
+ static struct pkg *ftp_get_pkg(struct pkg_repo *, const char *);
++static struct pkg *ftp_find_pkg(struct pkg_repo *, struct pkg *);
+ static int ftp_free(struct pkg_repo *);
+ 
++static FILE *ftp_get_fd(const char *, struct ftp_repo *);
++static struct ftp_repo *ftp_create_repo(const char *, const char *);
+ //static int pkg_in_All(const char *);
+ static int pkg_name_has_extension(const char *);
+ 
+@@ -97,66 +100,41 @@
+ struct pkg_repo *
+ pkg_repo_new_ftp(const char *site, const char *path)
+ {
+-	struct pkg_repo *pkg;
+-	struct ftp_repo *f_repo;
++	struct pkg_repo *repo;
+ 
+-	assert(site != NULL);
+-	assert(path != NULL);
+-
+-	pkg = pkg_repo_new(ftp_get_pkg, ftp_free);
+-	if (!pkg) {
++	repo = pkg_repo_new(ftp_get_pkg, ftp_find_pkg, ftp_free);
++	if (!repo) {
+ 		/* pkg_null will contain the error string */
+ 		return NULL;
+ 	}
+-
+-	f_repo = malloc(sizeof(struct ftp_repo));
+-	if (!f_repo) {
+-		pkg_repo_free(pkg);
++	
++	repo-&gt;data = ftp_create_repo(site, path);
++	if (!repo-&gt;data) {
++		ftp_free(repo);
+ 		return NULL;
+ 	}
+ 
+-	pkg-&gt;data = f_repo;
++	return repo;
++}
+ 
+-	/* Figure out the site */
+-	if (!site)
+-		f_repo-&gt;site = strdup(&quot;ftp.freebsd.org&quot;);
+-	else
+-		f_repo-&gt;site = strdup(site);
++static struct pkg *
++ftp_get_pkg(struct pkg_repo *repo, const char *pkg_name)
++{
++	FILE *fd;
++	struct pkg *pkg;
++	struct ftp_repo *f_repo;
+ 
+-	if (!f_repo-&gt;site) {
+-		pkg_repo_free(pkg);
+-		return NULL;
+-	}
++	assert(repo != NULL);
++	assert(pkg_name != NULL);
+ 
+-	/* Figure out the path */
+-	f_repo-&gt;path = NULL;
+-	if (!path) {
+-		struct utsname	u;
+-		int		i, reldate;
++	f_repo = repo-&gt;data;
++	assert(f_repo != NULL);
+ 
+-		reldate = getosreldate();
+-		if(reldate &gt; MAX_VERSION) {  /* bogus osreldate?? */
+-			pkg_repo_free(pkg);
+-			return NULL;
+-		}
+-
+-		uname(&amp;u);
+-
+-		/* Find the correct path from reldate */
+-		for(i = 0; releases[i].directory != NULL; i++) {
+-			if (reldate &gt;= releases[i].lowver &amp;&amp;
+-			    reldate &lt;= releases[i].hiver) {
+-				asprintf(&amp;f_repo-&gt;path, &quot;pub/FreeBSD/ports/%s/%s&quot;, u.machine,
+-				    releases[i].directory);
+-				break;
+-			}
+-		}
+-
+-	} else
+-		f_repo-&gt;path = strdup(path);
+-
+-	if (!f_repo-&gt;path) {
+-		pkg_repo_free(pkg);
++	fd = ftp_get_fd(pkg_name, f_repo);
++	
++	pkg = pkg_new_freebsd(fd);
++	if (!pkg) {
++		fclose(fd);
+ 		return NULL;
+ 	}
+ 
+@@ -164,29 +142,51 @@
+ }
+ 
+ static struct pkg *
+-ftp_get_pkg(struct pkg_repo *repo, const char *pkg_name)
++ftp_find_pkg(struct pkg_repo *repo, struct pkg *pkg)
+ {
+ 	FILE *fd;
+-	struct pkg *pkg;
++	fd = ftp_get_fd(pkg-&gt;pkg_name, repo-&gt;data);
++	pkg_make_freebsd(pkg, fd);
++
++	return pkg;
++}
++
++/*
++ * Free the struct ftp_repo
++ */
++static int
++ftp_free(struct pkg_repo *repo)
++{
+ 	struct ftp_repo *f_repo;
+-	char *ftpname;
+-	const char	*subdir;
+-	const char	*ext;
+-	const char	*fallback_subdir;
+ 
+-	if (!repo) {
+-		return NULL;
+-	}
++	assert(repo != NULL);
+ 
+-	if (!pkg_name) {
+-		return NULL;
+-	}
+-
+ 	f_repo = repo-&gt;data;
+-	if (!f_repo) {
+-		return NULL;
+-	}
+ 
++	/* If there is no repo we don't need to free it */
++	if (!f_repo)
++		return 0;
++
++	if (f_repo-&gt;site)
++		free(f_repo-&gt;site);
++
++	if (f_repo-&gt;path)
++		free(f_repo-&gt;path);
++
++	free(f_repo);
++
++	return 0;
++}
++
++static FILE *
++ftp_get_fd(const char *pkg_name, struct ftp_repo *f_repo)
++{
++	const char *subdir;
++	const char *fallback_subdir;
++	const char *ext;
++	char *ftpname;
++	FILE *fd;
++
+ 	/*
+ 	 * Figure out what order to look for the package
+ 	 */
+@@ -229,42 +229,61 @@
+ 
+ 	free(ftpname);
+ 
+-	pkg = pkg_new_freebsd(fd);
+-	if (!pkg) {
+-		fclose(fd);
+-		return NULL;
+-	}
+-
+-	return pkg;
++	return fd;
+ }
+ 
+-/*
+- * Free the struct ftp_repo
+- */
+-static int
+-ftp_free(struct pkg_repo *repo)
++static struct ftp_repo *
++ftp_create_repo(const char *site, const char *path)
+ {
+ 	struct ftp_repo *f_repo;
+ 
+-	if (!repo) {
+-		return -1;
++	f_repo = malloc(sizeof(struct ftp_repo));
++	if (!f_repo) {
++		return NULL;
+ 	}
+ 
+-	f_repo = repo-&gt;data;
++	/* Figure out the site */
++	if (!site)
++		f_repo-&gt;site = strdup(&quot;ftp.freebsd.org&quot;);
++	else
++		f_repo-&gt;site = strdup(site);
+ 
+-	/* If there is no repo we don't need to free it */
+-	if (!f_repo)
+-		return 0;
++	if (!f_repo-&gt;site) {
++		return NULL;
++	}
+ 
+-	if (f_repo-&gt;site)
+-		free(f_repo-&gt;site);
++	/* Figure out the path */
++	f_repo-&gt;path = NULL;
++	if (!path) {
++		struct utsname	u;
++		int		i, reldate;
+ 
+-	if (f_repo-&gt;path)
+-		free(f_repo-&gt;path);
++		reldate = getosreldate();
++		if(reldate &gt; MAX_VERSION) {  /* bogus osreldate?? */
++			/* XXX create a static ftp_repo_free */
++			return NULL;
++		}
+ 
+-	free(f_repo);
++		uname(&amp;u);
+ 
+-	return 0;
++		/* Find the correct path from reldate */
++		for(i = 0; releases[i].directory != NULL; i++) {
++			if (reldate &gt;= releases[i].lowver &amp;&amp;
++			    reldate &lt;= releases[i].hiver) {
++				asprintf(&amp;f_repo-&gt;path, &quot;pub/FreeBSD/ports/%s/%s&quot;, u.machine,
++				    releases[i].directory);
++				break;
++			}
++		}
++
++	} else
++		f_repo-&gt;path = strdup(path);
++
++	if (!f_repo-&gt;path) {
++		return NULL;
++	}
++
++	return f_repo;
+ }
+ 
+ static int
+
+Modified: trunk/src/pkg_repo_private.h
+===================================================================
+--- trunk/src/pkg_repo_private.h	2005-11-14 01:04:52 UTC (rev 17)
++++ trunk/src/pkg_repo_private.h	2005-11-14 09:47:20 UTC (rev 18)
+@@ -30,18 +30,18 @@
+ #ifndef __LIBPKG_PKG_REPO_PRIVATE_H__
+ #define __LIBPKG_PKG_REPO_PRIVATE_H__
+ 
+-typedef int	 pkg_repo_mark_callback(struct pkg_repo *, const char *);
+-typedef int	 pkg_repo_unmark_callback(struct pkg_repo *, const char *);
+ typedef struct pkg *pkg_repo_get_pkg_callback(struct pkg_repo *, const char *);
++typedef struct pkg *pkg_repo_find_pkg_callback(struct pkg_repo *, struct pkg *);
+ typedef int	 pkg_repo_free_callback(struct pkg_repo *);
+ 
+ struct pkg_repo	*pkg_repo_new(pkg_repo_get_pkg_callback *,
+-			pkg_repo_free_callback *);
++			pkg_repo_find_pkg_callback *, pkg_repo_free_callback *);
+ 
+ struct pkg_repo {
+ 	void	*data;
+ 
+ 	pkg_repo_get_pkg_callback	*pkg_get;
++	pkg_repo_find_pkg_callback	*pkg_find;
+ 	pkg_repo_free_callback		*pkg_free;
+ };
+ 
+
+
+</PRE>
+
+<!--endarticle-->
+    <HR>
+    <P><UL>
+        <!--threads-->
+	<LI>Previous message: <A HREF="000008.html">[Libpkg-svn] r17 - trunk/src
+</A></li>
+	<LI>Next message: <A HREF="000010.html">[Libpkg-svn] r19 - trunk/demo
+</A></li>
+         <LI> <B>Messages sorted by:</B> 
+              <a href="date.html#9">[ date ]</a>
+              <a href="thread.html#9">[ thread ]</a>
+              <a href="subject.html#9">[ subject ]</a>
+              <a href="author.html#9">[ author ]</a>
+         </LI>
+       </UL>
+
+<hr>
+<a href="https://lists.berlios.de/mailman/listinfo/libpkg-svn">More information about the Libpkg-svn
+mailing list</a><br>
+</body></html>

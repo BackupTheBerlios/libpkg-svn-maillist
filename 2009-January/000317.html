@@ -1,0 +1,858 @@
+<!DOCTYPE HTML PUBLIC "-//W3C//DTD HTML 4.01 Transitional//EN">
+<HTML>
+ <HEAD>
+   <TITLE> r333 - trunk/src
+   </TITLE>
+   <LINK REL="Index" HREF="http://lists.berlios.de/pipermail/libpkg-svn/2009-January/index.html" >
+   <LINK REL="made" HREF="mailto:libpkg-svn%40lists.berlios.de?Subject=Re%3A%20r333%20-%20trunk/src&In-Reply-To=%3C200901050702.n0572kx6029783%40sheep.berlios.de%3E">
+   <META NAME="robots" CONTENT="index,nofollow">
+   <style type="text/css">
+       pre {
+           white-space: pre-wrap;       /* css-2.1, curent FF, Opera, Safari */
+           }
+   </style>
+   <META http-equiv="Content-Type" content="text/html; charset=us-ascii">
+   <LINK REL="Previous"  HREF="000316.html">
+   <LINK REL="Next"  HREF="000318.html">
+ </HEAD>
+ <BODY BGCOLOR="#ffffff">
+   <H1>r333 - trunk/src</H1>
+    <B>zxombie at users.berlios.de</B> 
+    <A HREF="mailto:libpkg-svn%40lists.berlios.de?Subject=Re%3A%20r333%20-%20trunk/src&In-Reply-To=%3C200901050702.n0572kx6029783%40sheep.berlios.de%3E"
+       TITLE="r333 - trunk/src">zxombie at users.berlios.de
+       </A><BR>
+    <I>Mon Jan  5 08:02:46 CET 2009</I>
+    <P><UL>
+        <LI>Previous message: <A HREF="000316.html">r332 - trunk/src
+</A></li>
+        <LI>Next message: <A HREF="000318.html">r334 - trunk/tools/pkg_add
+</A></li>
+         <LI> <B>Messages sorted by:</B> 
+              <a href="date.html#317">[ date ]</a>
+              <a href="thread.html#317">[ thread ]</a>
+              <a href="subject.html#317">[ subject ]</a>
+              <a href="author.html#317">[ author ]</a>
+         </LI>
+       </UL>
+    <HR>  
+<!--beginarticle-->
+<PRE>Author: zxombie
+Date: 2009-01-05 08:02:45 +0100 (Mon, 05 Jan 2009)
+New Revision: 333
+
+Removed:
+   trunk/src/pkg_freebsd.h
+   trunk/src/pkg_freebsd_contents.c
+   trunk/src/pkg_freebsd_private.h
+Modified:
+   trunk/src/Makefile
+   trunk/src/pkg_db_freebsd.c
+   trunk/src/pkg_freebsd.c
+   trunk/src/pkg_repo_ftp.c
+Log:
+Finish move from pkg_freebsd_contents to a FreeBSD pkg_manifest
+
+
+Modified: trunk/src/Makefile
+===================================================================
+--- trunk/src/Makefile	2009-01-04 09:29:28 UTC (rev 332)
++++ trunk/src/Makefile	2009-01-05 07:02:45 UTC (rev 333)
+@@ -9,7 +9,7 @@
+ SRCS		+= pkg_manifest.c pkg_manifest_freebsd.c
+ 
+ # Handle FreeBSD +CONTENTS files
+-SRCS		+= pkg_freebsd_contents.c pkg_freebsd_parser.c pkg_freebsd_lexer.c
++SRCS		+= pkg_freebsd_parser.c pkg_freebsd_lexer.c
+ 
+ # Package files
+ SRCS		+= pkgfile.c
+
+Modified: trunk/src/pkg_db_freebsd.c
+===================================================================
+--- trunk/src/pkg_db_freebsd.c	2009-01-04 09:29:28 UTC (rev 332)
++++ trunk/src/pkg_db_freebsd.c	2009-01-05 07:02:45 UTC (rev 333)
+@@ -40,10 +40,8 @@
+ 
+ #include &quot;pkg.h&quot;
+ #include &quot;pkg_db.h&quot;
+-#include &quot;pkg_freebsd.h&quot;
+ #include &quot;pkg_private.h&quot;
+ #include &quot;pkg_db_private.h&quot;
+-#include &quot;pkg_freebsd_private.h&quot;
+ 
+ #define DB_LOCATION	&quot;/var/db/pkg&quot;
+ 
+@@ -725,24 +723,24 @@
+ 		 * as we don't need any output from this.
+ 		 */
+ 		for (pos = 0; control[pos] != NULL; pos++) {
++			struct pkgfile *file;
+ 			if (prefix != NULL &amp;&amp;
+ 			    strcmp(pkgfile_get_name(control[pos]),
+ 			    &quot;+CONTENTS&quot;) == 0) {
+-				struct pkg_freebsd_contents *contents;
+-				contents = pkg_freebsd_get_contents(pkg);
++				struct pkg_manifest *manifest;
+ 
+-				pkg_freebsd_contents_update_prefix(contents,
+-				    prefix);
+-				pkgfile_free(control[pos]);
+-				control[pos] = pkg_freebsd_contents_get_file(
+-				    contents);
+-			}
+-			freebsd_install_file(pkg, pkg_action_null, data,
+-			    control[pos]);
++				manifest = pkg_get_manifest(pkg);
++				pkg_manifest_set_attr(pkg-&gt;pkg_manifest,
++				    pkgm_prefix, prefix);
+ 
+-			/* Make the +INSTALL file installable */
+-			if (strcmp(pkgfile_get_name(control[pos]), &quot;+INSTALL&quot;)
+-			    == 0) {
++				file = pkg_manifest_get_file(manifest);
++			} else
++				file = control[pos];
++			freebsd_install_file(pkg, pkg_action_null, data, file);
++
++			/* Make the +INSTALL file executable */
++			if (strcmp(pkgfile_get_name(control[pos]),
++			    &quot;+INSTALL&quot;) == 0) {
+ 				chmod(&quot;+INSTALL&quot;, 0755);
+ 			}
+ 		}
+
+Modified: trunk/src/pkg_freebsd.c
+===================================================================
+--- trunk/src/pkg_freebsd.c	2009-01-04 09:29:28 UTC (rev 332)
++++ trunk/src/pkg_freebsd.c	2009-01-05 07:02:45 UTC (rev 333)
+@@ -27,8 +27,6 @@
+ 
+ #include &quot;pkg.h&quot;
+ #include &quot;pkg_private.h&quot;
+-#include &quot;pkg_freebsd.h&quot;
+-#include &quot;pkg_freebsd_private.h&quot;
+ 
+ #include &lt;sys/param.h&gt;
+ #include &lt;sys/types.h&gt;
+@@ -76,8 +74,6 @@
+ static int			  freebsd_open_control_files(
+ 					struct freebsd_package *);
+ static struct pkgfile		 *freebsd_get_next_entry(struct archive *);
+-static int			  freebsd_parse_contents(
+-					struct freebsd_package *);
+ 
+ typedef enum {
+ 	fpkg_unknown,
+@@ -93,7 +89,6 @@
+ 	const char *version;
+ 	char *origin;
+ 	struct pkgfile **control;
+-	struct pkg_freebsd_contents *contents;
+ 	struct pkgfile *next_file;
+ 	struct pkgfile *cur_file;
+ 	unsigned int line;
+@@ -141,7 +136,7 @@
+ 	archive_read_support_compression_bzip2(fpkg-&gt;archive);
+ 	archive_read_support_compression_gzip(fpkg-&gt;archive);
+ 	archive_read_support_format_tar(fpkg-&gt;archive);
+-	archive_read_open_stream(fpkg-&gt;archive, fd, 10240);
++	archive_read_open_FILE(fpkg-&gt;archive, fd);
+ 
+ 	/*
+ 	 * Get the +CONTENTS file.
+@@ -272,25 +267,6 @@
+ }
+ 
+ /**
+- * @brief Gets the contents struct from a package
+- *
+- * This will go away before 0.2
+- * @return The contents struct
+- */
+-struct pkg_freebsd_contents *
+-pkg_freebsd_get_contents(struct pkg *pkg)
+-{
+-	struct freebsd_package *fpkg;
+-
+-	if (pkg == NULL || pkg-&gt;data == NULL)
+-		return NULL;
+-	fpkg = pkg-&gt;data;
+-	freebsd_open_control_files(fpkg);
+-
+-	return fpkg-&gt;contents;
+-}
+-
+-/**
+  * @}
+  */
+ 
+@@ -482,16 +458,12 @@
+ static struct pkg_manifest *
+ freebsd_get_manifest(struct pkg *pkg)
+ {
+-	struct freebsd_package *fpkg;
+ 	struct pkgfile *contents_file;
+ 
+ 	assert(pkg != NULL);
+ 	assert(pkg-&gt;pkg_manifest == NULL);
+ 
+ 	/* Get the +CONTENTS file */
+-	fpkg = pkg-&gt;data;
+-	assert(fpkg != NULL);
+-	freebsd_parse_contents(fpkg);
+ 	contents_file = pkg_get_control_file(pkg, &quot;+CONTENTS&quot;);
+ 
+ 	pkg-&gt;pkg_manifest = pkg_manifest_new_freebsd_pkgfile(contents_file);
+@@ -1106,8 +1078,6 @@
+ 			fclose(fpkg-&gt;fd);
+ 		if (fpkg-&gt;archive != NULL)
+ 			archive_read_finish(fpkg-&gt;archive);
+-		if (fpkg-&gt;contents != NULL)
+-			pkg_freebsd_contents_free(fpkg-&gt;contents);
+ 
+ 		if (fpkg-&gt;curdir != NULL)
+ 			free(fpkg-&gt;curdir);
+@@ -1156,7 +1126,6 @@
+ 	fpkg-&gt;archive = NULL;
+ 	fpkg-&gt;db_dir = NULL;
+ 	fpkg-&gt;control = NULL;
+-	fpkg-&gt;contents = NULL;
+ 	fpkg-&gt;origin = NULL;
+ 	fpkg-&gt;version = NULL;
+ 	fpkg-&gt;next_file = NULL;
+@@ -1329,41 +1298,5 @@
+ }
+ 
+ /**
+- * @brief Parses the packages +CONTENTS file
+- * @return 0 on success, or -1 on error
+- */
+-static int
+-freebsd_parse_contents(struct freebsd_package *fpkg)
+-{
+-	const char *file_data;
+-	struct pkgfile *contents_file;
+-	int i;
+-	
+-	assert(fpkg != NULL);
+-
+-	if (fpkg-&gt;contents != NULL)
+-		return 0;
+-
+-	freebsd_open_control_files(fpkg);
+-
+-	contents_file = NULL;
+-	for (i = 0; fpkg-&gt;control[i] != NULL; i++) {
+-		if (strcmp(&quot;+CONTENTS&quot;,
+-		    basename(pkgfile_get_name(fpkg-&gt;control[i]))) == 0) {
+-			contents_file = fpkg-&gt;control[i];
+-			break;
+-		}
+-	}
+-	if (contents_file == NULL)
+-		return -1;
+-
+-	file_data = pkgfile_get_data(contents_file);
+-	fpkg-&gt;contents = pkg_freebsd_contents_new(file_data,
+-	    pkgfile_get_size(contents_file));
+-
+-	return 0;
+-}
+-
+-/**
+  * @}
+  */
+
+Deleted: trunk/src/pkg_freebsd.h
+===================================================================
+--- trunk/src/pkg_freebsd.h	2009-01-04 09:29:28 UTC (rev 332)
++++ trunk/src/pkg_freebsd.h	2009-01-05 07:02:45 UTC (rev 333)
+@@ -1,73 +0,0 @@
+-/*
+- * Copyright (C) 2005, Andrew Turner
+- * All rights reserved.
+- *
+- * Redistribution and use in source and binary forms, with or without
+- * modification, are permitted provided that the following conditions
+- * are met:
+- * 1. Redistributions of source code must retain the above copyright
+- *    notice, this list of conditions and the following disclaimer.
+- * 2. Redistributions in binary form must reproduce the above copyright
+- *    notice, this list of conditions and the following disclaimer in the
+- *    documentation and/or other materials provided with the distribution.
+- *
+- * THIS SOFTWARE IS PROVIDED BY THE AUTHOR AND CONTRIBUTORS ``AS IS'' AND
+- * ANY EXPRESS OR IMPLIED WARRANTIES, INCLUDING, BUT NOT LIMITED TO, THE
+- * IMPLIED WARRANTIES OF MERCHANTABILITY AND FITNESS FOR A PARTICULAR PURPOSE
+- * ARE DISCLAIMED.  IN NO EVENT SHALL THE AUTHOR OR CONTRIBUTORS BE LIABLE
+- * FOR ANY DIRECT, INDIRECT, INCIDENTAL, SPECIAL, EXEMPLARY, OR CONSEQUENTIAL
+- * DAMAGES (INCLUDING, BUT NOT LIMITED TO, PROCUREMENT OF SUBSTITUTE GOODS
+- * OR SERVICES; LOSS OF USE, DATA, OR PROFITS; OR BUSINESS INTERRUPTION)
+- * HOWEVER CAUSED AND ON ANY THEORY OF LIABILITY, WHETHER IN CONTRACT, STRICT
+- * LIABILITY, OR TORT (INCLUDING NEGLIGENCE OR OTHERWISE) ARISING IN ANY WAY
+- * OUT OF THE USE OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF
+- * SUCH DAMAGE.
+- *
+- */
+-
+-#ifndef __LIBPKG_PKG_FREEBSD_H__
+-#define __LIBPKG_PKG_FREEBSD_H__
+-
+-struct pkg_freebsd_contents;
+-
+-enum {
+-	PKG_LINE_UNKNOWN = 0,
+-	PKG_LINE_FILE = 1,
+-	PKG_LINE_COMMENT = 2,
+-	PKG_LINE_NAME = 3,
+-	PKG_LINE_CWD = 4,
+-	PKG_LINE_PKGDEP = 5,
+-	PKG_LINE_CONFLICTS = 6,
+-	PKG_LINE_EXEC = 7,
+-	PKG_LINE_UNEXEC = 8,
+-	PKG_LINE_IGNORE = 9,
+-	PKG_LINE_DIRRM = 10,
+-	PKG_LINE_MTREE = 11,
+-	PKG_LINE_DISPLAY = 12
+-};
+-
+-struct pkg_freebsd_contents_line {
+-	int	 line_type;
+-	char	*line;
+-	char	*data;
+-};
+-
+-extern const char *pkg_freebsd_contents_line_str[];
+-
+-struct pkg_freebsd_contents *pkg_freebsd_get_contents(struct pkg *);
+-
+-struct pkg_freebsd_contents *pkg_freebsd_contents_new(const char *, uint64_t);
+-int	 pkg_freebsd_contents_add_line(struct pkg_freebsd_contents *, int,
+-	    const char *);
+-int	 pkg_freebsd_contents_add_dependency(struct pkg_freebsd_contents *,
+-	    struct pkg *);
+-int	 pkg_freebsd_contents_add_file(struct pkg_freebsd_contents *,
+-	    struct pkgfile *);
+-struct pkg_freebsd_contents_line *pkg_freebsd_contents_get_line
+-					(struct pkg_freebsd_contents *,
+-					 unsigned int);
+-int	pkg_freebsd_contents_update_prefix(struct pkg_freebsd_contents *, const char *);
+-struct pkgfile *pkg_freebsd_contents_get_file(struct pkg_freebsd_contents *);
+-int	 pkg_freebsd_contents_free(struct pkg_freebsd_contents *);
+-
+-#endif /* __LIBPKG_PKG_FREEBSD_H__ */
+
+Deleted: trunk/src/pkg_freebsd_contents.c
+===================================================================
+--- trunk/src/pkg_freebsd_contents.c	2009-01-04 09:29:28 UTC (rev 332)
++++ trunk/src/pkg_freebsd_contents.c	2009-01-05 07:02:45 UTC (rev 333)
+@@ -1,425 +0,0 @@
+-/*
+- * Copyright (C) 2005, 2007 Andrew Turner
+- * All rights reserved.
+- *
+- * Redistribution and use in source and binary forms, with or without
+- * modification, are permitted provided that the following conditions
+- * are met:
+- * 1. Redistributions of source code must retain the above copyright
+- *    notice, this list of conditions and the following disclaimer.
+- * 2. Redistributions in binary form must reproduce the above copyright
+- *    notice, this list of conditions and the following disclaimer in the
+- *    documentation and/or other materials provided with the distribution.
+- *
+- * THIS SOFTWARE IS PROVIDED BY THE AUTHOR AND CONTRIBUTORS ``AS IS'' AND
+- * ANY EXPRESS OR IMPLIED WARRANTIES, INCLUDING, BUT NOT LIMITED TO, THE
+- * IMPLIED WARRANTIES OF MERCHANTABILITY AND FITNESS FOR A PARTICULAR PURPOSE
+- * ARE DISCLAIMED.  IN NO EVENT SHALL THE AUTHOR OR CONTRIBUTORS BE LIABLE
+- * FOR ANY DIRECT, INDIRECT, INCIDENTAL, SPECIAL, EXEMPLARY, OR CONSEQUENTIAL
+- * DAMAGES (INCLUDING, BUT NOT LIMITED TO, PROCUREMENT OF SUBSTITUTE GOODS
+- * OR SERVICES; LOSS OF USE, DATA, OR PROFITS; OR BUSINESS INTERRUPTION)
+- * HOWEVER CAUSED AND ON ANY THEORY OF LIABILITY, WHETHER IN CONTRACT, STRICT
+- * LIABILITY, OR TORT (INCLUDING NEGLIGENCE OR OTHERWISE) ARISING IN ANY WAY
+- * OUT OF THE USE OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF
+- * SUCH DAMAGE.
+- *
+- */
+-
+-#include &lt;sys/param.h&gt;
+-#include &lt;sys/types.h&gt;
+-
+-#include &lt;assert.h&gt;
+-#include &lt;md5.h&gt;
+-#include &lt;stdlib.h&gt;
+-#include &lt;string.h&gt;
+-
+-#include &quot;pkg.h&quot;
+-#include &quot;pkg_freebsd.h&quot;
+-#include &quot;pkg_private.h&quot;
+-#include &quot;pkg_freebsd_private.h&quot;
+-
+-/**
+- * @defgroup FreebsdContents FreeBSD +CONTENTS handling
+- *
+- * @{
+- */
+-
+-/**
+- * @brief All possible line types in a +CONTENTS file
+- */
+-const char *pkg_freebsd_contents_line_str[] = {
+-	&quot;&quot;,
+-	&quot;&quot;,
+-	&quot;@comment&quot;,
+-	&quot;@name&quot;,
+-	&quot;@cwd&quot;,
+-	&quot;@pkgdep&quot;,
+-	&quot;@conflicts&quot;,
+-	&quot;@exec&quot;,
+-	&quot;@unexec&quot;,
+-	&quot;@ignore&quot;,
+-	&quot;@dirrm&quot;,
+-	&quot;@mtree&quot;,
+-	&quot;@display&quot;,
+-	NULL
+-};
+-
+-/**
+- * Reads a FreeBSD +CONTENTS file create a struct pkg_freebsd_contents
+- */
+-struct pkg_freebsd_contents *
+-pkg_freebsd_contents_new(const char *contents, uint64_t length)
+-{
+-	struct pkg_freebsd_contents *cont;
+-	unsigned int pos;
+-
+-	cont = malloc(sizeof(struct pkg_freebsd_contents));
+-	if (!cont)
+-		return NULL;
+-
+-	cont-&gt;cnts_file = NULL;
+-	cont-&gt;cnts_prefix = NULL;
+-
+-	if (contents == NULL) {
+-		cont-&gt;file = NULL;
+-		cont-&gt;line_count = 0;
+-		cont-&gt;line_size = 0;
+-		cont-&gt;lines = NULL;
+-	} else {
+-		cont-&gt;file = malloc(length + 1);
+-		if (!cont-&gt;file) {
+-			free(cont);
+-			return NULL;
+-		}
+-		memcpy(cont-&gt;file, contents, length);
+-		cont-&gt;file[length] = '\0';
+-		cont-&gt;lines = NULL;
+-
+-		pos = 0;
+-		cont-&gt;line_count = 0;
+-		while (pos != length) {
+-			if (cont-&gt;file[pos] == '\n')
+-				cont-&gt;line_count++;
+-			pos++;
+-		}
+-		/* Check the last line contains data */
+-		if (pos &gt; 0 &amp;&amp; cont-&gt;file[pos-1] != '\n')
+-			cont-&gt;line_count++;
+-
+-		if (cont-&gt;line_count == 0) {
+-			pkg_freebsd_contents_free(cont);
+-			return NULL;
+-		}
+-		cont-&gt;lines = malloc(sizeof(struct pkg_freebsd_contents_line) *
+-		    cont-&gt;line_count);
+-		if (!cont-&gt;lines) {
+-			pkg_freebsd_contents_free(cont);
+-			return NULL;
+-		}
+-
+-		/*
+-		 * Make each line in cont-&gt;lines point to the start of it's line
+-		 * and be a valid string
+-		 */
+-		cont-&gt;lines[0].line = cont-&gt;file;
+-		cont-&gt;lines[0].data = NULL;
+-		pos = 1;
+-		while (pos &lt; cont-&gt;line_count) {
+-			cont-&gt;lines[pos].data = NULL;
+-			cont-&gt;lines[pos].line = strchr(cont-&gt;lines[pos-1].line, '\n');
+-			if (cont-&gt;lines[pos].line) {
+-				/* Terminate the last line */
+-				cont-&gt;lines[pos].line[0] = '\0';
+-				cont-&gt;lines[pos].line++;
+-			} else
+-				break;
+-			pos++;
+-		}
+-		/* The last line may need to be terminated at the correct place */
+-		pos = strlen(cont-&gt;lines[cont-&gt;line_count-1].line);
+-		if (cont-&gt;lines[cont-&gt;line_count-1].line[--pos] == '\n') {
+-			cont-&gt;lines[cont-&gt;line_count-1].line[pos] = '\0';
+-		}
+-
+-		/*
+-	         * Set the data part of the line. ie not the control word 
+-	         * Set the line_type
+-	         */
+-		for(pos = 0; pos &lt; cont-&gt;line_count; pos++) {
+-			char *space;
+-
+-			if (cont-&gt;lines[pos].line[0] != '@') {
+-				cont-&gt;lines[pos].line_type = PKG_LINE_FILE;
+-				assert(cont-&gt;lines[pos].data == NULL);
+-				continue;
+-			} else if (!strcmp(cont-&gt;lines[pos].line, &quot;@ignore&quot;)) {
+-				cont-&gt;lines[pos].line_type = PKG_LINE_IGNORE;
+-				assert(cont-&gt;lines[pos].data == NULL);
+-				continue;
+-			}
+-
+-			space = strchr(cont-&gt;lines[pos].line, ' ');
+-			if (space &amp;&amp; space[0] != '\0') {
+-				space[0] = '\0';
+-				space++;
+-				if (space[0] != '\0')
+-					cont-&gt;lines[pos].data = space;
+-			} else {
+-				/* There must be a space in the line */
+-				pkg_freebsd_contents_free(cont);
+-				return NULL;
+-			}
+-
+-			/* Get the correct line type for the line */
+-			if (!strcmp(cont-&gt;lines[pos].line, &quot;@comment&quot;)) {
+-				cont-&gt;lines[pos].line_type = PKG_LINE_COMMENT;
+-			} else if (!strcmp(cont-&gt;lines[pos].line, &quot;@name&quot;)) {
+-				cont-&gt;lines[pos].line_type = PKG_LINE_NAME;
+-			} else if (!strcmp(cont-&gt;lines[pos].line, &quot;@cwd&quot;)) {
+-				cont-&gt;lines[pos].line_type = PKG_LINE_CWD;
+-			} else if (!strcmp(cont-&gt;lines[pos].line, &quot;@pkgdep&quot;)) {
+-				cont-&gt;lines[pos].line_type = PKG_LINE_PKGDEP;
+-			} else if (!strcmp(cont-&gt;lines[pos].line, &quot;@conflicts&quot;))
+-			    {
+-				cont-&gt;lines[pos].line_type = PKG_LINE_CONFLICTS;
+-			} else if (!strcmp(cont-&gt;lines[pos].line, &quot;@exec&quot;)) {
+-				cont-&gt;lines[pos].line_type = PKG_LINE_EXEC;
+-			} else if (!strcmp(cont-&gt;lines[pos].line, &quot;@unexec&quot;)) {
+-				cont-&gt;lines[pos].line_type = PKG_LINE_UNEXEC;
+-			} else if (!strcmp(cont-&gt;lines[pos].line, &quot;@dirrm&quot;)) {
+-				cont-&gt;lines[pos].line_type = PKG_LINE_DIRRM;
+-			} else if (!strcmp(cont-&gt;lines[pos].line, &quot;@mtree&quot;)) {
+-				cont-&gt;lines[pos].line_type = PKG_LINE_MTREE;
+-			} else if (!strcmp(cont-&gt;lines[pos].line, &quot;@display&quot;)) {
+-				cont-&gt;lines[pos].line_type = PKG_LINE_DISPLAY;
+-			} else {
+-				cont-&gt;lines[pos].line_type = PKG_LINE_UNKNOWN;
+-				fprintf(stderr, &quot;Unknown line type %s\n&quot;,
+-				    cont-&gt;lines[pos].line);
+-			}
+-		}
+-	}
+-	return cont;
+-}
+-
+-/**
+- * Adds a line of type with the value of data the fiven contents file
+- */
+-int
+-pkg_freebsd_contents_add_line(struct pkg_freebsd_contents *contents, int type,
+-	const char *data)
+-{
+-	if (!contents || !data)
+-		return -1;
+-
+-	if (!(type &gt; 0 &amp;&amp; type &lt;= PKG_LINE_FILE)) {
+-		return -1;
+-	}
+-
+-	/* Add the lines to the +CONTENTS file */
+-	contents-&gt;line_size += sizeof(struct pkg_freebsd_contents_line);
+-	if (contents-&gt;lines == NULL)
+-		contents-&gt;lines = malloc(contents-&gt;line_size);
+-	else
+-		contents-&gt;lines = realloc(contents-&gt;lines, contents-&gt;line_size);
+-
+-	/* Init the values */
+-	contents-&gt;lines[contents-&gt;line_count].data = NULL;
+-	contents-&gt;lines[contents-&gt;line_count].line = NULL;
+-	contents-&gt;lines[contents-&gt;line_count].line_type = type;
+-
+-	/*
+-	 * If the line is a file then the line will be the filename,
+-	 * the data will be NULL
+-	 */
+-	if (type == PKG_LINE_FILE) {
+-		contents-&gt;lines[contents-&gt;line_count].line = strdup(data);
+-		assert(contents-&gt;lines[contents-&gt;line_count].line != NULL);
+-		assert(contents-&gt;lines[contents-&gt;line_count].data == NULL);
+-	} else {
+-		contents-&gt;lines[contents-&gt;line_count].line =
+-		    strdup(pkg_freebsd_contents_line_str[type]);
+-		contents-&gt;lines[contents-&gt;line_count].data = strdup(data);
+-		assert(contents-&gt;lines[contents-&gt;line_count].data != NULL);
+-	}
+-	contents-&gt;line_count++;
+-
+-	if (contents-&gt;cnts_file != NULL) {
+-		pkgfile_free(contents-&gt;cnts_file);
+-		contents-&gt;cnts_file = NULL;
+-	}
+-	return 0;
+-}
+-
+-/**
+- * Adds a dependency to a +CONTENTS file
+- */
+-int
+-pkg_freebsd_contents_add_dependency(struct pkg_freebsd_contents *contents,
+-		struct pkg *pkg)
+-{
+-	const char *origin;
+-
+-	if (contents == NULL || contents-&gt;file != NULL || pkg == NULL)
+-		return -1;
+-
+-	if (pkg_freebsd_contents_add_line(contents, PKG_LINE_PKGDEP,
+-	    pkg_get_name(pkg)) != 0) {
+-		return -1;
+-	}
+-
+-	origin = pkg_get_origin(pkg);
+-	if (origin != NULL) {
+-		char *data;
+-
+-		asprintf(&amp;data, &quot;ORIGIN:%s&quot;, origin);
+-		if (pkg_freebsd_contents_add_line(contents, PKG_LINE_COMMENT,
+-		    data) != 0) {
+-			free(data);
+-			return -1;
+-		}
+-		free(data);
+-	}	
+-
+-	if (contents-&gt;cnts_file != NULL) {
+-		pkgfile_free(contents-&gt;cnts_file);
+-		contents-&gt;cnts_file = NULL;
+-	}
+-	return -1;
+-}
+-
+-/**
+- * Add's a file the the +CONTENTS file
+- */
+-int
+-pkg_freebsd_contents_add_file(struct pkg_freebsd_contents *contents,
+-		struct pkgfile *file)
+-{
+-	char md5[33], tmp[37];
+-	const char *data;
+-
+-	if (contents == NULL || contents-&gt;file != NULL || file == NULL)
+-		return -1;
+-
+-	if (pkg_freebsd_contents_add_line(contents, PKG_LINE_FILE,
+-	    pkgfile_get_name(file)) != 0) {
+-		return -1;
+-	}
+-
+-	data = pkgfile_get_data(file);
+-	if (!data)
+-		return -1;
+-	MD5Data(data, pkgfile_get_size(file), md5);
+-	snprintf(tmp, 37, &quot;MD5:%s&quot;, md5);
+-	if (pkg_freebsd_contents_add_line(contents, PKG_LINE_COMMENT, tmp)
+-	    != 0) {
+-		return -1;
+-	}
+-
+-	if (contents-&gt;cnts_file != NULL) {
+-		pkgfile_free(contents-&gt;cnts_file);
+-		contents-&gt;cnts_file = NULL;
+-	}
+-	return 0;
+-}
+-
+-/**
+- * Gets the given line from the contents file
+- */
+-struct pkg_freebsd_contents_line*
+-pkg_freebsd_contents_get_line(struct pkg_freebsd_contents *contents,
+-		unsigned int line)
+-{
+-	if (contents == NULL)
+-		return NULL;
+-
+-	if (line &gt; contents-&gt;line_count)
+-		return NULL;
+-
+-	return &amp;contents-&gt;lines[line];
+-}
+-
+-int
+-pkg_freebsd_contents_update_prefix(struct pkg_freebsd_contents *contents,
+-    const char *prefix)
+-{
+-	unsigned int pos;
+-
+-	if (contents == NULL)
+-		return -1;
+-
+-	/* Find the package prefix and change it */
+-	for (pos = 0; pos &lt; contents-&gt;line_count; pos++) {
+-		if (contents-&gt;lines[pos].line_type == PKG_LINE_CWD) {
+-			if (contents-&gt;cnts_prefix != NULL) {
+-				free(contents-&gt;cnts_prefix);
+-			}
+-			contents-&gt;cnts_prefix = strdup(prefix);
+-			contents-&gt;lines[pos].data = contents-&gt;cnts_prefix;
+-			break;
+-		}
+-	}
+-	if (contents-&gt;cnts_file != NULL) {
+-		pkgfile_free(contents-&gt;cnts_file);
+-		contents-&gt;cnts_file = NULL;
+-	}
+-	return 0;
+-}
+-
+-struct pkgfile *
+-pkg_freebsd_contents_get_file(struct pkg_freebsd_contents *contents)
+-{
+-	unsigned int pos;
+-
+-	if (contents == NULL)
+-		return NULL;
+-
+-	if (contents-&gt;cnts_file == NULL) {
+-		contents-&gt;cnts_file = pkgfile_new_regular(&quot;+CONTENTS&quot;, &quot;&quot;, 0);
+-		if (contents-&gt;cnts_file == NULL)
+-			return NULL;
+-
+-		for (pos = 0; pos &lt; contents-&gt;line_count; pos++) {
+-			struct pkg_freebsd_contents_line *line;
+-			char *data;
+-
+-			line = &amp;contents-&gt;lines[pos];
+-			if (line-&gt;data == NULL) {
+-				pkgfile_append(contents-&gt;cnts_file, line-&gt;line,
+-				    strlen(line-&gt;line));
+-				pkgfile_append(contents-&gt;cnts_file, &quot;\n&quot;, 1);
+-			} else {
+-				asprintf(&amp;data, &quot;%s %s\n&quot;,
+-				    line-&gt;line,line-&gt;data);
+-				pkgfile_append(contents-&gt;cnts_file, data,
+-				    strlen(data));
+-				free(data);
+-			}
+-		}
+-	}
+-	return contents-&gt;cnts_file;
+-}
+-
+-/**
+- * Frees a contents struct
+- */
+-int
+-pkg_freebsd_contents_free(struct pkg_freebsd_contents *contents)
+-{
+-	if (!contents) {
+-		return -1;
+-	}
+-
+-	if (contents-&gt;file)
+-		free(contents-&gt;file);
+-
+-	if (contents-&gt;lines)
+-		free(contents-&gt;lines);
+-
+-	free(contents);
+-
+-	return 0;
+-}
+-/**
+- * @}
+- */
+
+Deleted: trunk/src/pkg_freebsd_private.h
+===================================================================
+--- trunk/src/pkg_freebsd_private.h	2009-01-04 09:29:28 UTC (rev 332)
++++ trunk/src/pkg_freebsd_private.h	2009-01-05 07:02:45 UTC (rev 333)
+@@ -1,41 +0,0 @@
+-/*
+- * Copyright (C) 2005, 2006 Andrew Turner
+- * All rights reserved.
+- *
+- * Redistribution and use in source and binary forms, with or without
+- * modification, are permitted provided that the following conditions
+- * are met:
+- * 1. Redistributions of source code must retain the above copyright
+- *    notice, this list of conditions and the following disclaimer.
+- * 2. Redistributions in binary form must reproduce the above copyright
+- *    notice, this list of conditions and the following disclaimer in the
+- *    documentation and/or other materials provided with the distribution.
+- *
+- * THIS SOFTWARE IS PROVIDED BY THE AUTHOR AND CONTRIBUTORS ``AS IS'' AND
+- * ANY EXPRESS OR IMPLIED WARRANTIES, INCLUDING, BUT NOT LIMITED TO, THE
+- * IMPLIED WARRANTIES OF MERCHANTABILITY AND FITNESS FOR A PARTICULAR PURPOSE
+- * ARE DISCLAIMED.  IN NO EVENT SHALL THE AUTHOR OR CONTRIBUTORS BE LIABLE
+- * FOR ANY DIRECT, INDIRECT, INCIDENTAL, SPECIAL, EXEMPLARY, OR CONSEQUENTIAL
+- * DAMAGES (INCLUDING, BUT NOT LIMITED TO, PROCUREMENT OF SUBSTITUTE GOODS
+- * OR SERVICES; LOSS OF USE, DATA, OR PROFITS; OR BUSINESS INTERRUPTION)
+- * HOWEVER CAUSED AND ON ANY THEORY OF LIABILITY, WHETHER IN CONTRACT, STRICT
+- * LIABILITY, OR TORT (INCLUDING NEGLIGENCE OR OTHERWISE) ARISING IN ANY WAY
+- * OUT OF THE USE OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF
+- * SUCH DAMAGE.
+- *
+- */
+-
+-#ifndef __LIBPKG_PKG_FREEBSD_PRIVATE_H__
+-#define __LIBPKG_PKG_FREEBSD_PRIVATE_H__
+-
+-struct pkg_freebsd_contents {
+-	char		*file;
+-	unsigned int	 line_count;
+-	unsigned int	 line_size;
+-	struct pkg_freebsd_contents_line *lines;
+-
+-	char		*cnts_prefix;
+-	struct pkgfile	*cnts_file;
+-};
+-
+-#endif /* __LIBPKG_PKG_FREEBSD_PRIVATE_H__ */
+
+Modified: trunk/src/pkg_repo_ftp.c
+===================================================================
+--- trunk/src/pkg_repo_ftp.c	2009-01-04 09:29:28 UTC (rev 332)
++++ trunk/src/pkg_repo_ftp.c	2009-01-05 07:02:45 UTC (rev 333)
+@@ -39,7 +39,6 @@
+ 
+ #include &quot;pkg.h&quot;
+ #include &quot;pkg_repo.h&quot;
+-#include &quot;pkg_freebsd.h&quot;
+ #include &quot;pkg_private.h&quot;
+ #include &quot;pkg_repo_private.h&quot;
+ 
+
+
+</PRE>
+
+<!--endarticle-->
+    <HR>
+    <P><UL>
+        <!--threads-->
+	<LI>Previous message: <A HREF="000316.html">r332 - trunk/src
+</A></li>
+	<LI>Next message: <A HREF="000318.html">r334 - trunk/tools/pkg_add
+</A></li>
+         <LI> <B>Messages sorted by:</B> 
+              <a href="date.html#317">[ date ]</a>
+              <a href="thread.html#317">[ thread ]</a>
+              <a href="subject.html#317">[ subject ]</a>
+              <a href="author.html#317">[ author ]</a>
+         </LI>
+       </UL>
+
+<hr>
+<a href="https://lists.berlios.de/mailman/listinfo/libpkg-svn">More information about the Libpkg-svn
+mailing list</a><br>
+</body></html>

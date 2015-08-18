@@ -1,0 +1,134 @@
+<!DOCTYPE HTML PUBLIC "-//W3C//DTD HTML 4.01 Transitional//EN">
+<HTML>
+ <HEAD>
+   <TITLE> [Libpkg-svn] r221 - trunk/src
+   </TITLE>
+   <LINK REL="Index" HREF="http://lists.berlios.de/pipermail/libpkg-svn/2006-November/index.html" >
+   <LINK REL="made" HREF="mailto:libpkg-svn%40lists.berlios.de?Subject=Re%3A%20%5BLibpkg-svn%5D%20r221%20-%20trunk/src&In-Reply-To=%3C200611091141.kA9Bfh7h018728%40sheep.berlios.de%3E">
+   <META NAME="robots" CONTENT="index,nofollow">
+   <style type="text/css">
+       pre {
+           white-space: pre-wrap;       /* css-2.1, curent FF, Opera, Safari */
+           }
+   </style>
+   <META http-equiv="Content-Type" content="text/html; charset=us-ascii">
+   <LINK REL="Previous"  HREF="000204.html">
+   <LINK REL="Next"  HREF="000206.html">
+ </HEAD>
+ <BODY BGCOLOR="#ffffff">
+   <H1>[Libpkg-svn] r221 - trunk/src</H1>
+    <B>zxombie at BerliOS</B> 
+    <A HREF="mailto:libpkg-svn%40lists.berlios.de?Subject=Re%3A%20%5BLibpkg-svn%5D%20r221%20-%20trunk/src&In-Reply-To=%3C200611091141.kA9Bfh7h018728%40sheep.berlios.de%3E"
+       TITLE="[Libpkg-svn] r221 - trunk/src">zxombie at mail.berlios.de
+       </A><BR>
+    <I>Thu Nov  9 12:41:43 CET 2006</I>
+    <P><UL>
+        <LI>Previous message: <A HREF="000204.html">[Libpkg-svn] r220 - trunk/tools/pkg_delete
+</A></li>
+        <LI>Next message: <A HREF="000206.html">[Libpkg-svn] r222 - trunk/src
+</A></li>
+         <LI> <B>Messages sorted by:</B> 
+              <a href="date.html#205">[ date ]</a>
+              <a href="thread.html#205">[ thread ]</a>
+              <a href="subject.html#205">[ subject ]</a>
+              <a href="author.html#205">[ author ]</a>
+         </LI>
+       </UL>
+    <HR>  
+<!--beginarticle-->
+<PRE>Author: zxombie
+Date: 2006-11-09 12:41:42 +0100 (Thu, 09 Nov 2006)
+New Revision: 221
+
+Modified:
+   trunk/src/pkg_db_freebsd.c
+Log:
+Stop more code running when the deinstall is being faked
+
+
+Modified: trunk/src/pkg_db_freebsd.c
+===================================================================
+--- trunk/src/pkg_db_freebsd.c	2006-11-09 09:33:14 UTC (rev 220)
++++ trunk/src/pkg_db_freebsd.c	2006-11-09 11:41:42 UTC (rev 221)
+@@ -440,7 +440,7 @@
+ 		return -1;
+ 	}
+ 
+-	if (scripts) {
++	if (!fake &amp;&amp; scripts) {
+ 		if (pkg_run_script(real_pkg, NULL,
+ 		    pkg_script_require_deinstall) != 0) {
+ 			/* XXX */
+@@ -459,6 +459,7 @@
+ 		}
+ 	}
+ 
++	if (!fake) {
+ 	/* Remove the reverse dependencies */
+ 	deps = pkg_db_get_installed_match(db, pkg_db_freebsd_match_rdep,
+ 	    pkg_get_name(real_pkg));
+@@ -471,6 +472,7 @@
+ 			pkgfile_remove_line(file, pkg_get_name(real_pkg));
+ 		}
+ 	}
++	}
+ 
+ 	/* Do the deinstall */
+ 	deinstall_data.db = db;
+@@ -483,7 +485,7 @@
+ 		return -1;
+ 	}
+ 
+-	if (scripts) {
++	if (!fake &amp;&amp; scripts) {
+ 		/** @todo Run +POST-DEINSTALL &lt;pkg-name&gt;/+DEINSTALL &lt;pkg-name&gt; POST-DEINSTALL */
+ 		if (pkg_run_script(real_pkg, NULL, pkg_script_post_deinstall)
+ 		    != 0) {
+@@ -713,7 +715,9 @@
+ 	assert(control[0] != NULL);
+ 	/* Remove the control files */
+ 	for (pos = 0; control[pos] != NULL; pos++) {
+-		pkgfile_unlink(control[pos]);
++		if (!install_data-&gt;fake) {
++			pkgfile_unlink(control[pos]);
++		}
+ 	}
+ 
+ 	snprintf(db_dir, FILENAME_MAX, &quot;%s&quot; DB_LOCATION &quot;/%s/&quot;,
+@@ -722,7 +726,11 @@
+ 	dir = pkgfile_new_from_disk(db_dir, 0);
+ 	if (dir == NULL)
+ 		return -1;
+-	return pkgfile_unlink(dir);
++	if (install_data-&gt;fake) {
++		return 0;
++	} else {
++		return pkgfile_unlink(dir);
++	}
+ }
+ 
+ #ifdef DEAD
+
+
+</PRE>
+
+<!--endarticle-->
+    <HR>
+    <P><UL>
+        <!--threads-->
+	<LI>Previous message: <A HREF="000204.html">[Libpkg-svn] r220 - trunk/tools/pkg_delete
+</A></li>
+	<LI>Next message: <A HREF="000206.html">[Libpkg-svn] r222 - trunk/src
+</A></li>
+         <LI> <B>Messages sorted by:</B> 
+              <a href="date.html#205">[ date ]</a>
+              <a href="thread.html#205">[ thread ]</a>
+              <a href="subject.html#205">[ subject ]</a>
+              <a href="author.html#205">[ author ]</a>
+         </LI>
+       </UL>
+
+<hr>
+<a href="https://lists.berlios.de/mailman/listinfo/libpkg-svn">More information about the Libpkg-svn
+mailing list</a><br>
+</body></html>

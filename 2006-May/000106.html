@@ -1,0 +1,149 @@
+<!DOCTYPE HTML PUBLIC "-//W3C//DTD HTML 4.01 Transitional//EN">
+<HTML>
+ <HEAD>
+   <TITLE> [Libpkg-svn] r122 - trunk/tools/pkg_add
+   </TITLE>
+   <LINK REL="Index" HREF="http://lists.berlios.de/pipermail/libpkg-svn/2006-May/index.html" >
+   <LINK REL="made" HREF="mailto:libpkg-svn%40lists.berlios.de?Subject=Re%3A%20%5BLibpkg-svn%5D%20r122%20-%20trunk/tools/pkg_add&In-Reply-To=%3C200605011220.k41CKqGt011687%40sheep.berlios.de%3E">
+   <META NAME="robots" CONTENT="index,nofollow">
+   <style type="text/css">
+       pre {
+           white-space: pre-wrap;       /* css-2.1, curent FF, Opera, Safari */
+           }
+   </style>
+   <META http-equiv="Content-Type" content="text/html; charset=us-ascii">
+   <LINK REL="Previous"  HREF="000105.html">
+   <LINK REL="Next"  HREF="000107.html">
+ </HEAD>
+ <BODY BGCOLOR="#ffffff">
+   <H1>[Libpkg-svn] r122 - trunk/tools/pkg_add</H1>
+    <B>zxombie at BerliOS</B> 
+    <A HREF="mailto:libpkg-svn%40lists.berlios.de?Subject=Re%3A%20%5BLibpkg-svn%5D%20r122%20-%20trunk/tools/pkg_add&In-Reply-To=%3C200605011220.k41CKqGt011687%40sheep.berlios.de%3E"
+       TITLE="[Libpkg-svn] r122 - trunk/tools/pkg_add">zxombie at berlios.de
+       </A><BR>
+    <I>Mon May  1 14:20:52 CEST 2006</I>
+    <P><UL>
+        <LI>Previous message: <A HREF="000105.html">[Libpkg-svn] r121 - trunk/src
+</A></li>
+        <LI>Next message: <A HREF="000107.html">[Libpkg-svn] r123 - trunk/tools/pkg_add
+</A></li>
+         <LI> <B>Messages sorted by:</B> 
+              <a href="date.html#106">[ date ]</a>
+              <a href="thread.html#106">[ thread ]</a>
+              <a href="subject.html#106">[ subject ]</a>
+              <a href="author.html#106">[ author ]</a>
+         </LI>
+       </UL>
+    <HR>  
+<!--beginarticle-->
+<PRE>Author: zxombie
+Date: 2006-05-01 14:20:45 +0200 (Mon, 01 May 2006)
+New Revision: 122
+
+Modified:
+   trunk/tools/pkg_add/main.c
+Log:
+Fix memory leaks in pkg_add
+Have pkg_add use the new pkg_repo_ftp syntax to keep the file when -K is used
+
+
+Modified: trunk/tools/pkg_add/main.c
+===================================================================
+--- trunk/tools/pkg_add/main.c	2006-05-01 12:18:41 UTC (rev 121)
++++ trunk/tools/pkg_add/main.c	2006-05-01 12:20:45 UTC (rev 122)
+@@ -66,6 +66,7 @@
+ 	char ch;
+ 	struct pkg_add add;
+ 	int ret, i;
++	int remote = 0;
+ 
+ 	add.db = NULL;
+ 	add.repo = NULL;
+@@ -87,7 +88,6 @@
+ 		case 'K':
+ 			/* Save the package file in . or ${PKGDIR} */
+ 			add.flags |= keep_file_flag;
+-			errx(1, &quot;Unsupported argument&quot;);
+ 			break;
+ 		case 'M':
+ 			errx(1, &quot;Unsupported argument&quot;);
+@@ -106,7 +106,7 @@
+ 			break;
+ 		case 'r':
+ 			pkg_repo_free(add.repo);
+-			add.repo = pkg_repo_new_ftp(NULL, NULL);
++			remote = 1;
+ 			break;
+ 		case 'S':
+ 			errx(1, &quot;Unsupported argument&quot;);
+@@ -127,6 +127,12 @@
+ 	argc -= optind;
+ 	argv += optind;
+ 
++	if (remote != 0) {
++		if ((add.flags &amp; keep_file_flag) == keep_file_flag)
++			add.repo = pkg_repo_new_ftp(NULL, NULL, NULL);
++		else
++			add.repo = pkg_repo_new_ftp(NULL, NULL, &quot;.&quot;);
++	}
+ 	/* There are no packages to install. just quit now */
+ 	if (argc == 0) {
+ 		pkg_repo_free(add.repo);
+@@ -155,6 +161,9 @@
+ 
+ 	/* Perform the installation */
+ 	ret = pkg_add(add);
++	for (i=0; add.pkgs[i] != NULL; i++) {
++		pkg_free(add.pkgs[i]);
++	}
+ 	free(add.pkgs);
+ 	pkg_db_free(add.db);
+ 	pkg_repo_free(add.repo);
+@@ -250,7 +259,8 @@
+ 		if (new_pkg == NULL) {
+ 			warnx(&quot;could not find package %s&quot;,
+ 			    pkg_get_name(deps[i]));
+-			continue;
++			pkg_list_free(deps);
++			return -1;
+ 		}
+ 		pkg_free(deps[i]);
+ 		deps[i] = new_pkg;
+@@ -258,11 +268,13 @@
+ 		/* Install the dependency */
+ 		if (install_package(deps[i], repo, db, flags) != 0 &amp;&amp;
+ 		    (flags &amp; force_flag) != force_flag) {
++			pkg_list_free(deps);
+ 			return -1;
+ 		}
+ 	}
+ 	pkg_list_free(deps);
+ 
++	ret = -1;
+ 	if ((flags &amp; verbosity_flag) == verbosity_flag) {
+ 		printf(&quot;extract: Package name is %s\n&quot;, pkg_get_name(pkg));
+ 		ret = pkg_db_install_pkg_action(db, pkg,
+
+
+</PRE>
+
+<!--endarticle-->
+    <HR>
+    <P><UL>
+        <!--threads-->
+	<LI>Previous message: <A HREF="000105.html">[Libpkg-svn] r121 - trunk/src
+</A></li>
+	<LI>Next message: <A HREF="000107.html">[Libpkg-svn] r123 - trunk/tools/pkg_add
+</A></li>
+         <LI> <B>Messages sorted by:</B> 
+              <a href="date.html#106">[ date ]</a>
+              <a href="thread.html#106">[ thread ]</a>
+              <a href="subject.html#106">[ subject ]</a>
+              <a href="author.html#106">[ author ]</a>
+         </LI>
+       </UL>
+
+<hr>
+<a href="https://lists.berlios.de/mailman/listinfo/libpkg-svn">More information about the Libpkg-svn
+mailing list</a><br>
+</body></html>

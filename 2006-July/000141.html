@@ -1,0 +1,110 @@
+<!DOCTYPE HTML PUBLIC "-//W3C//DTD HTML 4.01 Transitional//EN">
+<HTML>
+ <HEAD>
+   <TITLE> [Libpkg-svn] r157 - trunk/tools/pkg_info
+   </TITLE>
+   <LINK REL="Index" HREF="http://lists.berlios.de/pipermail/libpkg-svn/2006-July/index.html" >
+   <LINK REL="made" HREF="mailto:libpkg-svn%40lists.berlios.de?Subject=Re%3A%20%5BLibpkg-svn%5D%20r157%20-%20trunk/tools/pkg_info&In-Reply-To=%3C200607210638.k6L6cQ2V005381%40sheep.berlios.de%3E">
+   <META NAME="robots" CONTENT="index,nofollow">
+   <style type="text/css">
+       pre {
+           white-space: pre-wrap;       /* css-2.1, curent FF, Opera, Safari */
+           }
+   </style>
+   <META http-equiv="Content-Type" content="text/html; charset=us-ascii">
+   <LINK REL="Previous"  HREF="000140.html">
+   <LINK REL="Next"  HREF="000142.html">
+ </HEAD>
+ <BODY BGCOLOR="#ffffff">
+   <H1>[Libpkg-svn] r157 - trunk/tools/pkg_info</H1>
+    <B>zxombie at BerliOS</B> 
+    <A HREF="mailto:libpkg-svn%40lists.berlios.de?Subject=Re%3A%20%5BLibpkg-svn%5D%20r157%20-%20trunk/tools/pkg_info&In-Reply-To=%3C200607210638.k6L6cQ2V005381%40sheep.berlios.de%3E"
+       TITLE="[Libpkg-svn] r157 - trunk/tools/pkg_info">zxombie at mail.berlios.de
+       </A><BR>
+    <I>Fri Jul 21 08:38:26 CEST 2006</I>
+    <P><UL>
+        <LI>Previous message: <A HREF="000140.html">[Libpkg-svn] r156 - trunk/src
+</A></li>
+        <LI>Next message: <A HREF="000142.html">[Libpkg-svn] r158 - in trunk: src tools/pkg_add
+</A></li>
+         <LI> <B>Messages sorted by:</B> 
+              <a href="date.html#141">[ date ]</a>
+              <a href="thread.html#141">[ thread ]</a>
+              <a href="subject.html#141">[ subject ]</a>
+              <a href="author.html#141">[ author ]</a>
+         </LI>
+       </UL>
+    <HR>  
+<!--beginarticle-->
+<PRE>Author: zxombie
+Date: 2006-07-21 08:38:23 +0200 (Fri, 21 Jul 2006)
+New Revision: 157
+
+Modified:
+   trunk/tools/pkg_info/main.c
+Log:
+Use pkg_abspath to get a file's absolute path
+Fix a string in copied code
+
+
+Modified: trunk/tools/pkg_info/main.c
+===================================================================
+--- trunk/tools/pkg_info/main.c	2006-07-21 06:35:40 UTC (rev 156)
++++ trunk/tools/pkg_info/main.c	2006-07-21 06:38:23 UTC (rev 157)
+@@ -147,6 +147,7 @@
+ 				info.flags |= SHOW_FMTREV;
+ 				break;
+ 			case 'W':
++				/* XXX Allow multiple -W files */
+ 				info.search_file = optarg;
+ 				break;
+ 			case 'x':
+@@ -221,17 +222,20 @@
+ 	/* -W &lt;filename&gt; */
+ 	if (info.search_file != NULL) {
+ 		struct stat sb;
++		char *abs_path;
+ 
+-		if (stat(info.search_file, &amp;sb) != 0) {
++		abs_path = pkg_abspath(info.search_file);
++		if (stat(abs_path, &amp;sb) != 0) {
+ 			/* XXX */
++			free(abs_path);
+ 			return 1;
+ 		}
+ 		pkgs = pkg_db_get_installed_match_count(info.db,
+-		    pkg_match_by_file, 1, (const void *)info.search_file);
++		    pkg_match_by_file, 1, (const void *)abs_path);
+ 		if (info.quiet == 0)
+-			printf(&quot;The following installed package(s) has %s &quot;
+-			    &quot;origin:\n&quot;, info.origin);
++			printf(&quot;%s was installed by package &quot;, abs_path);
+ 		printf(&quot;%s\n&quot;, pkg_get_name(pkgs[0]));
++		free(abs_path);
+ 		return 0;
+ 	}
+ 
+
+
+</PRE>
+
+<!--endarticle-->
+    <HR>
+    <P><UL>
+        <!--threads-->
+	<LI>Previous message: <A HREF="000140.html">[Libpkg-svn] r156 - trunk/src
+</A></li>
+	<LI>Next message: <A HREF="000142.html">[Libpkg-svn] r158 - in trunk: src tools/pkg_add
+</A></li>
+         <LI> <B>Messages sorted by:</B> 
+              <a href="date.html#141">[ date ]</a>
+              <a href="thread.html#141">[ thread ]</a>
+              <a href="subject.html#141">[ subject ]</a>
+              <a href="author.html#141">[ author ]</a>
+         </LI>
+       </UL>
+
+<hr>
+<a href="https://lists.berlios.de/mailman/listinfo/libpkg-svn">More information about the Libpkg-svn
+mailing list</a><br>
+</body></html>

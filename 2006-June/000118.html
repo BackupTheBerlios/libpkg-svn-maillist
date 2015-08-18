@@ -1,0 +1,214 @@
+<!DOCTYPE HTML PUBLIC "-//W3C//DTD HTML 4.01 Transitional//EN">
+<HTML>
+ <HEAD>
+   <TITLE> [Libpkg-svn] r134 - trunk/tools/pkg_info
+   </TITLE>
+   <LINK REL="Index" HREF="http://lists.berlios.de/pipermail/libpkg-svn/2006-June/index.html" >
+   <LINK REL="made" HREF="mailto:libpkg-svn%40lists.berlios.de?Subject=Re%3A%20%5BLibpkg-svn%5D%20r134%20-%20trunk/tools/pkg_info&In-Reply-To=%3C200606240945.k5O9jTvq020139%40sheep.berlios.de%3E">
+   <META NAME="robots" CONTENT="index,nofollow">
+   <style type="text/css">
+       pre {
+           white-space: pre-wrap;       /* css-2.1, curent FF, Opera, Safari */
+           }
+   </style>
+   <META http-equiv="Content-Type" content="text/html; charset=us-ascii">
+   <LINK REL="Previous"  HREF="000117.html">
+   <LINK REL="Next"  HREF="000119.html">
+ </HEAD>
+ <BODY BGCOLOR="#ffffff">
+   <H1>[Libpkg-svn] r134 - trunk/tools/pkg_info</H1>
+    <B>zxombie at BerliOS</B> 
+    <A HREF="mailto:libpkg-svn%40lists.berlios.de?Subject=Re%3A%20%5BLibpkg-svn%5D%20r134%20-%20trunk/tools/pkg_info&In-Reply-To=%3C200606240945.k5O9jTvq020139%40sheep.berlios.de%3E"
+       TITLE="[Libpkg-svn] r134 - trunk/tools/pkg_info">zxombie at berlios.de
+       </A><BR>
+    <I>Sat Jun 24 11:45:29 CEST 2006</I>
+    <P><UL>
+        <LI>Previous message: <A HREF="000117.html">[Libpkg-svn] r133 - trunk/tools/pkg_info
+</A></li>
+        <LI>Next message: <A HREF="000119.html">[Libpkg-svn] r135 - trunk/tools/pkg_info
+</A></li>
+         <LI> <B>Messages sorted by:</B> 
+              <a href="date.html#118">[ date ]</a>
+              <a href="thread.html#118">[ thread ]</a>
+              <a href="subject.html#118">[ subject ]</a>
+              <a href="author.html#118">[ author ]</a>
+         </LI>
+       </UL>
+    <HR>  
+<!--beginarticle-->
+<PRE>Author: zxombie
+Date: 2006-06-24 11:45:28 +0200 (Sat, 24 Jun 2006)
+New Revision: 134
+
+Modified:
+   trunk/tools/pkg_info/main.c
+   trunk/tools/pkg_info/match.c
+   trunk/tools/pkg_info/pkg_info.h
+Log:
+Support selecting packages by shell glob in pkg_info
+
+
+Modified: trunk/tools/pkg_info/main.c
+===================================================================
+--- trunk/tools/pkg_info/main.c	2006-06-24 09:06:11 UTC (rev 133)
++++ trunk/tools/pkg_info/main.c	2006-06-24 09:45:28 UTC (rev 134)
+@@ -204,14 +204,23 @@
+ 
+ 	switch(info.match_type) {
+ 	case MATCH_ALL:
++	case MATCH_GLOB:
++	case MATCH_NGLOB:
+ 	case MATCH_REGEX:
+ 	case MATCH_EREGEX:
+ 		/* Display all packages installed */
+ 		if (info.match_type == MATCH_ALL)
+ 			pkgs = pkg_db_get_installed(info.db);
++		else if (info.match_type == MATCH_REGEX ||
++		         info.match_type == MATCH_EREGEX)
++			pkgs = match_regex(info.db, (const char**)info.pkgs,
++			    (info.match_type == MATCH_EREGEX));
++		else if (info.match_type == MATCH_GLOB ||
++		         info.match_type == MATCH_NGLOB)
++			pkgs = match_glob(info.db, (const char**)info.pkgs,
++			    (info.match_type == MATCH_GLOB));
+ 		else
+-			pkgs = match_regex(info.db, info.pkgs,
+-			    (info.match_type == MATCH_EREGEX));
++			errx(1, &quot;ERROR: Inconsistancy in pkg_info&quot;);
+ 
+ 		/* Sort the packages and display them */
+ 		if (pkgs == NULL) {
+@@ -226,10 +235,6 @@
+ 		}
+ 		retval = 0;
+ 		break;
+-	case MATCH_GLOB:
+-	case MATCH_NGLOB:
+-		errx(1, &quot;Unsupported match type (use -x or -X)&quot;);
+-		break;
+ 	case MATCH_EXACT:
+ 		/* Only match the exact names given */
+ 		retval = 0;
+
+Modified: trunk/tools/pkg_info/match.c
+===================================================================
+--- trunk/tools/pkg_info/match.c	2006-06-24 09:06:11 UTC (rev 133)
++++ trunk/tools/pkg_info/match.c	2006-06-24 09:45:28 UTC (rev 134)
+@@ -21,6 +21,7 @@
+ 
+ #include &quot;pkg_info.h&quot;
+ #include &lt;assert.h&gt;
++#include &lt;fnmatch.h&gt;
+ #include &lt;pkg.h&gt;
+ #include &lt;regex.h&gt;
+ #include &lt;stdlib.h&gt;
+@@ -31,7 +32,13 @@
+ 	regex_t *rex;
+ };
+ 
++struct glob_or {
++	unsigned int count;
++	const char **patterns;
++};
++
+ static int _pkg_match_regex(struct pkg *, const void *);
++static int _pkg_match_glob(struct pkg *, const void *);
+ 
+ static int
+ _pkg_match_regex(struct pkg *pkg, const void *data)
+@@ -50,11 +57,29 @@
+ 	return -1;
+ }
+ 
++static int
++_pkg_match_glob(struct pkg *pkg, const void *data)
++{
++	unsigned int i;
++	const struct glob_or *the_glob;
++	
++	assert(pkg != NULL);
++	assert(data != NULL);
++
++	the_glob = data;
++	for(i=0; i &lt; the_glob-&gt;count; i++) {
++		/* This should use the csh_match from FreeBSD pkg_info */
++		if (fnmatch(the_glob-&gt;patterns[i], pkg_get_name(pkg), 0) == 0)
++			return 0;
++	}
++	return -1;
++}
++
+ /*
+- * Returnes a sorted NULL terminates array of packages matching one of regex
++ * Returns a sorted NULL terminated array of packages matching one of regex
+  */
+ struct pkg **
+-match_regex(struct pkg_db *db, char **regex, int type __unused)
++match_regex(struct pkg_db *db, const char **regex, int type)
+ {
+ 	struct regex_or rex;
+ 	unsigned int i;
+@@ -82,3 +107,24 @@
+ 
+ 	return pkgs;
+ }
++
++/*
++ * Returns a sorted NULL terminated array of packages matching a glob
++ */
++struct pkg **
++match_glob(struct pkg_db *db, const char **patterns, int type __unused)
++{
++	struct glob_or the_glob;
++	struct pkg **pkgs;
++
++	/* Count the number of regex's */
++	for (the_glob.count = 0; patterns[the_glob.count] != NULL;
++	     the_glob.count++)
++		continue;
++
++	the_glob.patterns = patterns;
++
++	pkgs = pkg_db_get_installed_match(db, _pkg_match_glob, &amp;the_glob);
++
++	return pkgs;
++}
+
+Modified: trunk/tools/pkg_info/pkg_info.h
+===================================================================
+--- trunk/tools/pkg_info/pkg_info.h	2006-06-24 09:06:11 UTC (rev 133)
++++ trunk/tools/pkg_info/pkg_info.h	2006-06-24 09:45:28 UTC (rev 134)
+@@ -75,7 +75,8 @@
+ 	int	  flags;
+ };
+ 
+-struct pkg	**match_regex(struct pkg_db *, char **, int);
++struct pkg	**match_regex(struct pkg_db *, const char **, int);
++struct pkg	**match_glob(struct pkg_db *, const char **, int);
+ int		  pkg_info(struct pkg_info);
+ void		  show(struct pkg_db *, struct pkg *, int, int);
+ 
+
+
+</PRE>
+
+<!--endarticle-->
+    <HR>
+    <P><UL>
+        <!--threads-->
+	<LI>Previous message: <A HREF="000117.html">[Libpkg-svn] r133 - trunk/tools/pkg_info
+</A></li>
+	<LI>Next message: <A HREF="000119.html">[Libpkg-svn] r135 - trunk/tools/pkg_info
+</A></li>
+         <LI> <B>Messages sorted by:</B> 
+              <a href="date.html#118">[ date ]</a>
+              <a href="thread.html#118">[ thread ]</a>
+              <a href="subject.html#118">[ subject ]</a>
+              <a href="author.html#118">[ author ]</a>
+         </LI>
+       </UL>
+
+<hr>
+<a href="https://lists.berlios.de/mailman/listinfo/libpkg-svn">More information about the Libpkg-svn
+mailing list</a><br>
+</body></html>

@@ -1,0 +1,382 @@
+<!DOCTYPE HTML PUBLIC "-//W3C//DTD HTML 4.01 Transitional//EN">
+<HTML>
+ <HEAD>
+   <TITLE> [Libpkg-svn] r288 - trunk/src
+   </TITLE>
+   <LINK REL="Index" HREF="http://lists.berlios.de/pipermail/libpkg-svn/2007-March/index.html" >
+   <LINK REL="made" HREF="mailto:libpkg-svn%40lists.berlios.de?Subject=Re%3A%20%5BLibpkg-svn%5D%20r288%20-%20trunk/src&In-Reply-To=%3C200703120600.l2C60gcb007401%40sheep.berlios.de%3E">
+   <META NAME="robots" CONTENT="index,nofollow">
+   <style type="text/css">
+       pre {
+           white-space: pre-wrap;       /* css-2.1, curent FF, Opera, Safari */
+           }
+   </style>
+   <META http-equiv="Content-Type" content="text/html; charset=us-ascii">
+   <LINK REL="Previous"  HREF="000271.html">
+   <LINK REL="Next"  HREF="000273.html">
+ </HEAD>
+ <BODY BGCOLOR="#ffffff">
+   <H1>[Libpkg-svn] r288 - trunk/src</H1>
+    <B>zxombie at BerliOS</B> 
+    <A HREF="mailto:libpkg-svn%40lists.berlios.de?Subject=Re%3A%20%5BLibpkg-svn%5D%20r288%20-%20trunk/src&In-Reply-To=%3C200703120600.l2C60gcb007401%40sheep.berlios.de%3E"
+       TITLE="[Libpkg-svn] r288 - trunk/src">zxombie at mail.berlios.de
+       </A><BR>
+    <I>Mon Mar 12 07:00:42 CET 2007</I>
+    <P><UL>
+        <LI>Previous message: <A HREF="000271.html">[Libpkg-svn] r287 - trunk/src
+</A></li>
+        <LI>Next message: <A HREF="000273.html">[Libpkg-svn] r289 - trunk/tools/pkg_info
+</A></li>
+         <LI> <B>Messages sorted by:</B> 
+              <a href="date.html#272">[ date ]</a>
+              <a href="thread.html#272">[ thread ]</a>
+              <a href="subject.html#272">[ subject ]</a>
+              <a href="author.html#272">[ author ]</a>
+         </LI>
+       </UL>
+    <HR>  
+<!--beginarticle-->
+<PRE>Author: zxombie
+Date: 2007-03-12 07:00:41 +0100 (Mon, 12 Mar 2007)
+New Revision: 288
+
+Modified:
+   trunk/src/pkg.c
+   trunk/src/pkg.h
+   trunk/src/pkg_freebsd.c
+   trunk/src/pkg_manifest.c
+   trunk/src/pkg_private.h
+Log:
+Add pkg_manifest_get_dependencies to get the dependencies from a manifest
+Add pkg_manifest_get_attr to get a given attribute from a manifest
+Remove unused callbacks from an empty FreeBSD package
+Rework freebsd_get_origin to only use the manifest
+Rework freebsd_get_deps to use pkg_manifest_get_dependencies
+Use pkg_new_freebsd_empty rather than pkg_new_empty in pkg_freebsd.c
+Look in the manifest for the prefix in pkg_get_prefix
+Document pkg_get_conflicts
+
+
+Modified: trunk/src/pkg.c
+===================================================================
+--- trunk/src/pkg.c	2007-03-12 04:28:49 UTC (rev 287)
++++ trunk/src/pkg.c	2007-03-12 06:00:41 UTC (rev 288)
+@@ -273,9 +273,24 @@
+ 	if (pkg == NULL)
+ 		return NULL;
+ 
++	/* Read the prefix from the manifest */
++	if (pkg-&gt;pkg_prefix == NULL &amp;&amp; pkg-&gt;pkg_manifest != NULL) {
++		const char *prefix;
++
++		prefix = (const char *)pkg_manifest_get_attr(pkg-&gt;pkg_manifest,
++		    pkgm_prefix);
++		pkg_set_prefix(pkg, prefix);
++	}
++
+ 	return pkg-&gt;pkg_prefix;
+ }
+ 
++/**
++ * @brief Gets an array of strings describing package conflicts
++ * @param pkg The package
++ * @return A NULL terminated array of conflict strings
++ * @return NULL on no conflicts or NULL
++ */
+ const char **
+ pkg_get_conflicts(struct pkg *pkg)
+ {
+
+Modified: trunk/src/pkg.h
+===================================================================
+--- trunk/src/pkg.h	2007-03-12 04:28:49 UTC (rev 287)
++++ trunk/src/pkg.h	2007-03-12 06:00:41 UTC (rev 288)
+@@ -182,6 +182,7 @@
+ const void *pkg_manifest_item_get_data(struct pkg_manifest_item *);
+ int	pkg_manifest_item_set_attr(struct pkg_manifest_item *,
+ 	    pkg_manifest_item_attr, const char *);
++const char *pkg_manifest_get_attr(struct pkg_manifest *,pkg_manifest_item_attr);
+ const char *pkg_manifest_item_get_attr(struct pkg_manifest_item *,
+ 	    pkg_manifest_item_attr);
+ int	pkg_manifest_item_set_data(struct pkg_manifest_item *, const char *);
+@@ -214,6 +215,7 @@
+ int			  pkg_manifest_free(struct pkg_manifest *);
+ int			  pkg_manifest_add_dependency(struct pkg_manifest *,
+ 			    struct pkg *);
++struct pkg		**pkg_manifest_get_dependencies(struct pkg_manifest *);
+ int			  pkg_manifest_add_conflict(struct pkg_manifest *,
+ 			    const char *);
+ int			  pkg_manifest_set_name(struct pkg_manifest *,
+
+Modified: trunk/src/pkg_freebsd.c
+===================================================================
+--- trunk/src/pkg_freebsd.c	2007-03-12 04:28:49 UTC (rev 287)
++++ trunk/src/pkg_freebsd.c	2007-03-12 06:00:41 UTC (rev 288)
+@@ -251,9 +251,7 @@
+ 	struct freebsd_package *fpkg;
+ 
+ 	/* Create the package */
+-	pkg = pkg_new(pkg_name, freebsd_get_control_files,
+-	    freebsd_get_control_file, freebsd_get_manifest, freebsd_get_deps,
+-	    freebsd_get_rdeps, freebsd_free);
++	pkg = pkg_new(pkg_name, NULL, NULL, NULL, NULL, NULL, freebsd_free);
+ 	if (pkg == NULL)
+ 		return NULL;
+ 
+@@ -349,6 +347,7 @@
+ 
+ /**
+  * @brief Callback for pkg_get_origin()
++ * @param pkg The package to find the origin for
+  * 
+  * @return A string containing the origin of the Package. Do not free.
+  */
+@@ -363,33 +362,16 @@
+ 	assert(fpkg != NULL);
+ 	assert(fpkg-&gt;pkg_type != fpkg_unknown);
+ 
+-	/* The origin must be set previously on an empty package */
+-	if (fpkg-&gt;pkg_type == fpkg_from_empty)
+-		return fpkg-&gt;origin;
+-
+-	/* Find the origin line and cache it */
+ 	if (fpkg-&gt;origin == NULL) {
+-		unsigned int line;
++		pkg_get_manifest(pkg);
+ 
+-		/* Load the contents file */
+-		freebsd_parse_contents(fpkg);
+-		if (fpkg-&gt;contents == NULL)
++		if (pkg-&gt;pkg_manifest == NULL)
+ 			return NULL;
+-		assert(fpkg-&gt;contents-&gt;lines != NULL);
+ 
+-		/* Find the line with the origin */
+-		for (line = 0; line &lt; fpkg-&gt;contents-&gt;line_count; line++) {
+-			if (fpkg-&gt;contents-&gt;lines[line].line_type ==
+-			    PKG_LINE_COMMENT) {
+-				if (strncmp(&quot;ORIGIN:&quot;,
+-				    fpkg-&gt;contents-&gt;lines[line].data, 7) == 0) {
+-					fpkg-&gt;origin =
+-					    fpkg-&gt;contents-&gt;lines[line].data +7;
+-					break;
+-				}
+-			}
+-		}
++		fpkg-&gt;origin = strdup(pkg_manifest_get_attr(pkg-&gt;pkg_manifest,
++		    pkgm_origin));
+ 	}
++
+ 	return fpkg-&gt;origin;
+ }
+ 
+@@ -885,55 +867,20 @@
+ 
+ /**
+  * @brief Callback for pkg_get_dependencies()
+- * @todo Write
+- * @return An array of empty package objects, or NULL
++ * @param pkg The package to find the dependencies for
++ * @return An array of empty package objects
++ * @return NULL on error
+  */
+ static struct pkg **
+ freebsd_get_deps(struct pkg *pkg)
+ {
+-	struct freebsd_package *fpkg;
+-	struct pkgfile *contents_file;
+-	struct pkg **pkgs;
+-	unsigned int pkg_count;
+-	size_t pkg_size;
+-	unsigned int line;
+-
+ 	assert(pkg != NULL);
+ 
+-	fpkg = pkg-&gt;data;
+-	assert(fpkg != NULL);
+-	assert(fpkg-&gt;pkg_type != fpkg_unknown);
+-	assert(fpkg-&gt;pkg_type != fpkg_from_empty);
+-
+-	freebsd_open_control_files(fpkg);
+-	assert(fpkg-&gt;control != NULL);
+-
+-	freebsd_parse_contents(fpkg);
+-	assert(fpkg-&gt;contents != NULL);
+-
+-	contents_file = pkg_get_control_file(pkg, &quot;+CONTENTS&quot;);
+-	if (contents_file == NULL)
++	pkg_get_manifest(pkg);
++	if (pkg-&gt;pkg_manifest == NULL)
+ 		return NULL;
+ 
+-	pkg_count = 0;
+-	pkg_size = sizeof(struct pkg *);
+-	pkgs = malloc(pkg_size);
+-	if (pkgs == NULL)
+-		return NULL;
+-	pkgs[0] = NULL;
+-
+-	for (line = 0; line &lt; fpkg-&gt;contents-&gt;line_count; line++) {
+-		if (fpkg-&gt;contents-&gt;lines[line].line_type == PKG_LINE_PKGDEP) {
+-			pkg_size += sizeof(struct pkg *);
+-			pkgs = realloc(pkgs, pkg_size);
+-			pkgs[pkg_count] = pkg_new_empty
+-			    (fpkg-&gt;contents-&gt;lines[line].data);
+-			pkg_count++;
+-			pkgs[pkg_count] = NULL;
+-		}
+-	}
+-		
+-	return pkgs;
++	return pkg_manifest_get_dependencies(pkg-&gt;pkg_manifest);
+ }
+ 
+ static struct pkg **
+@@ -983,7 +930,7 @@
+ #define addPkg(pkg_name) \
+ 	{ \
+ 		struct pkg *dep; \
+-		dep = pkg_new_empty(pkg_name); \
++		dep = pkg_new_freebsd_empty(pkg_name); \
+ 		ret_size += sizeof(struct pkg **); \
+ 		ret = realloc(ret, ret_size); \
+ 		ret[ret_count] = dep; \
+
+Modified: trunk/src/pkg_manifest.c
+===================================================================
+--- trunk/src/pkg_manifest.c	2007-03-12 04:28:49 UTC (rev 287)
++++ trunk/src/pkg_manifest.c	2007-03-12 06:00:41 UTC (rev 288)
+@@ -64,6 +64,7 @@
+ 	manifest-&gt;data = NULL;
+ 	manifest-&gt;file = NULL;
+ 	manifest-&gt;name = NULL;
++	manifest-&gt;deps_list = NULL;
+ 	manifest-&gt;conflict_list = NULL;
+ 	manifest-&gt;item_list = NULL;
+ 
+@@ -114,6 +115,9 @@
+ 		free(item);
+ 	}
+ 
++	if (manifest-&gt;deps_list != NULL)
++		free(manifest-&gt;deps_list);
++
+ 	if (manifest-&gt;conflict_list != NULL)
+ 		free(manifest-&gt;conflict_list);
+ 
+@@ -164,6 +168,48 @@
+ }
+ 
+ /**
++ * @brief Gets an array of packages depended on
++ * @param manifest The manifest
++ * @return A NULL terminated array of packages
++ * @return NULL on error or no dependencies
++ */
++struct pkg **
++pkg_manifest_get_dependencies(struct pkg_manifest *manifest)
++{
++	struct pkgm_deps *dep;
++	unsigned int count;
++
++	if (manifest == NULL)
++		return NULL;
++
++	if (manifest-&gt;deps_list != NULL)
++		return manifest-&gt;deps_list;
++
++	/* Find out how much space is needed */
++	count = 0;
++	STAILQ_FOREACH(dep, &amp;manifest-&gt;deps, list) {
++		count++;
++	}
++	if (count == 0)
++		return NULL;
++
++	/* Allocate the space for the conflict list */
++	manifest-&gt;deps_list = malloc((count + 1) * sizeof(struct pkg *));
++	if (manifest-&gt;deps_list == NULL)
++		return NULL;
++
++	/* Populate the conflict list */
++	count = 0;
++	STAILQ_FOREACH(dep, &amp;manifest-&gt;deps, list) {
++		manifest-&gt;deps_list[count] = dep-&gt;pkg;
++		count++;
++	}
++	manifest-&gt;deps_list[count] = NULL;
++
++	return manifest-&gt;deps_list;
++}
++
++/**
+  * @brief Adds a conflict to the package manifest
+  * @param manifest The manifest to add the dependency to
+  * @param conflict The package to conflict with
+@@ -528,6 +574,29 @@
+ }
+ 
+ /**
++ * @brief Gets the given attribute from a manifest
++ * @param manifest The manifest to read
++ * @param attr The attribute to retrieve
++ * @return The attribute
++ * @return NULL on error or no attribute
++ */
++const char *
++pkg_manifest_get_attr(struct pkg_manifest *manifest,
++    pkg_manifest_item_attr attr)
++{
++	if (manifest == NULL)
++		return NULL;
++
++	if (attr &gt;= pkgm_max)
++		return NULL;
++
++	if (manifest-&gt;attrs == NULL)
++		return NULL;
++
++	return manifest-&gt;attrs[attr];
++}
++
++/**
+  * @brief Gets the given attribute from an item
+  * @param item The item to get the attribute from
+  * @param attr The attribute to get
+
+Modified: trunk/src/pkg_private.h
+===================================================================
+--- trunk/src/pkg_private.h	2007-03-12 04:28:49 UTC (rev 287)
++++ trunk/src/pkg_private.h	2007-03-12 06:00:41 UTC (rev 288)
+@@ -113,6 +113,7 @@
+ 	STAILQ_HEAD(, pkgm_items) items;
+ 
+ 	/* These are used as caches */
++	struct pkg	**deps_list;
+ 	char		**conflict_list;
+ 	struct pkg_manifest_item **item_list;
+ 
+
+
+</PRE>
+
+<!--endarticle-->
+    <HR>
+    <P><UL>
+        <!--threads-->
+	<LI>Previous message: <A HREF="000271.html">[Libpkg-svn] r287 - trunk/src
+</A></li>
+	<LI>Next message: <A HREF="000273.html">[Libpkg-svn] r289 - trunk/tools/pkg_info
+</A></li>
+         <LI> <B>Messages sorted by:</B> 
+              <a href="date.html#272">[ date ]</a>
+              <a href="thread.html#272">[ thread ]</a>
+              <a href="subject.html#272">[ subject ]</a>
+              <a href="author.html#272">[ author ]</a>
+         </LI>
+       </UL>
+
+<hr>
+<a href="https://lists.berlios.de/mailman/listinfo/libpkg-svn">More information about the Libpkg-svn
+mailing list</a><br>
+</body></html>

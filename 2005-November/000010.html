@@ -1,0 +1,195 @@
+<!DOCTYPE HTML PUBLIC "-//W3C//DTD HTML 4.01 Transitional//EN">
+<HTML>
+ <HEAD>
+   <TITLE> [Libpkg-svn] r19 - trunk/demo
+   </TITLE>
+   <LINK REL="Index" HREF="http://lists.berlios.de/pipermail/libpkg-svn/2005-November/index.html" >
+   <LINK REL="made" HREF="mailto:libpkg-svn%40lists.berlios.de?Subject=Re%3A%20%5BLibpkg-svn%5D%20r19%20-%20trunk/demo&In-Reply-To=%3C200511140959.jAE9x3wH026597%40sheep.berlios.de%3E">
+   <META NAME="robots" CONTENT="index,nofollow">
+   <style type="text/css">
+       pre {
+           white-space: pre-wrap;       /* css-2.1, curent FF, Opera, Safari */
+           }
+   </style>
+   <META http-equiv="Content-Type" content="text/html; charset=us-ascii">
+   <LINK REL="Previous"  HREF="000009.html">
+   <LINK REL="Next"  HREF="000011.html">
+ </HEAD>
+ <BODY BGCOLOR="#ffffff">
+   <H1>[Libpkg-svn] r19 - trunk/demo</H1>
+    <B>Andrew Turner at BerliOS</B> 
+    <A HREF="mailto:libpkg-svn%40lists.berlios.de?Subject=Re%3A%20%5BLibpkg-svn%5D%20r19%20-%20trunk/demo&In-Reply-To=%3C200511140959.jAE9x3wH026597%40sheep.berlios.de%3E"
+       TITLE="[Libpkg-svn] r19 - trunk/demo">zxombie at berlios.de
+       </A><BR>
+    <I>Mon Nov 14 10:59:03 CET 2005</I>
+    <P><UL>
+        <LI>Previous message: <A HREF="000009.html">[Libpkg-svn] r18 - trunk/src
+</A></li>
+        <LI>Next message: <A HREF="000011.html">[Libpkg-svn] r20 - trunk/src
+</A></li>
+         <LI> <B>Messages sorted by:</B> 
+              <a href="date.html#10">[ date ]</a>
+              <a href="thread.html#10">[ thread ]</a>
+              <a href="subject.html#10">[ subject ]</a>
+              <a href="author.html#10">[ author ]</a>
+         </LI>
+       </UL>
+    <HR>  
+<!--beginarticle-->
+<PRE>Author: zxombie
+Date: 2005-11-14 10:59:00 +0100 (Mon, 14 Nov 2005)
+New Revision: 19
+
+Modified:
+   trunk/demo/demo.c
+Log:
+Update to demo to install package dependencies and make pkg_is_installed work properly
+
+
+Modified: trunk/demo/demo.c
+===================================================================
+--- trunk/demo/demo.c	2005-11-14 09:47:20 UTC (rev 18)
++++ trunk/demo/demo.c	2005-11-14 09:59:00 UTC (rev 19)
+@@ -11,6 +11,8 @@
+ 
+ void usage(const char *);
+ 
++struct pkg_repo *repo_ftp = NULL;
++
+ void
+ usage(const char *arg)
+ {
+@@ -18,9 +20,48 @@
+ }
+ 
+ int
++install_package(struct pkg_db *db, struct pkg *pkg)
++{
++	struct pkg **pkgs;
++	int is_installed;
++
++	if (repo_ftp == NULL)
++		repo_ftp = pkg_repo_new_ftp(NULL, NULL);
++
++	pkg_repo_find_pkg(repo_ftp, pkg);
++	
++	is_installed = pkg_db_is_installed(db, pkg_get_name(pkg));
++	if (is_installed != 0)
++		return 0;
++	
++	pkgs = pkg_get_dependencies(pkg);
++	if (pkgs != NULL) {
++		unsigned int pos;
++
++		for (pos = 0; pkgs[pos] != NULL; pos++) {
++			if (install_package(db, pkgs[pos]) != 0) {
++				return 1;
++			}
++			pkg_free(pkgs[pos]);
++			pkgs[pos]=NULL;
++		}
++		free(pkgs);
++	}
++	if (pkg_db_install_pkg(db, pkg) != 0) {
++		fprintf(stderr,
++		    &quot;ERROR: Couldn't install package %s\n&quot;, pkg_get_name(pkg));
++		pkg_free(pkg);
++		return 1;
++	}
++	pkg_free(pkg);
++
++	return 0;
++}
++
++int
+ main (int argc, char *argv[])
+ {
+-	struct pkg_repo *repo;
++	struct pkg_repo *repo_file;
+ 	struct pkg_db *pkg_db;
+ 
+ 	if(!argv[1]) {
+@@ -44,8 +85,8 @@
+ 		fprintf(stderr, &quot;ERROR: Couldn't open the package database\n&quot;);
+ 		return EXIT_FAILURE;
+ 	}
+-	repo = pkg_repo_new_files();
+-	if (!repo) {
++	repo_file = pkg_repo_new_files();
++	if (!repo_file) {
+ 		fprintf(stderr, &quot;ERROR: Couldn't open the package repo\n&quot;);
+ 		return EXIT_FAILURE;
+ 	}
+@@ -55,18 +96,33 @@
+ 		struct pkg *pkg;
+ 		int is_installed;
+ 
++		pkg = pkg_repo_get_pkg(repo_file, *argv);
++		if (pkg == NULL) {
++			fprintf(stderr, &quot;Package %s could not be found\n&quot;,
++			    *argv);
++			continue;
++		}
+ 		/* Check if the package is installed */
+-		is_installed = pkg_db_is_installed(pkg_db, *argv);
++		is_installed = pkg_db_is_installed(pkg_db, pkg_get_name(pkg));
+ 		if (is_installed == 0) {
+ 			fprintf(stderr, &quot;Package %s is already installed\n&quot;,
+ 			    *argv);
+ 			continue;
+-		/* Get the package from the repo */
+-		} else if ((pkg = pkg_repo_get_pkg(repo, *argv)) == NULL) {
+-			fprintf(stderr, &quot;Package %s could not be found\n&quot;,
+-			    *argv);
+ 		} else {
+ 			/* Install the package */
++			struct pkg **pkgs;
++			
++			pkgs = pkg_get_dependencies(pkg);
++			if (pkgs != NULL) {
++				unsigned int pos;
++
++				for (pos = 0; pkgs[pos] != NULL; pos++) {
++					install_package(pkg_db, pkgs[pos]);
++					pkg_free(pkgs[pos]);
++					pkgs[pos]=NULL;
++				}
++				free(pkgs);
++			}
+ 			if (pkg_db_install_pkg(pkg_db, pkg) != 0) {
+ 				fprintf(stderr,
+ 				    &quot;ERROR: Couldn't install package %s\n&quot;,
+@@ -77,6 +133,8 @@
+ 		argv++;
+ 	}
+ 
+-	pkg_repo_free(repo);
++	pkg_repo_free(repo_file);
++	if (repo_ftp != NULL)
++		pkg_repo_free(repo_ftp);
+ 	pkg_db_free(pkg_db);
+ }
+
+
+</PRE>
+
+<!--endarticle-->
+    <HR>
+    <P><UL>
+        <!--threads-->
+	<LI>Previous message: <A HREF="000009.html">[Libpkg-svn] r18 - trunk/src
+</A></li>
+	<LI>Next message: <A HREF="000011.html">[Libpkg-svn] r20 - trunk/src
+</A></li>
+         <LI> <B>Messages sorted by:</B> 
+              <a href="date.html#10">[ date ]</a>
+              <a href="thread.html#10">[ thread ]</a>
+              <a href="subject.html#10">[ subject ]</a>
+              <a href="author.html#10">[ author ]</a>
+         </LI>
+       </UL>
+
+<hr>
+<a href="https://lists.berlios.de/mailman/listinfo/libpkg-svn">More information about the Libpkg-svn
+mailing list</a><br>
+</body></html>

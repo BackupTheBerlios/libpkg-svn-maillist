@@ -1,0 +1,89 @@
+<!DOCTYPE HTML PUBLIC "-//W3C//DTD HTML 4.01 Transitional//EN">
+<HTML>
+ <HEAD>
+   <TITLE> r318 - trunk/src
+   </TITLE>
+   <LINK REL="Index" HREF="http://lists.berlios.de/pipermail/libpkg-svn/2009-January/index.html" >
+   <LINK REL="made" HREF="mailto:libpkg-svn%40lists.berlios.de?Subject=Re%3A%20r318%20-%20trunk/src&In-Reply-To=%3C200901030053.n030rlcp018191%40sheep.berlios.de%3E">
+   <META NAME="robots" CONTENT="index,nofollow">
+   <style type="text/css">
+       pre {
+           white-space: pre-wrap;       /* css-2.1, curent FF, Opera, Safari */
+           }
+   </style>
+   <META http-equiv="Content-Type" content="text/html; charset=us-ascii">
+   
+   <LINK REL="Next"  HREF="000303.html">
+ </HEAD>
+ <BODY BGCOLOR="#ffffff">
+   <H1>r318 - trunk/src</H1>
+    <B>zxombie at users.berlios.de</B> 
+    <A HREF="mailto:libpkg-svn%40lists.berlios.de?Subject=Re%3A%20r318%20-%20trunk/src&In-Reply-To=%3C200901030053.n030rlcp018191%40sheep.berlios.de%3E"
+       TITLE="r318 - trunk/src">zxombie at users.berlios.de
+       </A><BR>
+    <I>Sat Jan  3 01:53:47 CET 2009</I>
+    <P><UL>
+        
+        <LI>Next message: <A HREF="000303.html">r319 - trunk/src
+</A></li>
+         <LI> <B>Messages sorted by:</B> 
+              <a href="date.html#302">[ date ]</a>
+              <a href="thread.html#302">[ thread ]</a>
+              <a href="subject.html#302">[ subject ]</a>
+              <a href="author.html#302">[ author ]</a>
+         </LI>
+       </UL>
+    <HR>  
+<!--beginarticle-->
+<PRE>Author: zxombie
+Date: 2009-01-03 01:53:46 +0100 (Sat, 03 Jan 2009)
+New Revision: 318
+
+Modified:
+   trunk/src/pkg_manifest.c
+Log:
+Fix the type used to size the attrs array
+
+
+Modified: trunk/src/pkg_manifest.c
+===================================================================
+--- trunk/src/pkg_manifest.c	2007-10-27 04:24:35 UTC (rev 317)
++++ trunk/src/pkg_manifest.c	2009-01-03 00:53:46 UTC (rev 318)
+@@ -639,11 +639,11 @@
+ 		return -1;
+ 
+ 	if (item-&gt;attrs == NULL) {
+-		item-&gt;attrs = malloc(pmia_max * sizeof(pkg_manifest_item_attr));
++		item-&gt;attrs = malloc(pmia_max * sizeof(char *));
+ 		if (item-&gt;attrs == NULL)
+ 			return -1;
+-		memset(item-&gt;attrs, 0, pmia_max *
+-		    sizeof(pkg_manifest_item_attr));
++		memset(item-&gt;attrs, 0x0, pmia_max *
++		    sizeof(char *));
+ 	}
+ 
+ 	if (item-&gt;attrs[attr] != NULL) {
+
+
+</PRE>
+
+<!--endarticle-->
+    <HR>
+    <P><UL>
+        <!--threads-->
+	
+	<LI>Next message: <A HREF="000303.html">r319 - trunk/src
+</A></li>
+         <LI> <B>Messages sorted by:</B> 
+              <a href="date.html#302">[ date ]</a>
+              <a href="thread.html#302">[ thread ]</a>
+              <a href="subject.html#302">[ subject ]</a>
+              <a href="author.html#302">[ author ]</a>
+         </LI>
+       </UL>
+
+<hr>
+<a href="https://lists.berlios.de/mailman/listinfo/libpkg-svn">More information about the Libpkg-svn
+mailing list</a><br>
+</body></html>

@@ -1,0 +1,284 @@
+<!DOCTYPE HTML PUBLIC "-//W3C//DTD HTML 4.01 Transitional//EN">
+<HTML>
+ <HEAD>
+   <TITLE> [Libpkg-svn] r144 - in trunk: src tools/pkg_info
+   </TITLE>
+   <LINK REL="Index" HREF="http://lists.berlios.de/pipermail/libpkg-svn/2006-July/index.html" >
+   <LINK REL="made" HREF="mailto:libpkg-svn%40lists.berlios.de?Subject=Re%3A%20%5BLibpkg-svn%5D%20r144%20-%20in%20trunk%3A%20src%20tools/pkg_info&In-Reply-To=%3C200607131316.k6DDGS3Z005527%40sheep.berlios.de%3E">
+   <META NAME="robots" CONTENT="index,nofollow">
+   <style type="text/css">
+       pre {
+           white-space: pre-wrap;       /* css-2.1, curent FF, Opera, Safari */
+           }
+   </style>
+   <META http-equiv="Content-Type" content="text/html; charset=us-ascii">
+   
+   <LINK REL="Next"  HREF="000128.html">
+ </HEAD>
+ <BODY BGCOLOR="#ffffff">
+   <H1>[Libpkg-svn] r144 - in trunk: src tools/pkg_info</H1>
+    <B>zxombie at BerliOS</B> 
+    <A HREF="mailto:libpkg-svn%40lists.berlios.de?Subject=Re%3A%20%5BLibpkg-svn%5D%20r144%20-%20in%20trunk%3A%20src%20tools/pkg_info&In-Reply-To=%3C200607131316.k6DDGS3Z005527%40sheep.berlios.de%3E"
+       TITLE="[Libpkg-svn] r144 - in trunk: src tools/pkg_info">zxombie at mail.berlios.de
+       </A><BR>
+    <I>Thu Jul 13 15:16:28 CEST 2006</I>
+    <P><UL>
+        
+        <LI>Next message: <A HREF="000128.html">[Libpkg-svn] r145 - trunk/src
+</A></li>
+         <LI> <B>Messages sorted by:</B> 
+              <a href="date.html#130">[ date ]</a>
+              <a href="thread.html#130">[ thread ]</a>
+              <a href="subject.html#130">[ subject ]</a>
+              <a href="author.html#130">[ author ]</a>
+         </LI>
+       </UL>
+    <HR>  
+<!--beginarticle-->
+<PRE>Author: zxombie
+Date: 2006-07-13 15:16:26 +0200 (Thu, 13 Jul 2006)
+New Revision: 144
+
+Modified:
+   trunk/src/pkg.h
+   trunk/src/pkg_freebsd.c
+   trunk/src/pkg_private.h
+   trunk/src/pkgfile.c
+   trunk/tools/pkg_info/show.c
+Log:
+Add support to compare the checksum of files with the checksum recorded in the package
+Use it to implement -g in pkg_info
+Remove an unneeded assert in pkg_info
+Implement pkg_freebsd_get_contents as a way to retrieve a packages contents file
+
+
+Modified: trunk/src/pkg.h
+===================================================================
+--- trunk/src/pkg.h	2006-06-24 23:23:09 UTC (rev 143)
++++ trunk/src/pkg.h	2006-07-13 13:16:26 UTC (rev 144)
+@@ -65,6 +65,7 @@
+ uint64_t	 pkgfile_get_size(struct pkgfile *);
+ char		*pkgfile_get_data(struct pkgfile *, uint64_t);
+ char		*pkgfile_get_data_all(struct pkgfile *);
++int		 pkgfile_compare_checksum_md5(struct pkgfile *);
+ int		 pkgfile_seek(struct pkgfile *, uint64_t, int);
+ int		 pkgfile_set_mode(struct pkgfile *, mode_t);
+ int		 pkgfile_write(struct pkgfile *);
+
+Modified: trunk/src/pkg_freebsd.c
+===================================================================
+--- trunk/src/pkg_freebsd.c	2006-06-24 23:23:09 UTC (rev 143)
++++ trunk/src/pkg_freebsd.c	2006-07-13 13:16:26 UTC (rev 144)
+@@ -228,19 +228,26 @@
+ 	assert(0);
+ 	return NULL;
+ }
++#endif
+ 
+ /**
+  * @brief Gets the contents struct from a package
+- * @todo Write
++ *
++ * This will go away before 0.2
+  * @return The contents struct
+  */
+ struct pkg_freebsd_contents *
+ pkg_freebsd_get_contents(struct pkg *pkg __unused)
+ {
+-	assert(0);
+-	return NULL;
++	struct freebsd_package *fpkg;
++
++	if (pkg == NULL || pkg-&gt;data == NULL)
++		return NULL;
++	fpkg = pkg-&gt;data;
++	freebsd_open_control_files(fpkg);
++
++	return fpkg-&gt;contents;
+ }
+-#endif
+ 
+ /**
+  * @}
+@@ -599,7 +606,8 @@
+ 				fpkg-&gt;curdir = strdup(
+ 				    fpkg-&gt;contents-&gt;lines[fpkg-&gt;line].data);
+ 			}
+-			if (fpkg-&gt;contents-&gt;lines[fpkg-&gt;line].line_type == PKG_LINE_FILE) {
++			if (fpkg-&gt;contents-&gt;lines[fpkg-&gt;line].line_type ==
++			    PKG_LINE_FILE) {
+ 				char the_file[FILENAME_MAX + 1];
+ 
+ 				snprintf(the_file, FILENAME_MAX, &quot;%s/%s&quot;,
+@@ -607,10 +615,20 @@
+ 				    fpkg-&gt;contents-&gt;lines[fpkg-&gt;line].line);
+ 				file = pkgfile_new_from_disk(the_file, 1);
+ 				fpkg-&gt;line++;
++
++				/* Add the recorded md5 to the file */
++				if (fpkg-&gt;contents-&gt;lines[fpkg-&gt;line].line_type
++				  == PKG_LINE_COMMENT) {
++					strncpy(file-&gt;md5,
++					    fpkg-&gt;contents-&gt;lines[fpkg-&gt;line].data + 4,
++					    32);
++					file-&gt;md5[33] = '\0';
++				}
+ 				return file;
+ 			}
+ 			fpkg-&gt;line++;
+ 		}
++		fpkg-&gt;line = 0;
+ 		return NULL;
+ 	} else {
+ 		file = freebsd_get_next_entry(fpkg-&gt;archive);
+
+Modified: trunk/src/pkg_private.h
+===================================================================
+--- trunk/src/pkg_private.h	2006-06-24 23:23:09 UTC (rev 143)
++++ trunk/src/pkg_private.h	2006-07-13 13:16:26 UTC (rev 144)
+@@ -43,6 +43,7 @@
+ 	char		*data;
+ 	uint64_t	 length;
+ 	mode_t		 mode;
++	char		 md5[33];
+ };
+ 
+ /*
+
+Modified: trunk/src/pkgfile.c
+===================================================================
+--- trunk/src/pkgfile.c	2006-06-24 23:23:09 UTC (rev 143)
++++ trunk/src/pkgfile.c	2006-07-13 13:16:26 UTC (rev 144)
+@@ -27,10 +27,14 @@
+  *
+  */
+ 
++#include &lt;sys/types.h&gt;
++#include &lt;sys/mman.h&gt;
++
+ #include &lt;assert.h&gt;
+ #include &lt;errno.h&gt;
+ #include &lt;libgen.h&gt;
+ #include &lt;limits.h&gt;
++#include &lt;md5.h&gt;
+ #include &lt;stdio.h&gt;
+ #include &lt;stdlib.h&gt;
+ #include &lt;string.h&gt;
+@@ -71,6 +75,7 @@
+ 	file-&gt;data = NULL;
+ 	file-&gt;length = 0;
+ 	file-&gt;mode = 0;
++	file-&gt;md5[0] = '\0';
+ 
+ 	return file;
+ }
+@@ -345,6 +350,48 @@
+ }
+ 
+ /**
++ * @brief Compares a file's MD5 checksum with the version on disk
++ * @return 1 if the recorded checksum is different to the disk checksum
++ * @return 0 if the recorded checksum is the same as the disk checksum
++ * @return -1 if there is a problem with the file object
++ */
++int
++pkgfile_compare_checksum_md5(struct pkgfile *file)
++{
++	if (file == NULL || file-&gt;md5[0] == '\0')
++		return -1;
++
++	assert(file-&gt;type != pkgfile_none);
++	assert(file-&gt;type != pkgfile_hardlink);
++	assert(file-&gt;type != pkgfile_symlink);
++	assert(file-&gt;type != pkgfile_dir);
++
++	switch (file-&gt;type) {
++		case pkgfile_none:
++		case pkgfile_hardlink:
++		case pkgfile_symlink:
++		case pkgfile_dir:
++			break;
++		case pkgfile_regular:
++		{
++			char checksum[33];
++
++			if (file-&gt;name == NULL)
++				return -1;
++
++			MD5File(file-&gt;name, checksum);
++
++			if (strncmp(checksum, file-&gt;md5, 32) == 0)
++				return 0;
++
++			printf(&quot;%s\n%s\n\n&quot;, checksum, file-&gt;name);
++			return 1;
++		}
++	}
++	return -1;
++}
++
++/**
+  * @brief Seeks to a given position in a file
+  * @return 0 on success or -1 on error
+  */
+
+Modified: trunk/tools/pkg_info/show.c
+===================================================================
+--- trunk/tools/pkg_info/show.c	2006-06-24 23:23:09 UTC (rev 143)
++++ trunk/tools/pkg_info/show.c	2006-07-13 13:16:26 UTC (rev 144)
+@@ -69,7 +69,6 @@
+ 	{ \
+ 		struct pkgfile *file; \
+ 		file = pkg_get_control_file(pkg, filename); \
+-		assert(file != NULL); \
+ 		if (file != NULL) \
+ 			show_file(file, seperator, title &quot;:\n&quot;, quiet); \
+ 	}
+@@ -149,14 +148,20 @@
+ 
+ /* Show files that don't match the recorded checksum */
+ static void
+-show_cksum(struct pkg *pkg __unused, const char *seperator, const char *title,
+-    int quiet)
++show_cksum(struct pkg *pkg, const char *seperator, const char *title, int quiet)
+ {
++	struct pkgfile *file;
++
+ 	if (!quiet)
+ 		printf(&quot;%s%s&quot;, seperator, title);
+ 
+-	/* XXX */
+-	errx(1, &quot;%s: Unimplemented&quot;, __func__);
++	file = pkg_get_next_file(pkg);
++	while (file != NULL) {
++		if (pkgfile_compare_checksum_md5(file) == 1)
++			printf(&quot;%s\n&quot;, pkgfile_get_name(file));
++		pkgfile_free(file);
++		file = pkg_get_next_file(pkg);
++	}
+ }
+ 
+ static void
+
+
+</PRE>
+
+<!--endarticle-->
+    <HR>
+    <P><UL>
+        <!--threads-->
+	
+	<LI>Next message: <A HREF="000128.html">[Libpkg-svn] r145 - trunk/src
+</A></li>
+         <LI> <B>Messages sorted by:</B> 
+              <a href="date.html#130">[ date ]</a>
+              <a href="thread.html#130">[ thread ]</a>
+              <a href="subject.html#130">[ subject ]</a>
+              <a href="author.html#130">[ author ]</a>
+         </LI>
+       </UL>
+
+<hr>
+<a href="https://lists.berlios.de/mailman/listinfo/libpkg-svn">More information about the Libpkg-svn
+mailing list</a><br>
+</body></html>

@@ -1,0 +1,110 @@
+<!DOCTYPE HTML PUBLIC "-//W3C//DTD HTML 4.01 Transitional//EN">
+<HTML>
+ <HEAD>
+   <TITLE> [Libpkg-svn] r107 - trunk/src
+   </TITLE>
+   <LINK REL="Index" HREF="http://lists.berlios.de/pipermail/libpkg-svn/2006-April/index.html" >
+   <LINK REL="made" HREF="mailto:libpkg-svn%40lists.berlios.de?Subject=Re%3A%20%5BLibpkg-svn%5D%20r107%20-%20trunk/src&In-Reply-To=%3C200604250839.k3P8dsEI015107%40sheep.berlios.de%3E">
+   <META NAME="robots" CONTENT="index,nofollow">
+   <style type="text/css">
+       pre {
+           white-space: pre-wrap;       /* css-2.1, curent FF, Opera, Safari */
+           }
+   </style>
+   <META http-equiv="Content-Type" content="text/html; charset=us-ascii">
+   <LINK REL="Previous"  HREF="000090.html">
+   <LINK REL="Next"  HREF="000092.html">
+ </HEAD>
+ <BODY BGCOLOR="#ffffff">
+   <H1>[Libpkg-svn] r107 - trunk/src</H1>
+    <B>zxombie at BerliOS</B> 
+    <A HREF="mailto:libpkg-svn%40lists.berlios.de?Subject=Re%3A%20%5BLibpkg-svn%5D%20r107%20-%20trunk/src&In-Reply-To=%3C200604250839.k3P8dsEI015107%40sheep.berlios.de%3E"
+       TITLE="[Libpkg-svn] r107 - trunk/src">zxombie at berlios.de
+       </A><BR>
+    <I>Tue Apr 25 10:39:54 CEST 2006</I>
+    <P><UL>
+        <LI>Previous message: <A HREF="000090.html">[Libpkg-svn] r106 - trunk/src
+</A></li>
+        <LI>Next message: <A HREF="000092.html">[Libpkg-svn] r108 - trunk/src
+</A></li>
+         <LI> <B>Messages sorted by:</B> 
+              <a href="date.html#91">[ date ]</a>
+              <a href="thread.html#91">[ thread ]</a>
+              <a href="subject.html#91">[ subject ]</a>
+              <a href="author.html#91">[ author ]</a>
+         </LI>
+       </UL>
+    <HR>  
+<!--beginarticle-->
+<PRE>Author: zxombie
+Date: 2006-04-25 10:39:49 +0200 (Tue, 25 Apr 2006)
+New Revision: 107
+
+Modified:
+   trunk/src/pkg_db_freebsd.c
+Log:
+Register the reverse dependency of a package
+
+
+Modified: trunk/src/pkg_db_freebsd.c
+===================================================================
+--- trunk/src/pkg_db_freebsd.c	2006-04-25 05:07:47 UTC (rev 106)
++++ trunk/src/pkg_db_freebsd.c	2006-04-25 08:39:49 UTC (rev 107)
+@@ -650,6 +650,7 @@
+ 	unsigned int pos;
+ 	struct pkg_install_data *install_data;
+ 	struct pkg_db *db;
++	struct pkg **deps;
+ 
+ 	assert(pkg != NULL);
+ 	assert(pkg_action != NULL);
+@@ -667,7 +668,24 @@
+ 		freebsd_install_file(pkg, pkg_action, data, control[pos]);
+ 	}
+ 
+-	/** @todo Register reverse dependency */
++	/* Register reverse dependency */
++	deps = pkg_get_dependencies(pkg);
++	for (pos=0; deps[pos] != NULL; pos++) {
++		char required_by[FILENAME_MAX];
++		const char *name;
++		FILE *fd;
++
++		snprintf(required_by, FILENAME_MAX, &quot;%s&quot; DB_LOCATION
++		    &quot;/%s/+REQUIRED_BY&quot;, db-&gt;db_base, pkg_get_name(deps[pos]));
++
++		/** @todo Make pkg_file work to properly to create the file */
++		fd = fopen(required_by, &quot;a&quot;);
++		name = pkg_get_name(pkg);
++		fwrite(name, strlen(name), 1, fd);
++		fwrite(&quot;\n&quot;, 1, 1, fd);
++		fclose(fd);
++	}
++	pkg_list_free(deps);
+ 	
+ 	pkg_action(PKG_DB_INFO, &quot;Package %s registered in %s&quot; DB_LOCATION &quot;/%s&quot;,
+ 	    pkg_get_name(pkg), db-&gt;db_base, pkg_get_name(pkg));
+
+
+</PRE>
+
+<!--endarticle-->
+    <HR>
+    <P><UL>
+        <!--threads-->
+	<LI>Previous message: <A HREF="000090.html">[Libpkg-svn] r106 - trunk/src
+</A></li>
+	<LI>Next message: <A HREF="000092.html">[Libpkg-svn] r108 - trunk/src
+</A></li>
+         <LI> <B>Messages sorted by:</B> 
+              <a href="date.html#91">[ date ]</a>
+              <a href="thread.html#91">[ thread ]</a>
+              <a href="subject.html#91">[ subject ]</a>
+              <a href="author.html#91">[ author ]</a>
+         </LI>
+       </UL>
+
+<hr>
+<a href="https://lists.berlios.de/mailman/listinfo/libpkg-svn">More information about the Libpkg-svn
+mailing list</a><br>
+</body></html>

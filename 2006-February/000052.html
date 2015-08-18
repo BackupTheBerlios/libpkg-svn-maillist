@@ -1,0 +1,179 @@
+<!DOCTYPE HTML PUBLIC "-//W3C//DTD HTML 4.01 Transitional//EN">
+<HTML>
+ <HEAD>
+   <TITLE> [Libpkg-svn] r67 - in trunk: src tools/pkg_info
+   </TITLE>
+   <LINK REL="Index" HREF="http://lists.berlios.de/pipermail/libpkg-svn/2006-February/index.html" >
+   <LINK REL="made" HREF="mailto:libpkg-svn%40lists.berlios.de?Subject=Re%3A%20%5BLibpkg-svn%5D%20r67%20-%20in%20trunk%3A%20src%20tools/pkg_info&In-Reply-To=%3C200602060750.k167orXQ001908%40sheep.berlios.de%3E">
+   <META NAME="robots" CONTENT="index,nofollow">
+   <style type="text/css">
+       pre {
+           white-space: pre-wrap;       /* css-2.1, curent FF, Opera, Safari */
+           }
+   </style>
+   <META http-equiv="Content-Type" content="text/html; charset=us-ascii">
+   <LINK REL="Previous"  HREF="000051.html">
+   <LINK REL="Next"  HREF="000053.html">
+ </HEAD>
+ <BODY BGCOLOR="#ffffff">
+   <H1>[Libpkg-svn] r67 - in trunk: src tools/pkg_info</H1>
+    <B>zxombie at BerliOS</B> 
+    <A HREF="mailto:libpkg-svn%40lists.berlios.de?Subject=Re%3A%20%5BLibpkg-svn%5D%20r67%20-%20in%20trunk%3A%20src%20tools/pkg_info&In-Reply-To=%3C200602060750.k167orXQ001908%40sheep.berlios.de%3E"
+       TITLE="[Libpkg-svn] r67 - in trunk: src tools/pkg_info">zxombie at berlios.de
+       </A><BR>
+    <I>Mon Feb  6 08:50:53 CET 2006</I>
+    <P><UL>
+        <LI>Previous message: <A HREF="000051.html">[Libpkg-svn] r66 - trunk
+</A></li>
+        <LI>Next message: <A HREF="000053.html">[Libpkg-svn] r68 - trunk/src
+</A></li>
+         <LI> <B>Messages sorted by:</B> 
+              <a href="date.html#52">[ date ]</a>
+              <a href="thread.html#52">[ thread ]</a>
+              <a href="subject.html#52">[ subject ]</a>
+              <a href="author.html#52">[ author ]</a>
+         </LI>
+       </UL>
+    <HR>  
+<!--beginarticle-->
+<PRE>Author: zxombie
+Date: 2006-02-06 08:50:51 +0100 (Mon, 06 Feb 2006)
+New Revision: 67
+
+Modified:
+   trunk/src/pkg_db.c
+   trunk/src/pkg_db.h
+   trunk/src/pkg_db_freebsd.c
+   trunk/src/pkg_db_private.h
+   trunk/tools/pkg_info/show.c
+Log:
+Change pkg_db_is_installed to take a pkg object rather than a package name
+
+
+Modified: trunk/src/pkg_db.c
+===================================================================
+--- trunk/src/pkg_db.c	2006-02-03 21:23:07 UTC (rev 66)
++++ trunk/src/pkg_db.c	2006-02-06 07:50:51 UTC (rev 67)
+@@ -115,7 +115,7 @@
+  * Check to se if a package is installed
+  */
+ int
+-pkg_db_is_installed(struct pkg_db *db, const char *package)
++pkg_db_is_installed(struct pkg_db *db, struct pkg *pkg)
+ {
+ 	if (!db) {
+ 		return -1;
+@@ -125,7 +125,7 @@
+ 		return -1;
+ 	}
+ 
+-	return db-&gt;pkg_is_installed(db, package);
++	return db-&gt;pkg_is_installed(db, pkg);
+ }
+ 
+ /*
+
+Modified: trunk/src/pkg_db.h
+===================================================================
+--- trunk/src/pkg_db.h	2006-02-03 21:23:07 UTC (rev 66)
++++ trunk/src/pkg_db.h	2006-02-06 07:50:51 UTC (rev 67)
+@@ -44,7 +44,7 @@
+ 
+ struct pkg_db	 *pkg_db_open_freebsd(const char *);
+ int		  pkg_db_install_pkg(struct pkg_db *, struct pkg *);
+-int		  pkg_db_is_installed(struct pkg_db *, const char *);
++int		  pkg_db_is_installed(struct pkg_db *, struct pkg *);
+ struct pkg	**pkg_db_get_installed(struct pkg_db *);
+ struct pkg	**pkg_db_get_installed_match(struct pkg_db *, pkg_db_match *,
+ 			void *);
+
+Modified: trunk/src/pkg_db_freebsd.c
+===================================================================
+--- trunk/src/pkg_db_freebsd.c	2006-02-03 21:23:07 UTC (rev 66)
++++ trunk/src/pkg_db_freebsd.c	2006-02-06 07:50:51 UTC (rev 67)
+@@ -63,7 +63,7 @@
+ };
+ 
+ static int		  freebsd_install_pkg(struct pkg_db *, struct pkg *);
+-static int		  freebsd_is_installed(struct pkg_db *, const char *);
++static int		  freebsd_is_installed(struct pkg_db *, struct pkg *);
+ static struct pkg	**freebsd_get_installed_match(struct pkg_db *,
+ 				pkg_db_match *, void *);
+ static struct pkg	 *freebsd_get_package(struct pkg_db *, const char *);	
+@@ -283,15 +283,15 @@
+  *        -1 otherwise
+  */
+ static int
+-freebsd_is_installed(struct pkg_db *db, const char *package)
++freebsd_is_installed(struct pkg_db *db, struct pkg *pkg)
+ {
+ 	struct stat sb;
+ 	char *dir;
+ 
+ 	assert(db != NULL);
+-	assert(package != NULL);
++	assert(pkg != NULL);
+ 
+-	asprintf(&amp;dir, &quot;%s&quot; DB_LOCATION &quot;/%s&quot;, db-&gt;db_base, package);
++	asprintf(&amp;dir, &quot;%s&quot; DB_LOCATION &quot;/%s&quot;, db-&gt;db_base, pkg_get_name(pkg));
+ 	if (!dir) {
+ 		return -1;
+ 	}
+
+Modified: trunk/src/pkg_db_private.h
+===================================================================
+--- trunk/src/pkg_db_private.h	2006-02-03 21:23:07 UTC (rev 66)
++++ trunk/src/pkg_db_private.h	2006-02-06 07:50:51 UTC (rev 67)
+@@ -31,7 +31,7 @@
+ #define __LIBPKG_PKG_DB_PRIVATE_H__
+ 
+ typedef int	 pkg_db_install_pkg_callback(struct pkg_db *, struct pkg *);
+-typedef int 	 pkg_db_is_installed_callback(struct pkg_db *, const char *);
++typedef int 	 pkg_db_is_installed_callback(struct pkg_db *, struct pkg *);
+ typedef struct pkg	 *pkg_db_get_package_callback(struct pkg_db *,
+ 				const char *);
+ typedef struct pkg	**pkg_db_get_installed_match_callback(struct pkg_db *,
+
+Modified: trunk/tools/pkg_info/show.c
+===================================================================
+--- trunk/tools/pkg_info/show.c	2006-02-03 21:23:07 UTC (rev 66)
++++ trunk/tools/pkg_info/show.c	2006-02-06 07:50:51 UTC (rev 67)
+@@ -114,12 +114,12 @@
+ 	//    show_files(&quot;Files:\n&quot;, &amp;plist);
+ 	}
+ 	if ((flags &amp; SHOW_SIZE) &amp;&amp;
+-	    pkg_db_is_installed(db, pkg_get_name(pkg)) == 0) {
++	    pkg_db_is_installed(db, pkg) == 0) {
+ 		show_size(pkg, &quot;Package Size:\n&quot;, quiet);
+ 	//    show_size(&quot;Package Size:\n&quot;, &amp;plist);
+ 	}
+ 	if ((flags &amp; SHOW_CKSUM) &amp;&amp;
+-	    pkg_db_is_installed(db, pkg_get_name(pkg)) == 0) {
++	    pkg_db_is_installed(db, pkg) == 0) {
+ 		show_cksum(pkg, &quot;Mismatched Checksums:\n&quot;, quiet);
+ 	//    show_cksum(&quot;Mismatched Checksums:\n&quot;, &amp;plist);
+ 	}
+
+
+</PRE>
+
+<!--endarticle-->
+    <HR>
+    <P><UL>
+        <!--threads-->
+	<LI>Previous message: <A HREF="000051.html">[Libpkg-svn] r66 - trunk
+</A></li>
+	<LI>Next message: <A HREF="000053.html">[Libpkg-svn] r68 - trunk/src
+</A></li>
+         <LI> <B>Messages sorted by:</B> 
+              <a href="date.html#52">[ date ]</a>
+              <a href="thread.html#52">[ thread ]</a>
+              <a href="subject.html#52">[ subject ]</a>
+              <a href="author.html#52">[ author ]</a>
+         </LI>
+       </UL>
+
+<hr>
+<a href="https://lists.berlios.de/mailman/listinfo/libpkg-svn">More information about the Libpkg-svn
+mailing list</a><br>
+</body></html>

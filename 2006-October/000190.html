@@ -1,0 +1,171 @@
+<!DOCTYPE HTML PUBLIC "-//W3C//DTD HTML 4.01 Transitional//EN">
+<HTML>
+ <HEAD>
+   <TITLE> [Libpkg-svn] r206 - trunk/src
+   </TITLE>
+   <LINK REL="Index" HREF="http://lists.berlios.de/pipermail/libpkg-svn/2006-October/index.html" >
+   <LINK REL="made" HREF="mailto:libpkg-svn%40lists.berlios.de?Subject=Re%3A%20%5BLibpkg-svn%5D%20r206%20-%20trunk/src&In-Reply-To=%3C200610251055.k9PAtXiI031625%40sheep.berlios.de%3E">
+   <META NAME="robots" CONTENT="index,nofollow">
+   <style type="text/css">
+       pre {
+           white-space: pre-wrap;       /* css-2.1, curent FF, Opera, Safari */
+           }
+   </style>
+   <META http-equiv="Content-Type" content="text/html; charset=us-ascii">
+   <LINK REL="Previous"  HREF="000189.html">
+   <LINK REL="Next"  HREF="000191.html">
+ </HEAD>
+ <BODY BGCOLOR="#ffffff">
+   <H1>[Libpkg-svn] r206 - trunk/src</H1>
+    <B>zxombie at BerliOS</B> 
+    <A HREF="mailto:libpkg-svn%40lists.berlios.de?Subject=Re%3A%20%5BLibpkg-svn%5D%20r206%20-%20trunk/src&In-Reply-To=%3C200610251055.k9PAtXiI031625%40sheep.berlios.de%3E"
+       TITLE="[Libpkg-svn] r206 - trunk/src">zxombie at mail.berlios.de
+       </A><BR>
+    <I>Wed Oct 25 12:55:33 CEST 2006</I>
+    <P><UL>
+        <LI>Previous message: <A HREF="000189.html">[Libpkg-svn] r205 - trunk/src
+</A></li>
+        <LI>Next message: <A HREF="000191.html">[Libpkg-svn] r207 - trunk/src
+</A></li>
+         <LI> <B>Messages sorted by:</B> 
+              <a href="date.html#190">[ date ]</a>
+              <a href="thread.html#190">[ thread ]</a>
+              <a href="subject.html#190">[ subject ]</a>
+              <a href="author.html#190">[ author ]</a>
+         </LI>
+       </UL>
+    <HR>  
+<!--beginarticle-->
+<PRE>Author: zxombie
+Date: 2006-10-25 12:55:29 +0200 (Wed, 25 Oct 2006)
+New Revision: 206
+
+Modified:
+   trunk/src/pkg_db.h
+   trunk/src/pkg_db_freebsd.c
+Log:
+Add pkg_db_freebsd_match_rdep to match packages that are depended ob by another package
+Use pkg_db_freebsd_match_rdep to find all packages to remove the reverse depencendy from when deinstalling
+
+
+Modified: trunk/src/pkg_db.h
+===================================================================
+--- trunk/src/pkg_db.h	2006-10-25 10:41:19 UTC (rev 205)
++++ trunk/src/pkg_db.h	2006-10-25 10:55:29 UTC (rev 206)
+@@ -64,8 +64,10 @@
+ 			int, int, pkg_db_action *);
+ int		  pkg_db_free(struct pkg_db *);
+ 
++/* Functions to be passed to pkg_db_get_installed_match() */
+ int		  pkg_match_all(struct pkg *, const void *);
+ int		  pkg_match_by_origin(struct pkg *, const void *);
+ int		  pkg_match_by_file(struct pkg *, const void *);
++int		  pkg_db_freebsd_match_rdep(struct pkg *, const void *);
+ 
+ #endif /* __LIBPKG_PKG_DB_H__ */
+
+Modified: trunk/src/pkg_db_freebsd.c
+===================================================================
+--- trunk/src/pkg_db_freebsd.c	2006-10-25 10:41:19 UTC (rev 205)
++++ trunk/src/pkg_db_freebsd.c	2006-10-25 10:55:29 UTC (rev 206)
+@@ -120,6 +120,46 @@
+  */
+ 
+ /**
++ * @defgroup PackageDBFreebsdMatch FreeBSD package matching functions
++ * @ingroup PackageDBFreebsd
++ * @brief FreeBSD specific functions to be passed to
++ * 	pkg_db_get_installed_match()
++ *
++ * @{
++ */
++
++/**
++ * @brief A function to match all FreeBSD package that a given pakage depend on
++ * @param pkg The package to test
++ * @param pkg_name The name of the package to find the dependencies of
++ * @return 0 if pkg_name depends on pkg
++ * @return Non zero otherwise
++ */
++int
++pkg_db_freebsd_match_rdep(struct pkg *pkg, const void *pkg_name)
++{
++	struct pkgfile *file;
++
++	assert(pkg != NULL);
++	assert(pkg_name != NULL);
++
++	file = pkg_get_control_file(pkg, &quot;+REQUIRED_BY&quot;);
++	if (file == NULL)
++		return 1;
++
++	if (pkgfile_find_line(file, (const char *)pkg_name) != NULL)
++		return 0;
++
++	printf(&quot;--&gt; %s\n&quot;, pkg_get_name(pkg));
++
++	return 1;
++}
++
++/**
++ * @}
++ */
++
++/**
+  * @defgroup PackageDBFreebsdCallback FreeBSD package database callbacks
+  * @ingroup PackageDBFreebsd
+  * @brief FreeBSD package database callback functions.
+@@ -412,23 +452,17 @@
+ 		return -1;
+ 	}
+ 
+-	/** @todo Remove this package from other packages reverse dependencies */
+-	deps = pkg_get_dependencies(real_pkg);
++
++	/* Remove the reverse dependencies */
++	deps = pkg_db_get_installed_match(db, pkg_db_freebsd_match_rdep,
++	    pkg_get_name(real_pkg));
+ 	if (deps != NULL) {
+ 		unsigned int pos;
+-		for(pos = 0; deps[pos] != NULL; pos++) {
++		for (pos = 0; deps[pos] != NULL; pos++) {
+ 			struct pkgfile *file;
+-			char require[FILENAME_MAX];
+ 
+-			snprintf(require, FILENAME_MAX, &quot;%s&quot; DB_LOCATION
+-			    &quot;/%s/+REQUIRED_BY&quot;, db-&gt;db_base,
+-			    pkg_get_name(deps[pos]));
+-			pkg_remove_extra_slashes(require);
+-
+-			/* Remove the reverse dependency */
+-			file = pkgfile_new_from_disk(require, 0);
++			file = pkg_get_control_file(deps[pos], &quot;+REQUIRED_BY&quot;);
+ 			pkgfile_remove_line(file, pkg_get_name(real_pkg));
+-			pkgfile_free(file);
+ 		}
+ 	}
+ 
+
+
+</PRE>
+
+<!--endarticle-->
+    <HR>
+    <P><UL>
+        <!--threads-->
+	<LI>Previous message: <A HREF="000189.html">[Libpkg-svn] r205 - trunk/src
+</A></li>
+	<LI>Next message: <A HREF="000191.html">[Libpkg-svn] r207 - trunk/src
+</A></li>
+         <LI> <B>Messages sorted by:</B> 
+              <a href="date.html#190">[ date ]</a>
+              <a href="thread.html#190">[ thread ]</a>
+              <a href="subject.html#190">[ subject ]</a>
+              <a href="author.html#190">[ author ]</a>
+         </LI>
+       </UL>
+
+<hr>
+<a href="https://lists.berlios.de/mailman/listinfo/libpkg-svn">More information about the Libpkg-svn
+mailing list</a><br>
+</body></html>

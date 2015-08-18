@@ -1,0 +1,93 @@
+<!DOCTYPE HTML PUBLIC "-//W3C//DTD HTML 4.01 Transitional//EN">
+<HTML>
+ <HEAD>
+   <TITLE> [Libpkg-svn] r85 - trunk/src
+   </TITLE>
+   <LINK REL="Index" HREF="http://lists.berlios.de/pipermail/libpkg-svn/2006-April/index.html" >
+   <LINK REL="made" HREF="mailto:libpkg-svn%40lists.berlios.de?Subject=Re%3A%20%5BLibpkg-svn%5D%20r85%20-%20trunk/src&In-Reply-To=%3C200604070218.k372IYXZ011975%40sheep.berlios.de%3E">
+   <META NAME="robots" CONTENT="index,nofollow">
+   <style type="text/css">
+       pre {
+           white-space: pre-wrap;       /* css-2.1, curent FF, Opera, Safari */
+           }
+   </style>
+   <META http-equiv="Content-Type" content="text/html; charset=us-ascii">
+   
+   <LINK REL="Next"  HREF="000070.html">
+ </HEAD>
+ <BODY BGCOLOR="#ffffff">
+   <H1>[Libpkg-svn] r85 - trunk/src</H1>
+    <B>zxombie at BerliOS</B> 
+    <A HREF="mailto:libpkg-svn%40lists.berlios.de?Subject=Re%3A%20%5BLibpkg-svn%5D%20r85%20-%20trunk/src&In-Reply-To=%3C200604070218.k372IYXZ011975%40sheep.berlios.de%3E"
+       TITLE="[Libpkg-svn] r85 - trunk/src">zxombie at berlios.de
+       </A><BR>
+    <I>Fri Apr  7 04:18:34 CEST 2006</I>
+    <P><UL>
+        
+        <LI>Next message: <A HREF="000070.html">[Libpkg-svn] r86 - trunk/src
+</A></li>
+         <LI> <B>Messages sorted by:</B> 
+              <a href="date.html#69">[ date ]</a>
+              <a href="thread.html#69">[ thread ]</a>
+              <a href="subject.html#69">[ subject ]</a>
+              <a href="author.html#69">[ author ]</a>
+         </LI>
+       </UL>
+    <HR>  
+<!--beginarticle-->
+<PRE>Author: zxombie
+Date: 2006-04-07 04:18:27 +0200 (Fri, 07 Apr 2006)
+New Revision: 85
+
+Modified:
+   trunk/src/pkg_util.c
+Log:
+Execute the contructed string by sending it to system(3)
+
+
+Modified: trunk/src/pkg_util.c
+===================================================================
+--- trunk/src/pkg_util.c	2006-03-28 10:37:26 UTC (rev 84)
++++ trunk/src/pkg_util.c	2006-04-07 02:18:27 UTC (rev 85)
+@@ -138,15 +138,16 @@
+ {
+ 	va_list ap;
+ 	char *str;
++	int ret;
+ 
+ 	va_start(ap, fmt);
+ 	vasprintf(&amp;str, fmt, ap);
+ 	va_end(ap);
+ 
+-	printf(&quot;exec: %s\n&quot;, str);
++	ret = system(str);
+ 	free(str);
+ 
+-	return 0;
++	return ret;
+ }
+ 
+ /**
+
+
+</PRE>
+
+<!--endarticle-->
+    <HR>
+    <P><UL>
+        <!--threads-->
+	
+	<LI>Next message: <A HREF="000070.html">[Libpkg-svn] r86 - trunk/src
+</A></li>
+         <LI> <B>Messages sorted by:</B> 
+              <a href="date.html#69">[ date ]</a>
+              <a href="thread.html#69">[ thread ]</a>
+              <a href="subject.html#69">[ subject ]</a>
+              <a href="author.html#69">[ author ]</a>
+         </LI>
+       </UL>
+
+<hr>
+<a href="https://lists.berlios.de/mailman/listinfo/libpkg-svn">More information about the Libpkg-svn
+mailing list</a><br>
+</body></html>

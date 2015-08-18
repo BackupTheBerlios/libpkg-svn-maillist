@@ -1,0 +1,387 @@
+<!DOCTYPE HTML PUBLIC "-//W3C//DTD HTML 4.01 Transitional//EN">
+<HTML>
+ <HEAD>
+   <TITLE> [Libpkg-svn] r56 - trunk/src
+   </TITLE>
+   <LINK REL="Index" HREF="http://lists.berlios.de/pipermail/libpkg-svn/2006-January/index.html" >
+   <LINK REL="made" HREF="mailto:libpkg-svn%40lists.berlios.de?Subject=Re%3A%20%5BLibpkg-svn%5D%20r56%20-%20trunk/src&In-Reply-To=%3C200601310941.k0V9f6iR032554%40sheep.berlios.de%3E">
+   <META NAME="robots" CONTENT="index,nofollow">
+   <style type="text/css">
+       pre {
+           white-space: pre-wrap;       /* css-2.1, curent FF, Opera, Safari */
+           }
+   </style>
+   <META http-equiv="Content-Type" content="text/html; charset=us-ascii">
+   <LINK REL="Previous"  HREF="000040.html">
+   
+ </HEAD>
+ <BODY BGCOLOR="#ffffff">
+   <H1>[Libpkg-svn] r56 - trunk/src</H1>
+    <B>zxombie at BerliOS</B> 
+    <A HREF="mailto:libpkg-svn%40lists.berlios.de?Subject=Re%3A%20%5BLibpkg-svn%5D%20r56%20-%20trunk/src&In-Reply-To=%3C200601310941.k0V9f6iR032554%40sheep.berlios.de%3E"
+       TITLE="[Libpkg-svn] r56 - trunk/src">zxombie at berlios.de
+       </A><BR>
+    <I>Tue Jan 31 10:41:06 CET 2006</I>
+    <P><UL>
+        <LI>Previous message: <A HREF="000040.html">[Libpkg-svn] r55 - trunk
+</A></li>
+        
+         <LI> <B>Messages sorted by:</B> 
+              <a href="date.html#41">[ date ]</a>
+              <a href="thread.html#41">[ thread ]</a>
+              <a href="subject.html#41">[ subject ]</a>
+              <a href="author.html#41">[ author ]</a>
+         </LI>
+       </UL>
+    <HR>  
+<!--beginarticle-->
+<PRE>Author: zxombie
+Date: 2006-01-31 10:41:04 +0100 (Tue, 31 Jan 2006)
+New Revision: 56
+
+Modified:
+   trunk/src/pkg.c
+   trunk/src/pkg.h
+Log:
+Reorder the function's to be consistant between the header and code.
+
+
+Modified: trunk/src/pkg.c
+===================================================================
+--- trunk/src/pkg.c	2006-01-31 01:05:59 UTC (rev 55)
++++ trunk/src/pkg.c	2006-01-31 09:41:04 UTC (rev 56)
+@@ -38,7 +38,7 @@
+  * used by most types of packages
+  */
+ struct pkg *
+-pkg_new(const char *name,
++pkg_new(const char *pkg_name,
+ 		pkg_get_control_files_callback *control_files,
+ 		pkg_get_control_file_callback *control_file,
+ 		pkg_get_dependencies_callback *get_deps,
+@@ -47,7 +47,7 @@
+ 	struct pkg *pkg;
+ 
+ 	/* A package must have a name */
+-	if (name == NULL)
++	if (pkg_name == NULL)
+ 		return NULL;
+ 
+ 	pkg = malloc(sizeof(struct pkg));
+@@ -55,7 +55,7 @@
+ 		return NULL;
+ 	}
+ 
+-	pkg-&gt;pkg_name = strdup(name);
++	pkg-&gt;pkg_name = strdup(pkg_name);
+ 	if (!pkg-&gt;pkg_name) {
+ 		free(pkg);
+ 		return NULL;
+@@ -132,144 +132,158 @@
+  * Creates an empty package with no callbacks
+  */
+ struct pkg*
+-pkg_new_empty(const char *name)
++pkg_new_empty(const char *pkg_name)
+ {
+-	return pkg_new(name, NULL, NULL, NULL, NULL);
++	return pkg_new(pkg_name, NULL, NULL, NULL, NULL);
+ }
+ 
+ /*
+  * A function to pass to *sort[_r] to sort alphabeticly by package name
+  */
+ int
+-pkg_compare(const void *a, const void *b)
++pkg_compare(const void *pkg_a, const void *pkg_b)
+ {
+ 	/* XXX Makes WARNS &lt;= 3 */
+-	return strcmp((*(const struct pkg **)a)-&gt;pkg_name,
+-	    (*(const struct pkg **)b)-&gt;pkg_name);
++	return strcmp((*(const struct pkg **)pkg_a)-&gt;pkg_name,
++	    (*(const struct pkg **)pkg_b)-&gt;pkg_name);
+ }
+ 
+-char *
+-pkg_get_version(struct pkg *pkg)
++/*
++ * Gets the control files from a given package
++ */
++struct pkg_file **
++pkg_get_control_files(struct pkg *pkg)
+ {
+-	if (pkg == NULL)
++	if (!pkg) {
+ 		return NULL;
++	}
+ 
+-	if (pkg-&gt;pkg_get_version != NULL)
+-		return pkg-&gt;pkg_get_version(pkg);
++	if (!pkg-&gt;pkg_get_control_files) {
++		return NULL;
++	}
+ 
+-	return NULL;
++	return pkg-&gt;pkg_get_control_files(pkg);
+ }
+ 
+ /*
+- * Gets a packages origin if it has one
++ * Gets a given control file from a package
+  */
+-char *
+-pkg_get_origin(struct pkg *pkg)
++struct pkg_file *
++pkg_get_control_file(struct pkg *pkg, const char *pkg_name)
+ {
+-	if (pkg == NULL)
++	if (!pkg || !pkg_name)
+ 		return NULL;
+ 
+-	if (pkg-&gt;pkg_get_origin)
+-		return pkg-&gt;pkg_get_origin(pkg);
++	if (pkg-&gt;pkg_get_control_file)
++		return pkg-&gt;pkg_get_control_file(pkg, pkg_name);
+ 
+ 	return NULL;
+ }
+ 
+ /*
+- * Adds a dependency to a given package
++ * Gets all the dependencies for a given package
+  */
+-int
+-pkg_add_dependency(struct pkg *pkg, struct pkg *depend)
++struct pkg **
++pkg_get_dependencies(struct pkg *pkg)
+ {
+-	if (!pkg || !depend)
+-		return -1;
++	if (!pkg)
++		return NULL;
+ 
+-	if (pkg-&gt;pkg_add_depend)
+-		return pkg-&gt;pkg_add_depend(pkg, depend);
+-
+-	return -1;
++	if (pkg-&gt;pkg_get_deps)
++		return pkg-&gt;pkg_get_deps(pkg);
++	return NULL;
+ }
+ 
+ /*
+- * Adds a file to a given package
++ * Gets the name of a package
+  */
+-int
+-pkg_add_file(struct pkg *pkg, struct pkg_file *file)
++char *
++pkg_get_name(struct pkg *pkg)
+ {
+-	if (!pkg || !file)
+-		return -1;
+-
+-	if (pkg-&gt;pkg_add_file)
+-		return pkg-&gt;pkg_add_file(pkg, file);
+-
+-	return -1;
++	if (!pkg)
++		return NULL;
++	return pkg-&gt;pkg_name;
+ }
+ 
+ /*
+- * Gets the control files from a given package
++ * Gets the next file in a package, used for installation
++ * to iterate over all files to be installed in a package
+  */
+-struct pkg_file **
+-pkg_get_control_files(struct pkg *pkg)
++struct pkg_file *
++pkg_get_next_file(struct pkg *pkg)
+ {
+ 	if (!pkg) {
+ 		return NULL;
+ 	}
+ 
+-	if (!pkg-&gt;pkg_get_control_files) {
++	if (!pkg-&gt;pkg_get_next_file) {
+ 		return NULL;
+ 	}
+ 
+-	return pkg-&gt;pkg_get_control_files(pkg);
++	return pkg-&gt;pkg_get_next_file(pkg);
+ }
+ 
+ /*
+- * Gets a given control file from a package
++ * Gets a packages origin if it has one
+  */
+-struct pkg_file *
+-pkg_get_control_file(struct pkg *pkg, const char *name)
++char *
++pkg_get_origin(struct pkg *pkg)
+ {
+-	if (!pkg || !name)
++	if (pkg == NULL)
+ 		return NULL;
+ 
+-	if (pkg-&gt;pkg_get_control_file)
+-		return pkg-&gt;pkg_get_control_file(pkg, name);
++	if (pkg-&gt;pkg_get_origin)
++		return pkg-&gt;pkg_get_origin(pkg);
+ 
+ 	return NULL;
+ }
+ 
+ /*
+- * Gets the next file in a package, used for installation
+- * to iterate over all files to be installed in a package
++ * Return a string containg the package format version
+  */
+-struct pkg_file *
+-pkg_get_next_file(struct pkg *pkg)
++char *
++pkg_get_version(struct pkg *pkg)
+ {
+-	if (!pkg) {
++	if (pkg == NULL)
+ 		return NULL;
+-	}
+ 
+-	if (!pkg-&gt;pkg_get_next_file) {
+-		return NULL;
+-	}
++	if (pkg-&gt;pkg_get_version != NULL)
++		return pkg-&gt;pkg_get_version(pkg);
+ 
+-	return pkg-&gt;pkg_get_next_file(pkg);
++	return NULL;
+ }
+ 
+ /*
+- * Gets all the dependencies for a given package
++ * Adds a dependency to a given package
+  */
+-struct pkg **
+-pkg_get_dependencies(struct pkg *pkg)
++int
++pkg_add_dependency(struct pkg *pkg, struct pkg *depend)
+ {
+-	if (!pkg)
+-		return NULL;
++	if (!pkg || !depend)
++		return -1;
+ 
+-	if (pkg-&gt;pkg_get_deps)
+-		return pkg-&gt;pkg_get_deps(pkg);
+-	return NULL;
++	if (pkg-&gt;pkg_add_depend)
++		return pkg-&gt;pkg_add_depend(pkg, depend);
++
++	return -1;
+ }
+ 
+ /*
++ * Adds a file to a given package
++ */
++int
++pkg_add_file(struct pkg *pkg, struct pkg_file *file)
++{
++	if (!pkg || !file)
++		return -1;
++
++	if (pkg-&gt;pkg_add_file)
++		return pkg-&gt;pkg_add_file(pkg, file);
++
++	return -1;
++}
++
++/*
+  * Frees a NULL terminated array of packages, eg. from pkg_get_dependencies
+  */
+ int
+@@ -308,14 +322,3 @@
+ 
+ 	return 0;
+ }
+-
+-/*
+- * Gets the name of a package
+- */
+-char *
+-pkg_get_name(struct pkg *pkg)
+-{
+-	if (!pkg)
+-		return NULL;
+-	return pkg-&gt;pkg_name;
+-}
+
+Modified: trunk/src/pkg.h
+===================================================================
+--- trunk/src/pkg.h	2006-01-31 01:05:59 UTC (rev 55)
++++ trunk/src/pkg.h	2006-01-31 09:41:04 UTC (rev 56)
+@@ -43,10 +43,10 @@
+ struct pkg_file	*pkg_file_new(const char *);
+ struct pkg_file	*pkg_file_new_from_buffer(const char *, uint64_t, char *,
+ 			const struct stat *);
+-int		 pkg_file_free(struct pkg_file *);
+ int		 pkg_file_write(struct pkg_file *);
+ char		*pkg_file_get(struct pkg_file *);
+ char 		*pkg_file_get_name(struct pkg_file *);
++int		 pkg_file_free(struct pkg_file *);
+ 
+ /*
+  * The package handling functions
+@@ -58,22 +58,16 @@
+ struct pkg		 *pkg_new_freebsd_installed(const char *, const char *);
+ struct pkg		 *pkg_new_freebsd_empty(const char *);
+ int			  pkg_compare(const void *, const void *);
+-char			 *pkg_get_version(struct pkg *);
+-char			 *pkg_get_origin(struct pkg *);
+-int			  pkg_add_dependency(struct pkg *, struct pkg *);
+-int			  pkg_add_file(struct pkg *, struct pkg_file *);
+-struct pkg		**pkg_get_dependencies(struct pkg *);
+-/*
+- * Returns all control files from the package
+- * Eg. +CONTENTS from FreeBSD Packages
+- */
+ struct pkg_file		**pkg_get_control_files(struct pkg *);
+ struct pkg_file		 *pkg_get_control_file(struct pkg *, const char *);
+-/* Returns the next non-control file */
++struct pkg		**pkg_get_dependencies(struct pkg *);
++char			 *pkg_get_name(struct pkg *);
+ struct pkg_file		 *pkg_get_next_file(struct pkg *);
++char			 *pkg_get_origin(struct pkg *);
++char			 *pkg_get_version(struct pkg *);
++int			  pkg_add_dependency(struct pkg *, struct pkg *);
++int			  pkg_add_file(struct pkg *, struct pkg_file *);
+ int			  pkg_list_free(struct pkg **);
+ int			  pkg_free(struct pkg *);
+ 
+-char			 *pkg_get_name(struct pkg *);
+-
+ #endif /* __LIBPKG_PKG_H__ */
+
+
+</PRE>
+
+<!--endarticle-->
+    <HR>
+    <P><UL>
+        <!--threads-->
+	<LI>Previous message: <A HREF="000040.html">[Libpkg-svn] r55 - trunk
+</A></li>
+	
+         <LI> <B>Messages sorted by:</B> 
+              <a href="date.html#41">[ date ]</a>
+              <a href="thread.html#41">[ thread ]</a>
+              <a href="subject.html#41">[ subject ]</a>
+              <a href="author.html#41">[ author ]</a>
+         </LI>
+       </UL>
+
+<hr>
+<a href="https://lists.berlios.de/mailman/listinfo/libpkg-svn">More information about the Libpkg-svn
+mailing list</a><br>
+</body></html>

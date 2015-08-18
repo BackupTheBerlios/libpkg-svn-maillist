@@ -1,0 +1,94 @@
+<!DOCTYPE HTML PUBLIC "-//W3C//DTD HTML 4.01 Transitional//EN">
+<HTML>
+ <HEAD>
+   <TITLE> [Libpkg-svn] r124 - trunk/tools/pkg_add
+   </TITLE>
+   <LINK REL="Index" HREF="http://lists.berlios.de/pipermail/libpkg-svn/2006-June/index.html" >
+   <LINK REL="made" HREF="mailto:libpkg-svn%40lists.berlios.de?Subject=Re%3A%20%5BLibpkg-svn%5D%20r124%20-%20trunk/tools/pkg_add&In-Reply-To=%3C200606221224.k5MCO6WS018304%40sheep.berlios.de%3E">
+   <META NAME="robots" CONTENT="index,nofollow">
+   <style type="text/css">
+       pre {
+           white-space: pre-wrap;       /* css-2.1, curent FF, Opera, Safari */
+           }
+   </style>
+   <META http-equiv="Content-Type" content="text/html; charset=us-ascii">
+   
+   <LINK REL="Next"  HREF="000109.html">
+ </HEAD>
+ <BODY BGCOLOR="#ffffff">
+   <H1>[Libpkg-svn] r124 - trunk/tools/pkg_add</H1>
+    <B>zxombie at BerliOS</B> 
+    <A HREF="mailto:libpkg-svn%40lists.berlios.de?Subject=Re%3A%20%5BLibpkg-svn%5D%20r124%20-%20trunk/tools/pkg_add&In-Reply-To=%3C200606221224.k5MCO6WS018304%40sheep.berlios.de%3E"
+       TITLE="[Libpkg-svn] r124 - trunk/tools/pkg_add">zxombie at berlios.de
+       </A><BR>
+    <I>Thu Jun 22 14:24:06 CEST 2006</I>
+    <P><UL>
+        
+        <LI>Next message: <A HREF="000109.html">[Libpkg-svn] r125 - trunk/tools/pkg_info
+</A></li>
+         <LI> <B>Messages sorted by:</B> 
+              <a href="date.html#108">[ date ]</a>
+              <a href="thread.html#108">[ thread ]</a>
+              <a href="subject.html#108">[ subject ]</a>
+              <a href="author.html#108">[ author ]</a>
+         </LI>
+       </UL>
+    <HR>  
+<!--beginarticle-->
+<PRE>Author: zxombie
+Date: 2006-06-22 14:24:04 +0200 (Thu, 22 Jun 2006)
+New Revision: 124
+
+Modified:
+   trunk/tools/pkg_add/main.c
+Log:
+Fix a typo
+Add comments on what should be happening
+
+
+Modified: trunk/tools/pkg_add/main.c
+===================================================================
+--- trunk/tools/pkg_add/main.c	2006-05-03 05:42:38 UTC (rev 123)
++++ trunk/tools/pkg_add/main.c	2006-06-22 12:24:04 UTC (rev 124)
+@@ -217,7 +217,7 @@
+ }
+ 
+ /*
+- * Recursivley install the required packages
++ * Recursively install the required packages
+  */
+ static int
+ install_package(struct pkg *pkg, struct pkg_repo *repo, struct pkg_db *db,
+@@ -275,7 +275,9 @@
+ 	pkg_list_free(deps);
+ 
+ 	ret = -1;
++	/* Install the package */
+ 	if ((flags &amp; verbosity_flag) == verbosity_flag) {
++		/* Install with a verbose output */
+ 		printf(&quot;extract: Package name is %s\n&quot;, pkg_get_name(pkg));
+ 		ret = pkg_db_install_pkg_action(db, pkg,
+ 		    ((flags &amp; no_record_install_flag)!= no_record_install_flag),
+
+
+</PRE>
+
+<!--endarticle-->
+    <HR>
+    <P><UL>
+        <!--threads-->
+	
+	<LI>Next message: <A HREF="000109.html">[Libpkg-svn] r125 - trunk/tools/pkg_info
+</A></li>
+         <LI> <B>Messages sorted by:</B> 
+              <a href="date.html#108">[ date ]</a>
+              <a href="thread.html#108">[ thread ]</a>
+              <a href="subject.html#108">[ subject ]</a>
+              <a href="author.html#108">[ author ]</a>
+         </LI>
+       </UL>
+
+<hr>
+<a href="https://lists.berlios.de/mailman/listinfo/libpkg-svn">More information about the Libpkg-svn
+mailing list</a><br>
+</body></html>

@@ -1,0 +1,239 @@
+<!DOCTYPE HTML PUBLIC "-//W3C//DTD HTML 4.01 Transitional//EN">
+<HTML>
+ <HEAD>
+   <TITLE> [Libpkg-svn] r74 - trunk/src
+   </TITLE>
+   <LINK REL="Index" HREF="http://lists.berlios.de/pipermail/libpkg-svn/2006-March/index.html" >
+   <LINK REL="made" HREF="mailto:libpkg-svn%40lists.berlios.de?Subject=Re%3A%20%5BLibpkg-svn%5D%20r74%20-%20trunk/src&In-Reply-To=%3C200603140612.k2E6Cksw022143%40sheep.berlios.de%3E">
+   <META NAME="robots" CONTENT="index,nofollow">
+   <style type="text/css">
+       pre {
+           white-space: pre-wrap;       /* css-2.1, curent FF, Opera, Safari */
+           }
+   </style>
+   <META http-equiv="Content-Type" content="text/html; charset=us-ascii">
+   
+   <LINK REL="Next"  HREF="000060.html">
+ </HEAD>
+ <BODY BGCOLOR="#ffffff">
+   <H1>[Libpkg-svn] r74 - trunk/src</H1>
+    <B>zxombie at BerliOS</B> 
+    <A HREF="mailto:libpkg-svn%40lists.berlios.de?Subject=Re%3A%20%5BLibpkg-svn%5D%20r74%20-%20trunk/src&In-Reply-To=%3C200603140612.k2E6Cksw022143%40sheep.berlios.de%3E"
+       TITLE="[Libpkg-svn] r74 - trunk/src">zxombie at berlios.de
+       </A><BR>
+    <I>Tue Mar 14 07:12:46 CET 2006</I>
+    <P><UL>
+        
+        <LI>Next message: <A HREF="000060.html">[Libpkg-svn] r75 - trunk/src
+</A></li>
+         <LI> <B>Messages sorted by:</B> 
+              <a href="date.html#59">[ date ]</a>
+              <a href="thread.html#59">[ thread ]</a>
+              <a href="subject.html#59">[ subject ]</a>
+              <a href="author.html#59">[ author ]</a>
+         </LI>
+       </UL>
+    <HR>  
+<!--beginarticle-->
+<PRE>Author: zxombie
+Date: 2006-03-14 07:12:36 +0100 (Tue, 14 Mar 2006)
+New Revision: 74
+
+Modified:
+   trunk/src/pkg_db.c
+   trunk/src/pkg_db.h
+   trunk/src/pkg_db_freebsd.c
+   trunk/src/pkg_db_private.h
+Log:
+Add support for communication from the package database to the user
+
+
+Modified: trunk/src/pkg_db.c
+===================================================================
+--- trunk/src/pkg_db.c	2006-02-23 09:50:52 UTC (rev 73)
++++ trunk/src/pkg_db.c	2006-03-14 06:12:36 UTC (rev 74)
+@@ -96,6 +96,16 @@
+ int
+ pkg_db_install_pkg(struct pkg_db *db, struct pkg *pkg)
+ {
++	return pkg_db_install_pkg_action(db, pkg, NULL);
++}
++
++/*
++ * Install a given package to the database with a given action
++ */
++int
++pkg_db_install_pkg_action(struct pkg_db *db, struct pkg *pkg,
++    pkg_db_action *action)
++{
+ 	if (!db) {
+ 		return -1;
+ 	}
+@@ -108,7 +118,7 @@
+ 		return -1;
+ 	}
+ 
+-	return db-&gt;pkg_install(db, pkg);
++	return db-&gt;pkg_install(db, pkg, action);
+ }
+ 
+ /*
+
+Modified: trunk/src/pkg_db.h
+===================================================================
+--- trunk/src/pkg_db.h	2006-02-23 09:50:52 UTC (rev 73)
++++ trunk/src/pkg_db.h	2006-03-14 06:12:36 UTC (rev 74)
+@@ -42,8 +42,15 @@
+  */
+ typedef		  int pkg_db_match(struct pkg *, const void *);
+ 
++#define PKG_DB_ERROR	1 /* Error messages */
++#define PKG_DB_INFO	2 /* General info */
++#define PKG_DB_PACKAGE	3 /* Specific info from the package */
++typedef		  void pkg_db_action(int, const char *, ...);
++
+ struct pkg_db	 *pkg_db_open_freebsd(const char *);
+ int		  pkg_db_install_pkg(struct pkg_db *, struct pkg *);
++int		  pkg_db_install_pkg_action(struct pkg_db *, struct pkg *,
++			pkg_db_action *);
+ int		  pkg_db_is_installed(struct pkg_db *, struct pkg *);
+ struct pkg	**pkg_db_get_installed(struct pkg_db *);
+ struct pkg	**pkg_db_get_installed_match(struct pkg_db *, pkg_db_match *,
+
+Modified: trunk/src/pkg_db_freebsd.c
+===================================================================
+--- trunk/src/pkg_db_freebsd.c	2006-02-23 09:50:52 UTC (rev 73)
++++ trunk/src/pkg_db_freebsd.c	2006-03-14 06:12:36 UTC (rev 74)
+@@ -62,7 +62,8 @@
+ 	{ -1, -1, -1, -1, -1,  6, -1, -1, -1, -1, -1, -1 }  /* p6 */
+ };
+ 
+-static int		  freebsd_install_pkg(struct pkg_db *, struct pkg *);
++static int		  freebsd_install_pkg_action(struct pkg_db *,
++				struct pkg *, pkg_db_action *);
+ static int		  freebsd_is_installed(struct pkg_db *, struct pkg *);
+ static struct pkg	**freebsd_get_installed_match(struct pkg_db *,
+ 				pkg_db_match *, const void *);
+@@ -81,15 +82,18 @@
+ struct pkg_db*
+ pkg_db_open_freebsd(const char *base)
+ {
+-	return pkg_db_open(base, freebsd_install_pkg, freebsd_is_installed,
+-	    freebsd_get_installed_match, freebsd_get_package);
++	return pkg_db_open(base, freebsd_install_pkg_action,
++	    freebsd_is_installed, freebsd_get_installed_match,
++	    freebsd_get_package);
+ }
+ 
+ /*
+  * Installs the package pkg to the database db
++ * Calls action on each action. This is used for verbose support.
+  */
+ static int
+-freebsd_install_pkg(struct pkg_db *db, struct pkg *pkg)
++freebsd_install_pkg_action(struct pkg_db *db, struct pkg *pkg,
++    pkg_db_action *pkg_action)
+ {
+ 	struct pkg_file	*contents_file;
+ 	struct pkg_file **control;
+@@ -120,6 +124,10 @@
+ 		return -1;
+ 	}
+ 
++	if (pkg_action != NULL)
++		pkg_action(PKG_DB_PACKAGE, &quot;Package name is %s&quot;,
++		    pkg_get_name(pkg));
++
+ 	cwd = getcwd(NULL, 0);
+ 	if (!cwd) {
+ 		pkg_freebsd_contents_free(contents);
+@@ -158,6 +166,9 @@
+ 				pkg_freebsd_contents_free(contents);
+ 				return -1;
+ 			}
++			if (pkg_action != NULL)
++				pkg_action(PKG_DB_PACKAGE, &quot;CWD to %s&quot;,
++				    contents-&gt;lines[line].data);
+ 			directory = getcwd(NULL, 0);
+ 			break;
+ 		case PKG_LINE_EXEC: {
+@@ -165,6 +176,8 @@
+ 			freebsd_format_cmd(cmd, FILENAME_MAX,
+ 			    contents-&gt;lines[line].data, directory, last_file);
+ 			printf(&quot;exec %s\n&quot;, cmd);
++			if (pkg_action != NULL)
++				pkg_action(PKG_DB_PACKAGE, &quot;execute '%s'&quot;, cmd);
+ 			break;
+ 		}
+ 		case PKG_LINE_FILE: {
+@@ -217,6 +230,9 @@
+ 					pkg_freebsd_contents_free(contents);
+ 					return -1;
+ 				}
++				if (pkg_action != NULL)
++					pkg_action(PKG_DB_PACKAGE, &quot;%s/%s&quot;,
++					    directory, pkg_file_get_name(file));
+ 			}
+ 
+ 			contents_sum = strchr(contents-&gt;lines[line+1].data,
+@@ -268,6 +284,22 @@
+ 	pkg_file_write(contents_file);
+ 	pkg_file_free(contents_file);
+ 
++	if (pkg_action != NULL)
++		pkg_action(PKG_DB_INFO, &quot;Running mtree for %s..&quot;,
++		    pkg_get_name(pkg));
++	/* XXX Run mtree: mtree -U -f +MTREE_DIRS -d -e -p $PREFIX &gt;/dev/null */
++	
++	if (pkg_action != NULL)
++		pkg_action(PKG_DB_INFO,
++		    &quot;Attempting to record package into /var/db/pkg/%s..&quot;,
++		    pkg_get_name(pkg));
++
++	/* XXX Register the reverse dependencies */
++	if (pkg_action != NULL)
++		pkg_action(PKG_DB_INFO,
++		    &quot;Package %s registered in /var/db/pkg/%s&quot;,
++		    pkg_get_name(pkg), pkg_get_name(pkg));
++
+ 	free(directory);
+ 	if (last_file)
+ 		free(last_file);
+
+Modified: trunk/src/pkg_db_private.h
+===================================================================
+--- trunk/src/pkg_db_private.h	2006-02-23 09:50:52 UTC (rev 73)
++++ trunk/src/pkg_db_private.h	2006-03-14 06:12:36 UTC (rev 74)
+@@ -30,7 +30,8 @@
+ #ifndef __LIBPKG_PKG_DB_PRIVATE_H__
+ #define __LIBPKG_PKG_DB_PRIVATE_H__
+ 
+-typedef int	 pkg_db_install_pkg_callback(struct pkg_db *, struct pkg *);
++typedef int	 pkg_db_install_pkg_callback(struct pkg_db *, struct pkg *,
++			pkg_db_action *);
+ typedef int 	 pkg_db_is_installed_callback(struct pkg_db *, struct pkg *);
+ typedef struct pkg	 *pkg_db_get_package_callback(struct pkg_db *,
+ 				const char *);
+
+
+</PRE>
+
+<!--endarticle-->
+    <HR>
+    <P><UL>
+        <!--threads-->
+	
+	<LI>Next message: <A HREF="000060.html">[Libpkg-svn] r75 - trunk/src
+</A></li>
+         <LI> <B>Messages sorted by:</B> 
+              <a href="date.html#59">[ date ]</a>
+              <a href="thread.html#59">[ thread ]</a>
+              <a href="subject.html#59">[ subject ]</a>
+              <a href="author.html#59">[ author ]</a>
+         </LI>
+       </UL>
+
+<hr>
+<a href="https://lists.berlios.de/mailman/listinfo/libpkg-svn">More information about the Libpkg-svn
+mailing list</a><br>
+</body></html>

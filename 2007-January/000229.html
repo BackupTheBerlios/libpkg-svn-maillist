@@ -1,0 +1,244 @@
+<!DOCTYPE HTML PUBLIC "-//W3C//DTD HTML 4.01 Transitional//EN">
+<HTML>
+ <HEAD>
+   <TITLE> [Libpkg-svn] r245 - trunk/src
+   </TITLE>
+   <LINK REL="Index" HREF="http://lists.berlios.de/pipermail/libpkg-svn/2007-January/index.html" >
+   <LINK REL="made" HREF="mailto:libpkg-svn%40lists.berlios.de?Subject=Re%3A%20%5BLibpkg-svn%5D%20r245%20-%20trunk/src&In-Reply-To=%3C200701150452.l0F4qFwa018014%40sheep.berlios.de%3E">
+   <META NAME="robots" CONTENT="index,nofollow">
+   <style type="text/css">
+       pre {
+           white-space: pre-wrap;       /* css-2.1, curent FF, Opera, Safari */
+           }
+   </style>
+   <META http-equiv="Content-Type" content="text/html; charset=us-ascii">
+   <LINK REL="Previous"  HREF="000228.html">
+   <LINK REL="Next"  HREF="000230.html">
+ </HEAD>
+ <BODY BGCOLOR="#ffffff">
+   <H1>[Libpkg-svn] r245 - trunk/src</H1>
+    <B>zxombie at BerliOS</B> 
+    <A HREF="mailto:libpkg-svn%40lists.berlios.de?Subject=Re%3A%20%5BLibpkg-svn%5D%20r245%20-%20trunk/src&In-Reply-To=%3C200701150452.l0F4qFwa018014%40sheep.berlios.de%3E"
+       TITLE="[Libpkg-svn] r245 - trunk/src">zxombie at mail.berlios.de
+       </A><BR>
+    <I>Mon Jan 15 05:52:15 CET 2007</I>
+    <P><UL>
+        <LI>Previous message: <A HREF="000228.html">[Libpkg-svn] r244 - trunk/src
+</A></li>
+        <LI>Next message: <A HREF="000230.html">[Libpkg-svn] r246 - trunk/tools/pkg_add
+</A></li>
+         <LI> <B>Messages sorted by:</B> 
+              <a href="date.html#229">[ date ]</a>
+              <a href="thread.html#229">[ thread ]</a>
+              <a href="subject.html#229">[ subject ]</a>
+              <a href="author.html#229">[ author ]</a>
+         </LI>
+       </UL>
+    <HR>  
+<!--beginarticle-->
+<PRE>Author: zxombie
+Date: 2007-01-15 05:52:14 +0100 (Mon, 15 Jan 2007)
+New Revision: 245
+
+Modified:
+   trunk/src/pkg_db_freebsd.c
+   trunk/src/pkg_freebsd.c
+Log:
+Fix installation
+
+
+Modified: trunk/src/pkg_db_freebsd.c
+===================================================================
+--- trunk/src/pkg_db_freebsd.c	2007-01-15 04:46:28 UTC (rev 244)
++++ trunk/src/pkg_db_freebsd.c	2007-01-15 04:52:14 UTC (rev 245)
+@@ -35,6 +35,7 @@
+ #include &lt;dirent.h&gt;
+ #include &lt;errno.h&gt;
+ #include &lt;fcntl.h&gt;
++#include &lt;libgen.h&gt;
+ #include &lt;stdio.h&gt;
+ #include &lt;stdlib.h&gt;
+ #include &lt;string.h&gt;
+@@ -50,6 +51,7 @@
+ 
+ struct pkg_install_data {
+ 	int fake;
++	int empty_dirs;		/* Used in the removal of files */
+ 	struct pkg_db *db;
+ 	const char *last_dir;
+ 	char last_file[FILENAME_MAX];
+@@ -291,7 +293,7 @@
+ 	if (pkg_get_origin(pkg) != NULL) {
+ 		pkgs = freebsd_get_installed_match(db, pkg_match_by_origin,
+ 		    0, (const void *)pkg_get_origin(pkg));
+-		if (pkgs[0] != NULL)
++		if (pkgs != NULL &amp;&amp; pkgs[0] != NULL)
+ 			is_installed = 0;
+ 		pkg_list_free(pkgs);
+ 	}
+@@ -392,8 +394,6 @@
+ 	assert(db != NULL);
+ 	assert(the_pkg != NULL);
+ 
+-	assert(clean_dirs == 0);
+-
+ 	/* Get the real package. The one supplyed may be an empty one */
+ 	/** @todo Check if the package suplyed is a valid package or not */
+ 	real_pkg = freebsd_get_package(db, pkg_get_name(the_pkg));
+@@ -502,6 +502,7 @@
+ 	/* Do the deinstall */
+ 	deinstall_data.db = db;
+ 	deinstall_data.fake = fake;
++	deinstall_data.empty_dirs = clean_dirs;
+ 	deinstall_data.last_dir = NULL;
+ 	deinstall_data.last_file[0] = '\0';
+ 	deinstall_data.directory[0] = '\0';
+@@ -608,8 +609,7 @@
+ 	snprintf(install_data-&gt;last_file, FILENAME_MAX, &quot;%s&quot;,
+ 	    pkgfile_get_name(file));
+ 
+-	pkg_action(PKG_DB_PACKAGE, &quot;%s/%s&quot;, install_data-&gt;directory,
+-	    pkgfile_get_name(file));
++	pkg_action(PKG_DB_PACKAGE, &quot;%s&quot;, pkgfile_get_name(file));
+ 	if (!install_data-&gt;fake)
+ 		return pkgfile_write(file);
+ 	return 0;
+@@ -641,11 +641,16 @@
+ 	if (install_data-&gt;fake) {
+ 		return 0;
+ 	} else {
+-		return pkgfile_unlink(file);
++		if (pkgfile_unlink(file) != 0)
++			return -1;
++		if (install_data-&gt;empty_dirs)
++			if (pkg_dir_clean(dirname(pkgfile_get_name(file))) != 0)
++				return -1;
++		return 0;
+ 	}
+ }
+ /**
+- * @brief The do_chdir callback of pkg_install() for the FreeBSD package
++ * @brief The db_exec callback of pkg_install() for the FreeBSD package
+  *     database
+  * @return 0 on success or -1 on error
+  */
+@@ -687,6 +692,7 @@
+ 	struct pkg_install_data *install_data;
+ 	struct pkg_db *db;
+ 	struct pkg **deps;
++	char dir[PATH_MAX], *real_dir;
+ 
+ 	assert(pkg != NULL);
+ 	assert(pkg_action != NULL);
+@@ -697,9 +703,17 @@
+ 	assert(install_data-&gt;db);
+ 	db = install_data-&gt;db;
+ 
+-	pkg_action(PKG_DB_INFO,
+-	    &quot;Attempting to record package into &quot; DB_LOCATION &quot;/%s..&quot;,
++	snprintf(dir, PATH_MAX, DB_LOCATION &quot;%s/%s&quot;, db-&gt;db_base,
+ 	    pkg_get_name(pkg));
++
++	real_dir = pkg_abspath(dir);
++	if (real_dir == NULL)
++		real_dir = dir;
++
++	pkg_action(PKG_DB_INFO, &quot;Attempting to record package into %s..&quot;,
++	    real_dir);
++
++	pkg_dir_build(real_dir, 0755);
+ 	for (pos = 0; control[pos] != NULL; pos++) {
+ 		freebsd_install_file(pkg, pkg_action, data, control[pos]);
+ 	}
+@@ -725,9 +739,13 @@
+ 	}
+ 	pkg_list_free(deps);
+ 	
+-	pkg_action(PKG_DB_INFO, &quot;Package %s registered in %s&quot; DB_LOCATION
+-	    &quot;/%s&quot;, pkg_get_name(pkg), db-&gt;db_base, pkg_get_name(pkg));
+-	return -1;
++	pkg_action(PKG_DB_INFO, &quot;Package %s registered in %s&quot;,
++	    pkg_get_name(pkg), real_dir);
++
++	if (real_dir != NULL &amp;&amp; real_dir != dir)
++		free(real_dir);
++
++	return 0;
+ }
+ 
+ /**
+
+Modified: trunk/src/pkg_freebsd.c
+===================================================================
+--- trunk/src/pkg_freebsd.c	2007-01-15 04:46:28 UTC (rev 244)
++++ trunk/src/pkg_freebsd.c	2007-01-15 04:52:14 UTC (rev 245)
+@@ -67,7 +67,7 @@
+ 				pkg_db_exec *, pkg_db_register *);
+ static struct pkg	**freebsd_get_deps(struct pkg *);
+ static struct pkg	**freebsd_get_rdeps(struct pkg *);
+-static int		  freebsd_run_script(struct pkg *, const char *,
++static int		  freebsd_run_script(struct pkg *,const char *,
+ 				pkg_script);
+ static int		  freebsd_free(struct pkg *);
+ 
+@@ -456,7 +456,7 @@
+ 	struct pkgfile **control;
+ 	struct pkgfile *contents_file;
+ 	struct pkg_freebsd_contents *contents;
+-	const char *file_data;
++	const char *file_data, *cwd;
+ 	int chdir_first = 1;
+ 	int only_control_files = 0;
+ 
+@@ -469,6 +469,7 @@
+ 
+ 	ret = -1;
+ 	contents = NULL;
++	cwd = NULL;
+ 
+ 	/* Get the control files from the package */
+ 	control = pkg_get_control_files(pkg);
+@@ -531,8 +532,10 @@
+ 					dir = contents-&gt;lines[pos].data;
+ 				chdir_first = 0;
+ 			}
+-			if (dir != NULL)
++			if (dir != NULL) {
++				cwd = dir;
+ 				db_chdir(pkg, pkg_action, data, dir);
++			}
+ 
+ 
+ 			break;
+@@ -570,6 +573,7 @@
+ 				pkgfile_set_checksum_md5(file, p);
+ 				if (pkgfile_compare_checksum_md5(file) == 0) {
+ 					if (!ignore) {
++						pkgfile_set_cwd(file, cwd);
+ 						install_file(pkg, pkg_action,
+ 						    data, file);
+ 					}
+
+
+</PRE>
+
+<!--endarticle-->
+    <HR>
+    <P><UL>
+        <!--threads-->
+	<LI>Previous message: <A HREF="000228.html">[Libpkg-svn] r244 - trunk/src
+</A></li>
+	<LI>Next message: <A HREF="000230.html">[Libpkg-svn] r246 - trunk/tools/pkg_add
+</A></li>
+         <LI> <B>Messages sorted by:</B> 
+              <a href="date.html#229">[ date ]</a>
+              <a href="thread.html#229">[ thread ]</a>
+              <a href="subject.html#229">[ subject ]</a>
+              <a href="author.html#229">[ author ]</a>
+         </LI>
+       </UL>
+
+<hr>
+<a href="https://lists.berlios.de/mailman/listinfo/libpkg-svn">More information about the Libpkg-svn
+mailing list</a><br>
+</body></html>

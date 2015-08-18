@@ -1,0 +1,1733 @@
+From zxombie at mail.berlios.de  Sun Oct  8 00:39:34 2006
+From: zxombie at mail.berlios.de (zxombie at BerliOS)
+Date: Sun, 8 Oct 2006 00:39:34 +0200
+Subject: [Libpkg-svn] r202 - trunk/tests
+Message-ID: <200610072239.k97MdYxX018252@sheep.berlios.de>
+
+Author: zxombie
+Date: 2006-10-08 00:39:32 +0200 (Sun, 08 Oct 2006)
+New Revision: 202
+
+Modified:
+   trunk/tests/pkgfile.c
+Log:
+Add tests for files for pkgfile_set_mode, pkgfile_seek and pkgfile_unlink
+Add a test to make sure pkgfile_compare_checksum_md5 fails when no md5 has been set
+Add tests to check if functions that should fail on symlinks do 
+Add a new test pkgfile_misc_bad_args to test functions fail with bad data
+
+
+Modified: trunk/tests/pkgfile.c
+===================================================================
+--- trunk/tests/pkgfile.c	2006-09-28 06:08:36 UTC (rev 201)
++++ trunk/tests/pkgfile.c	2006-10-07 22:39:32 UTC (rev 202)
+@@ -64,11 +64,24 @@
+ 			    NULL);
+ 		}
+ 	}
++
++	/* Test setting the file's mode */
++	fail_unless(pkgfile_set_mode(file, 100) == 0, NULL);
++	fail_unless(file->mode == (100 & ALLPERMS), NULL);
++	/* Reset it for later operations */
++	fail_unless(pkgfile_set_mode(file, 0) == 0, NULL);
++
++	/* This shouldn't make any sence on a file in memory */
++	fail_unless(pkgfile_seek(file, 0, SEEK_SET) == -1, NULL);
++	fail_unless(pkgfile_unlink(file) == -1, NULL);
+ }
+ 
+ static void
+ test_checksums(struct pkgfile *file, const char *md5)
+ {
++	/* Check if it fails with no md5 set */
++	fail_unless(pkgfile_compare_checksum_md5(file) == -1, NULL);
++
+ 	fail_unless(strlen(md5) == 32, NULL);
+ 	fail_unless(pkgfile_set_checksum_md5(file, md5) == 0, NULL);
+ 	fail_unless(strcmp(file->md5, md5) == 0, NULL);
+@@ -397,6 +410,11 @@
+ 	system("rm " BASIC_FILE);
+ 	CLEANUP_TESTDIR();
+ 
++	fail_unless(pkgfile_append(file, "1234567890", 10) == -1, NULL);
++	fail_unless(pkgfile_remove_line(file, "1234567890") == -1, NULL);
++	fail_unless(pkgfile_seek(file, 0, SEEK_SET) == -1, NULL);
++	fail_unless(pkgfile_unlink(file) == -1, NULL);
++
+ 	fail_unless(pkgfile_free(file) == 0, NULL);
+ }
+ END_TEST
+@@ -618,22 +636,43 @@
+ }
+ END_TEST
+ 
++START_TEST(pkgfile_misc_bad_args)
++{
++	fail_unless(pkgfile_get_size(NULL) == 0, NULL);
++	fail_unless(pkgfile_get_data(NULL) == NULL, NULL);
++	fail_unless(pkgfile_set_checksum_md5(NULL, NULL) == -1, NULL);
++	fail_unless(pkgfile_set_checksum_md5(NULL, "1234567890123456789012") == -1, NULL);
++	fail_unless(pkgfile_compare_checksum_md5(NULL) == -1, NULL);
++	fail_unless(pkgfile_unlink(NULL) == -1, NULL);
++	fail_unless(pkgfile_seek(NULL, 0, SEEK_SET) == -1, NULL);
++	fail_unless(pkgfile_set_mode(NULL, 1) == -1, NULL);
++	fail_unless(pkgfile_remove_line(NULL, NULL) == -1, NULL);
++	fail_unless(pkgfile_remove_line(NULL, "") == -1, NULL);
++	fail_unless(pkgfile_append(NULL, NULL, 0) == -1, NULL);
++	fail_unless(pkgfile_append(NULL, "1234567890", 10) == -1, NULL);
++	fail_unless(pkgfile_write(NULL) == -1, NULL);
++	fail_unless(pkgfile_free(NULL) == -1, NULL);
++}
++END_TEST
++
+ Suite *
+ pkgfile_suite()
+ {
+ 	Suite *s;
+-	TCase *tc_regular, *tc_symlink, *tc_hardlink, *tc_dir;
++	TCase *tc_regular, *tc_symlink, *tc_hardlink, *tc_dir, *tc_misc;
+ 
+ 	s = suite_create("pkgfile");
+ 	tc_regular = tcase_create("regular");
+ 	tc_symlink = tcase_create("symlink");
+ 	tc_hardlink = tcase_create("hardlink");
+ 	tc_dir = tcase_create("directory");
++	tc_misc = tcase_create("misc");
+ 
+ 	suite_add_tcase(s, tc_regular);
+ 	suite_add_tcase(s, tc_symlink);
+ 	suite_add_tcase(s, tc_hardlink);
+ 	suite_add_tcase(s, tc_dir);
++	suite_add_tcase(s, tc_misc);
+ 
+ 	tcase_add_test(tc_regular, pkgfile_regular_bad_test);
+ 	tcase_add_test(tc_regular, pkgfile_regular_empty_test);
+@@ -657,5 +696,7 @@
+ 	tcase_add_test(tc_dir, pkgfile_directory_existing_test);
+ 	tcase_add_test(tc_dir, pkgfile_directory_depth_test);
+ 
++	tcase_add_test(tc_misc, pkgfile_misc_bad_args);
++
+ 	return s;
+ }
+
+
+
+From zxombie at mail.berlios.de  Sat Oct 14 06:43:11 2006
+From: zxombie at mail.berlios.de (zxombie at BerliOS)
+Date: Sat, 14 Oct 2006 06:43:11 +0200
+Subject: [Libpkg-svn] r203 - trunk/src
+Message-ID: <200610140443.k9E4hBta014059@sheep.berlios.de>
+
+Author: zxombie
+Date: 2006-10-14 06:43:10 +0200 (Sat, 14 Oct 2006)
+New Revision: 203
+
+Removed:
+   trunk/src/libpkg.3
+   trunk/src/pkg.3
+   trunk/src/pkg_db.3
+   trunk/src/pkg_repo.3
+Modified:
+   trunk/src/Makefile
+Log:
+Remove the man pages ad they are out of date.
+
+
+Modified: trunk/src/Makefile
+===================================================================
+--- trunk/src/Makefile	2006-10-07 22:39:32 UTC (rev 202)
++++ trunk/src/Makefile	2006-10-14 04:43:10 UTC (rev 203)
+@@ -23,8 +23,6 @@
+ 
+ INC		 = pkg.h
+ 
+-MAN		 = libpkg.3 pkg.3 pkg_repo.3 pkg_db.3
+-
+ CFLAGS		+= -O0
+ DEBUG_FLAGS	= -ggdb
+ WARNS		?= 6
+
+Deleted: trunk/src/libpkg.3
+===================================================================
+--- trunk/src/libpkg.3	2006-10-07 22:39:32 UTC (rev 202)
++++ trunk/src/libpkg.3	2006-10-14 04:43:10 UTC (rev 203)
+@@ -1,71 +0,0 @@
+-.\" Copyright (c) 2003 Tim Kientzle
+-.\" Copyright (c) 2005 Andrew Turner
+-.\" All rights reserved.
+-.\"
+-.\" Redistribution and use in source and binary forms, with or without
+-.\" modification, are permitted provided that the following conditions
+-.\" are met:
+-.\" 1. Redistributions of source code must retain the above copyright
+-.\"    notice, this list of conditions and the following disclaimer.
+-.\" 2. Redistributions in binary form must reproduce the above copyright
+-.\"    notice, this list of conditions and the following disclaimer in the
+-.\"    documentation and/or other materials provided with the distribution.
+-.\"
+-.\" THIS SOFTWARE IS PROVIDED BY THE AUTHOR AND CONTRIBUTORS ``AS IS'' AND
+-.\" ANY EXPRESS OR IMPLIED WARRANTIES, INCLUDING, BUT NOT LIMITED TO, THE
+-.\" IMPLIED WARRANTIES OF MERCHANTABILITY AND FITNESS FOR A PARTICULAR PURPOSE
+-.\" ARE DISCLAIMED.  IN NO EVENT SHALL THE AUTHOR OR CONTRIBUTORS BE LIABLE
+-.\" FOR ANY DIRECT, INDIRECT, INCIDENTAL, SPECIAL, EXEMPLARY, OR CONSEQUENTIAL
+-.\" DAMAGES (INCLUDING, BUT NOT LIMITED TO, PROCUREMENT OF SUBSTITUTE GOODS
+-.\" OR SERVICES; LOSS OF USE, DATA, OR PROFITS; OR BUSINESS INTERRUPTION)
+-.\" HOWEVER CAUSED AND ON ANY THEORY OF LIABILITY, WHETHER IN CONTRACT, STRICT
+-.\" LIABILITY, OR TORT (INCLUDING NEGLIGENCE OR OTHERWISE) ARISING IN ANY WAY
+-.\" OUT OF THE USE OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF
+-.\" SUCH DAMAGE.
+-.\"
+-.\" $FreeBSD$
+-.\"
+-.Dd September 25, 2005
+-.Dt libpkg 3
+-.Os
+-.Sh NAME
+-.Nm libpkg
+-.Nd library for managing binary packages
+-.Sh LIBRARY
+-.Lb libpkg
+-.Sh OVERVIEW
+-The library provides a set of APIs for locating package
+-files and managing installed packages.
+-There are three fundamental concepts:
+-.Bl -tag -compact -width indent
+-.It package object
+-A package object is a handle for an installable package.
+-You obtain a package object from either the package
+-repository or package database.
+-Changes made to an installed package object affect the
+-package on disk. For example, if you remove a file from the
+-package object, that causes the corresponding file to be
+-deleted from disk.
+-Packages from a repository can be installed to a given
+-database.
+-.It package database
+-A collection of information about installed packages.
+-In particular, you can ask the package database
+-for a list of all installed packages or the name of a package
+-containing a particular file.
+-.It package repository
+-A place where package files are stored.
+-This could be a directory, a CD-ROM, or a remote FTP site.
+-Some package repositories can provide information
+-about package dependencies.
+-.El
+-Part of the goal is to remove the need for applications to
+-know anything about the internal details of these systems.
+-For example, the package database may be implemented as
+-a collection of files stored in directories, as a Berkeley
+-DB database file, or as a collection of tables in a relational
+-database.
+-.Sh SEE ALSO
+-.Xr pkg 3 ,
+-.Xr pkg_repo 3 ,
+-.Xr pkg_db 3
+
+Deleted: trunk/src/pkg.3
+===================================================================
+--- trunk/src/pkg.3	2006-10-07 22:39:32 UTC (rev 202)
++++ trunk/src/pkg.3	2006-10-14 04:43:10 UTC (rev 203)
+@@ -1,190 +0,0 @@
+-.\" Copyright (c) 2003 Tim Kientzle
+-.\" Copyright (c) 2005 Andrew Turner
+-.\" All rights reserved.
+-.\"
+-.\" Redistribution and use in source and binary forms, with or without
+-.\" modification, are permitted provided that the following conditions
+-.\" are met:
+-.\" 1. Redistributions of source code must retain the above copyright
+-.\"    notice, this list of conditions and the following disclaimer.
+-.\" 2. Redistributions in binary form must reproduce the above copyright
+-.\"    notice, this list of conditions and the following disclaimer in the
+-.\"    documentation and/or other materials provided with the distribution.
+-.\"
+-.\" THIS SOFTWARE IS PROVIDED BY THE AUTHOR AND CONTRIBUTORS ``AS IS'' AND
+-.\" ANY EXPRESS OR IMPLIED WARRANTIES, INCLUDING, BUT NOT LIMITED TO, THE
+-.\" IMPLIED WARRANTIES OF MERCHANTABILITY AND FITNESS FOR A PARTICULAR PURPOSE
+-.\" ARE DISCLAIMED.  IN NO EVENT SHALL THE AUTHOR OR CONTRIBUTORS BE LIABLE
+-.\" FOR ANY DIRECT, INDIRECT, INCIDENTAL, SPECIAL, EXEMPLARY, OR CONSEQUENTIAL
+-.\" DAMAGES (INCLUDING, BUT NOT LIMITED TO, PROCUREMENT OF SUBSTITUTE GOODS
+-.\" OR SERVICES; LOSS OF USE, DATA, OR PROFITS; OR BUSINESS INTERRUPTION)
+-.\" HOWEVER CAUSED AND ON ANY THEORY OF LIABILITY, WHETHER IN CONTRACT, STRICT
+-.\" LIABILITY, OR TORT (INCLUDING NEGLIGENCE OR OTHERWISE) ARISING IN ANY WAY
+-.\" OUT OF THE USE OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF
+-.\" SUCH DAMAGE.
+-.\"
+-.\" $FreeBSD$
+-.\"
+-.Dd September 25, 2005
+-.Dt libpkg 3
+-.Os
+-.Sh NAME
+-.Nm pkg_new_empty ,
+-.Nm pkg_new_freebsd_from_file ,
+-.Nm pkg_new_freebsd_installed ,
+-.Nm pkg_new_freebsd_empty ,
+-.Nm pkg_compare ,
+-.Nm pkg_get_control_files ,
+-.Nm pkg_get_control_file ,
+-.Nm pkg_get_dependencies ,
+-.Nm pkg_get_name ,
+-.Nm pkg_get_next_file ,
+-.Nm pkg_get_origin ,
+-.Nm pkg_get_version ,
+-.Nm pkg_add_dependency ,
+-.Nm pkg_add_file ,
+-.Nm pkg_list_free ,
+-.Nm pkg_free ,
+-.Nm pkg_file_new ,
+-.Nm pkg_file_new_from_buffer ,
+-.Nm pkg_file_write ,
+-.Nm pkg_file_get ,
+-.Nm pkg_file_get_name ,
+-.Nm pkg_file_free ,
+-.Nd functions for managing binary packages and their files
+-.Sh LIBRARY
+-.Lb libpkg
+-.Sh SYNOPSIS
+-.In pkg.h
+-.Ft struct pkg *
+-.Fn pkg_new_empty "const char *pkg_name"
+-.Ft struct pkg *
+-.Fn pkg_new_freebsd_from_file "FILE *fd"
+-.Ft struct pkg *
+-.Fn pkg_new_freebsd_installed "const char *pkg_name" "const char *pkg_db_dir"
+-.Ft struct pkg *
+-.Fn pkg_new_freebsd_empty "const char *pkg_name"
+-.Ft int
+-.Fn pkg_compare "const void *pkg_a" "const void *"
+-.Ft struct pkg_file **
+-.Fn pkg_get_control_files "struct pkg *pkg"
+-.Ft struct pkg_file *
+-.Fn pkg_get_control_file "struct pkg *pkg" "const char *pkg_name"
+-.Ft struct pkg_file **
+-.Fn pkg_get_dependencies "struct pkg *pkg"
+-.Ft char *
+-.Fn pkg_get_name "struct pkg *pkg"
+-.Ft struct pkg_file *
+-.Fn pkg_get_next_file "struct pkg *pkg"
+-.Ft char *
+-.Fn pkg_get_origin "struct pkg *pkg"
+-.Ft char *
+-.Fn pkg_get_version "struct pkg *pkg"
+-.Ft int
+-.Fn pkg_add_dependency "struct pkg *pkg" "struct pkg *depend"
+-.Ft int
+-.Fn pkg_add_file "struct pkg *pkg" "struct pkg_file *file"
+-.Ft int
+-.Fn pkg_list_free "struct pkg **pkgs"
+-.Ft int
+-.Fn pkg_free "struct pkg *pkg"
+-.Ft struct pkg_file *
+-.Fn pkg_file_new "const char *filename"
+-.Ft struct pkg_file *
+-.Fn pkg_file_new_from_buffer "const char *filename" "uint64_t length" "char *buffer" "const struct stat *sb"
+-.Ft int
+-.Fn pkg_file_write "strict pkg_file *file"
+-.Ft char *
+-.Fn pkg_file_get "struct pkg_file *file"
+-.Ft char *
+-.Fn pkg_file_get_name "struct pkg_file *file"
+-.Ft int
+-.Fn pkg_file_free "struct pkg_file *file"
+-.Sh DESCRIPTION
+-.Ss Package
+-A package is represented by a
+-.Tn struct pkg
+-which is normaly created by a Package Repository or
+-Package Database.
+-.Bl -tag -compact -width indent
+-.It Fn pkg_new_empty
+-Creates a new package with only the package name.
+-.It Fn pkg_new_freebsd_from_file
+-Creates a new package with callbacks to handle FreeBSD
+-packages version 1.1
+-.It Fn pkg_new_freebsd_installed
+-Creates a
+-.Tn struct pkg
+-from a given directory
+-.Vt pkg_db_dir
+-containing the package control files.
+-.It Fn pkg_new_freebsd_empty
+-Creates an empty FreeBSD package.
+-.It Fn pkg_compare
+-Helper function to be passed to qsort to sort packages by name.
+-.It Fn pkg_get_control_files
+-Returns all control files from the package.
+-Eg. The `+' files in /var/db/pkg/package/ from FreeBSD Packages.
+-.It Fn pkg_get_control_file
+-Returns a given control file from the package.
+-.It Fn pkg_get_dependencies
+-Returns an array of pointers to
+-.Vt pkg
+-objects of packages that the current package depends on.
+-The package objects are almost empty with just the name set so need to be retrieced from a repository with
+-.Xr pkg_repo_find_pkg 3 .
+-.It Fn pkg_get_name
+-Returns the name of a package
+-.Vt pkg .
+-.It Fn pkg_get_next_file
+-Gets the next non-control file from the package.
+-.It Fn pkg_get_origin
+-Gets the packages origin or NULL if it has none.
+-.It Fn pkg_get_version
+-Return a string containg the package format version.
+-.It Fn pkg_add_dependency
+-Adds a dependency to the package.
+-.It Fn pkg_add_file
+-Add a file to a package.
+-.It Fn pkg_list_free
+-Frees a NULL terminated array of packages.
+-.It Fn pkg_free
+-Frees all allocated space from a package and calls the
+-package free callback.
+-.El
+-.Ss Package File
+-The
+-.Tn struct pkg_file
+-containes one file.
+-It can be installed or processed further.
+-.Bl -tag -compact -width indent
+-.It Fn pkg_file_new
+-Creates a 
+-.Tn struct pkg_file
+-from the file located at
+-.Vt filename .
+-.It Fn pkg_file_new_from_buffer
+-Creates a
+-.Tn struct pkg_file
+-from a NULL-terminated buffer. If
+-.Vt sb
+-is non-NULL it will use it to set the correct permisions on
+-the file.
+-.It Fn pkg_file_write
+-writes the file pointed to by
+-.Vt file
+-to the correct place relative to the current directory.
+-.It Fn pkg_file_get
+-Gets the contents of the file
+-.Vt file .
+-.It Fn pkg_file_get_name
+-Gets the name of the file stored in
+-.Vt file .
+-.It Fn pkg_file_free
+-Frees a
+-.Tn struct pkg_file .
+-.El
+-.Sh SEE ALSO
+-.Xr libpkg 3 ,
+-.Xr pkg_repo 3 ,
+-.Xr pkg_db 3
+
+Deleted: trunk/src/pkg_db.3
+===================================================================
+--- trunk/src/pkg_db.3	2006-10-07 22:39:32 UTC (rev 202)
++++ trunk/src/pkg_db.3	2006-10-14 04:43:10 UTC (rev 203)
+@@ -1,101 +0,0 @@
+-.\" Copyright (c) 2003 Tim Kientzle
+-.\" Copyright (c) 2005, 2006 Andrew Turner
+-.\" All rights reserved.
+-.\"
+-.\" Redistribution and use in source and binary forms, with or without
+-.\" modification, are permitted provided that the following conditions
+-.\" are met:
+-.\" 1. Redistributions of source code must retain the above copyright
+-.\"    notice, this list of conditions and the following disclaimer.
+-.\" 2. Redistributions in binary form must reproduce the above copyright
+-.\"    notice, this list of conditions and the following disclaimer in the
+-.\"    documentation and/or other materials provided with the distribution.
+-.\"
+-.\" THIS SOFTWARE IS PROVIDED BY THE AUTHOR AND CONTRIBUTORS ``AS IS'' AND
+-.\" ANY EXPRESS OR IMPLIED WARRANTIES, INCLUDING, BUT NOT LIMITED TO, THE
+-.\" IMPLIED WARRANTIES OF MERCHANTABILITY AND FITNESS FOR A PARTICULAR PURPOSE
+-.\" ARE DISCLAIMED.  IN NO EVENT SHALL THE AUTHOR OR CONTRIBUTORS BE LIABLE
+-.\" FOR ANY DIRECT, INDIRECT, INCIDENTAL, SPECIAL, EXEMPLARY, OR CONSEQUENTIAL
+-.\" DAMAGES (INCLUDING, BUT NOT LIMITED TO, PROCUREMENT OF SUBSTITUTE GOODS
+-.\" OR SERVICES; LOSS OF USE, DATA, OR PROFITS; OR BUSINESS INTERRUPTION)
+-.\" HOWEVER CAUSED AND ON ANY THEORY OF LIABILITY, WHETHER IN CONTRACT, STRICT
+-.\" LIABILITY, OR TORT (INCLUDING NEGLIGENCE OR OTHERWISE) ARISING IN ANY WAY
+-.\" OUT OF THE USE OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF
+-.\" SUCH DAMAGE.
+-.\"
+-.\" $FreeBSD$
+-.\"
+-.Dd September 25, 2005
+-.Dt libpkg 3
+-.Os
+-.Sh NAME
+-.Nm pkg_db_open_freebsd ,
+-.Nm pkg_db_install_pkg ,
+-.Nm pkg_db_is_installed ,
+-.Nm pkg_db_get_installed ,
+-.Nm pkg_db_get_installed_match ,
+-.Nm pkg_db_get_package ,
+-.Nm pkg_db_free ,
+-.Nm pkg_match_all ,
+-.Nd functions for installing packages
+-.Sh LIBRARY
+-.Lb libpkg
+-.Sh SYNOPSIS
+-.In pkg_db.h
+-.Ft struct pkg_db *
+-.Fn pkg_db_open_freebsd "const char *base"
+-.Ft int
+-.Fn pkg_db_install_pkg "struct pkg_db *db" "struct pkg *pkg"
+-.Ft int
+-.Fn pkg_db_is_installed "struct pkg_db *db" "const char *package"
+-.Ft struct pkg **
+-.Fn pkg_db_get_installed "struct pkg_db *db"
+-.Ft struct pkg **
+-.Fn pkg_db_get_installed_match "struct pkg_db *db" "pkg_db_match *match" "void *data"
+-.Ft struct pkg *
+-.Fn pkg_db_get_package "struct pkg_db *db" "const char *pkg_name"
+-.Ft int
+-.Fn pkg_db_free "struct pkg_db *db"
+-.Ft int
+-.Fn pkg_match_all "struct pkg *pkg" "void *data"
+-.Sh DESCRIPTION
+-The Package Database is a location where packages can be
+-installed to and retrieved from.
+-.Bl -tag -compact -width indent
+-.It Fn pkg_db_open_freebsd
+-Creates a
+-.Tn struct pkg_db
+-with callbacks to install a FreeBSD package to the
+-filesystem tree with it's root at
+-.Vt base .
+-.It Fn pkg_db_install_pkg
+-Runs the package install callback to install a package.
+-.It Fn pkg_db_is_installed
+-Checks if the named package is installed. Returns 0 if it
+-is installed, -1 otherwise.
+-.It Fn pkg_db_get_installed
+-Returns a NULL terminated array of all packages installed
+-in the database
+-.Vt db .
+-.It Fn pkg_db_get_installed_match
+-Returns a NULL terminated array of all packages that when
+-passed to the function
+-.Vt match
+-returns 0.
+-.It Fn pkg_db_get_package
+-Returns a package with the name
+-.Vt pkg_name
+-from the database
+-.Vt db .
+-.It Fn pkg_db_free
+-Frees the
+-.Tn struct pkg_db .
+-.It Fn pkg_match_all
+-A helper function to be passed to
+-.Fn pkg_db_get_installed_match
+-to match all packages installed on the system.
+-.El
+-.Sh SEE ALSO
+-.Xr libpkg 3 ,
+-.Xr pkg 3 ,
+-.Xr pkg_repo 3
+
+Deleted: trunk/src/pkg_repo.3
+===================================================================
+--- trunk/src/pkg_repo.3	2006-10-07 22:39:32 UTC (rev 202)
++++ trunk/src/pkg_repo.3	2006-10-14 04:43:10 UTC (rev 203)
+@@ -1,87 +0,0 @@
+-.\" Copyright (c) 2003 Tim Kientzle
+-.\" Copyright (c) 2005 Andrew Turner
+-.\" All rights reserved.
+-.\"
+-.\" Redistribution and use in source and binary forms, with or without
+-.\" modification, are permitted provided that the following conditions
+-.\" are met:
+-.\" 1. Redistributions of source code must retain the above copyright
+-.\"    notice, this list of conditions and the following disclaimer.
+-.\" 2. Redistributions in binary form must reproduce the above copyright
+-.\"    notice, this list of conditions and the following disclaimer in the
+-.\"    documentation and/or other materials provided with the distribution.
+-.\"
+-.\" THIS SOFTWARE IS PROVIDED BY THE AUTHOR AND CONTRIBUTORS ``AS IS'' AND
+-.\" ANY EXPRESS OR IMPLIED WARRANTIES, INCLUDING, BUT NOT LIMITED TO, THE
+-.\" IMPLIED WARRANTIES OF MERCHANTABILITY AND FITNESS FOR A PARTICULAR PURPOSE
+-.\" ARE DISCLAIMED.  IN NO EVENT SHALL THE AUTHOR OR CONTRIBUTORS BE LIABLE
+-.\" FOR ANY DIRECT, INDIRECT, INCIDENTAL, SPECIAL, EXEMPLARY, OR CONSEQUENTIAL
+-.\" DAMAGES (INCLUDING, BUT NOT LIMITED TO, PROCUREMENT OF SUBSTITUTE GOODS
+-.\" OR SERVICES; LOSS OF USE, DATA, OR PROFITS; OR BUSINESS INTERRUPTION)
+-.\" HOWEVER CAUSED AND ON ANY THEORY OF LIABILITY, WHETHER IN CONTRACT, STRICT
+-.\" LIABILITY, OR TORT (INCLUDING NEGLIGENCE OR OTHERWISE) ARISING IN ANY WAY
+-.\" OUT OF THE USE OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF
+-.\" SUCH DAMAGE.
+-.\"
+-.\" $FreeBSD$
+-.\"
+-.Dd September 25, 2005
+-.Dt libpkg 3
+-.Os
+-.Sh NAME
+-.Nm pkg_repo_new_files ,
+-.Nm pkg_repo_new_ftp ,
+-.Nm pkg_repo_get_pkg ,
+-.Nm pkg_repo_free ,
+-.Nd functions for communicating with a package repository
+-.Sh LIBRARY
+-.Lb libpkg
+-.Sh SYNOPSIS
+-.In pkg_repo.h
+-.Ft struct pkg_repo *
+-.Fn pkg_repo_new_files
+-.Ft struct pkg_repo *
+-.Fn pkg_repo_new_ftp "const char *site" "const char *path"
+-.Ft struct pkg *
+-.Fn pkg_repo_get_pkg "struct pkg_repo *repo" "const char *pkg_name"
+-.Ft int
+-.Fn pkg_repo_free "struct pkg_repo *repo"
+-.Sh DESCRIPTION
+-A Package Repository is a place where packages are stored
+-to be retrieved and installed.
+-The
+-.Tn struct pkg_repo
+-is the basic object to communicate with a package repository.
+-.Bl -tag -compact -width indent
+-.It Fn pkg_repo_new_files
+-Creates a new
+-.Tn struct pkg_repo
+-where the get_pkg callback will create a package from a file.
+-.It Fn pkg_repo_new_ftp
+-Created a new
+-.Tn struct pkg_repo
+-where the get_pkg callback will use
+-.Xr fetch 3
+-to download the package from a FreeBSD package respority on
+-an FTP site.
+-If the
+-.Vt site
+-argument is NULL it will use the ftp.freebsd.org site.
+-If the
+-.Vt path
+-argument is NULL it will attempt to determine the correct
+-path to use.
+-.It Fn pkg_repo_get_pkg
+-Retrieves the
+-.Tn struct pkg
+-with the name
+-.Vt pkg_name
+-from the repo.
+-.It Fn pkg_repo_free
+-Frees all allocated memory from the given
+-.Tn pkg_repo .
+-.El
+-.Sh SEE ALSO
+-.Xr libpkg 3 ,
+-.Xr pkg 3 ,
+-.Xr pkg_db 3
+
+
+
+From zxombie at mail.berlios.de  Wed Oct 25 09:47:42 2006
+From: zxombie at mail.berlios.de (zxombie at BerliOS)
+Date: Wed, 25 Oct 2006 09:47:42 +0200
+Subject: [Libpkg-svn] r204 - trunk/src
+Message-ID: <200610250747.k9P7lgcQ028376@sheep.berlios.de>
+
+Author: zxombie
+Date: 2006-10-25 09:47:42 +0200 (Wed, 25 Oct 2006)
+New Revision: 204
+
+Modified:
+   trunk/src/pkg.h
+   trunk/src/pkgfile.c
+Log:
+Add pkgfile_find_line to find a given line in a file
+
+
+Modified: trunk/src/pkg.h
+===================================================================
+--- trunk/src/pkg.h	2006-10-14 04:43:10 UTC (rev 203)
++++ trunk/src/pkg.h	2006-10-25 07:47:42 UTC (rev 204)
+@@ -60,6 +60,7 @@
+ int		 pkgfile_seek(struct pkgfile *, uint64_t, int);
+ int		 pkgfile_set_mode(struct pkgfile *, mode_t);
+ int		 pkgfile_append(struct pkgfile *, const char *, uint64_t);
++const char	*pkgfile_find_line(struct pkgfile *, const char *);
+ int		 pkgfile_remove_line(struct pkgfile *, const char *);
+ int		 pkgfile_write(struct pkgfile *);
+ int		 pkgfile_unlink(struct pkgfile *);
+
+Modified: trunk/src/pkgfile.c
+===================================================================
+--- trunk/src/pkgfile.c	2006-10-14 04:43:10 UTC (rev 203)
++++ trunk/src/pkgfile.c	2006-10-25 07:47:42 UTC (rev 204)
+@@ -542,23 +542,22 @@
+ }
+ 
+ /**
+- * @brief Removes the first occurance of line from a file
++ * @brief Finds a given line in a file
+  * @param file The file
+- * @param file The line to remove
+- * @return  1 on line not found
+- * @return  0 on success
+- * @return -1 on error
++ * @param line The line to remove
++ * @return A pointer to the start of the line
++ * @return NULL if the line was not found
+  */
+-int
+-pkgfile_remove_line(struct pkgfile *file, const char *line)
++const char *
++pkgfile_find_line(struct pkgfile *file, const char *line)
+ {
+-	char *buf, *ptr;
++	char *buf;
+ 
+ 	if (file == NULL || line == NULL)
+-		return -1;
++		return NULL;
+ 
+ 	if (file->type != pkgfile_regular)
+-		return -1;
++		return NULL;
+ 
+ 	/* Read in the file */
+ 	pkgfile_get_data(file);
+@@ -572,12 +571,35 @@
+ 			break;
+ 		}
+ 	}
+-	if (buf == NULL)
+-		return 1;
+ 
++	return buf;
++}
++/**
++ * @brief Removes the first occurance of line from a file
++ * @param file The file
++ * @param file The line to remove
++ * @return  1 on line not found
++ * @return  0 on success
++ * @return -1 on error
++ */
++int
++pkgfile_remove_line(struct pkgfile *file, const char *line)
++{
++	union { const char *in; char *out; } buf;
++	char *ptr;
++
++	if (file == NULL || line == NULL)
++		return -1;
++
++	if (file->type != pkgfile_regular)
++		return -1;
++
++	/* Find the line in the file to remove */
++	buf.in = pkgfile_find_line(file, line);
++
+ 	/* Move the rest of the file */
+-	ptr = buf + strlen(line) + 1;
+-	memcpy(buf, ptr, file->length - (ptr - file->data));
++	ptr = buf.out + strlen(line) + 1;
++	memcpy(buf.out, ptr, file->length - (ptr - file->data));
+ 	file->length -= strlen(line) + 1;
+ 
+ 	if (file->loc == pkgfile_loc_disk) {
+
+
+
+From zxombie at mail.berlios.de  Wed Oct 25 12:41:31 2006
+From: zxombie at mail.berlios.de (zxombie at BerliOS)
+Date: Wed, 25 Oct 2006 12:41:31 +0200
+Subject: [Libpkg-svn] r205 - trunk/src
+Message-ID: <200610251041.k9PAfVeE009466@sheep.berlios.de>
+
+Author: zxombie
+Date: 2006-10-25 12:41:19 +0200 (Wed, 25 Oct 2006)
+New Revision: 205
+
+Modified:
+   trunk/src/pkgfile.c
+Log:
+Make sure the file type is set before using it
+Add a todo in pkgfile_find_line
+
+
+Modified: trunk/src/pkgfile.c
+===================================================================
+--- trunk/src/pkgfile.c	2006-10-25 07:47:42 UTC (rev 204)
++++ trunk/src/pkgfile.c	2006-10-25 10:41:19 UTC (rev 205)
+@@ -556,6 +556,7 @@
+ 	if (file == NULL || line == NULL)
+ 		return NULL;
+ 
++	pkgfile_get_type(file);
+ 	if (file->type != pkgfile_regular)
+ 		return NULL;
+ 
+@@ -563,6 +564,7 @@
+ 	pkgfile_get_data(file);
+ 
+ 	buf = file->data;
++	/** @todo Change the length of the buffer left on each iteration */
+ 	while ((buf = memmem(buf, file->length, line, strlen(line))) != NULL) {
+ 		/* Check the found line is complete */
+ 		if ((buf == file->data || buf[-1] == '\n') &&
+@@ -591,6 +593,7 @@
+ 	if (file == NULL || line == NULL)
+ 		return -1;
+ 
++	pkgfile_get_type(file);
+ 	if (file->type != pkgfile_regular)
+ 		return -1;
+ 
+
+
+
+From zxombie at mail.berlios.de  Wed Oct 25 12:55:33 2006
+From: zxombie at mail.berlios.de (zxombie at BerliOS)
+Date: Wed, 25 Oct 2006 12:55:33 +0200
+Subject: [Libpkg-svn] r206 - trunk/src
+Message-ID: <200610251055.k9PAtXiI031625@sheep.berlios.de>
+
+Author: zxombie
+Date: 2006-10-25 12:55:29 +0200 (Wed, 25 Oct 2006)
+New Revision: 206
+
+Modified:
+   trunk/src/pkg_db.h
+   trunk/src/pkg_db_freebsd.c
+Log:
+Add pkg_db_freebsd_match_rdep to match packages that are depended ob by another package
+Use pkg_db_freebsd_match_rdep to find all packages to remove the reverse depencendy from when deinstalling
+
+
+Modified: trunk/src/pkg_db.h
+===================================================================
+--- trunk/src/pkg_db.h	2006-10-25 10:41:19 UTC (rev 205)
++++ trunk/src/pkg_db.h	2006-10-25 10:55:29 UTC (rev 206)
+@@ -64,8 +64,10 @@
+ 			int, int, pkg_db_action *);
+ int		  pkg_db_free(struct pkg_db *);
+ 
++/* Functions to be passed to pkg_db_get_installed_match() */
+ int		  pkg_match_all(struct pkg *, const void *);
+ int		  pkg_match_by_origin(struct pkg *, const void *);
+ int		  pkg_match_by_file(struct pkg *, const void *);
++int		  pkg_db_freebsd_match_rdep(struct pkg *, const void *);
+ 
+ #endif /* __LIBPKG_PKG_DB_H__ */
+
+Modified: trunk/src/pkg_db_freebsd.c
+===================================================================
+--- trunk/src/pkg_db_freebsd.c	2006-10-25 10:41:19 UTC (rev 205)
++++ trunk/src/pkg_db_freebsd.c	2006-10-25 10:55:29 UTC (rev 206)
+@@ -120,6 +120,46 @@
+  */
+ 
+ /**
++ * @defgroup PackageDBFreebsdMatch FreeBSD package matching functions
++ * @ingroup PackageDBFreebsd
++ * @brief FreeBSD specific functions to be passed to
++ * 	pkg_db_get_installed_match()
++ *
++ * @{
++ */
++
++/**
++ * @brief A function to match all FreeBSD package that a given pakage depend on
++ * @param pkg The package to test
++ * @param pkg_name The name of the package to find the dependencies of
++ * @return 0 if pkg_name depends on pkg
++ * @return Non zero otherwise
++ */
++int
++pkg_db_freebsd_match_rdep(struct pkg *pkg, const void *pkg_name)
++{
++	struct pkgfile *file;
++
++	assert(pkg != NULL);
++	assert(pkg_name != NULL);
++
++	file = pkg_get_control_file(pkg, "+REQUIRED_BY");
++	if (file == NULL)
++		return 1;
++
++	if (pkgfile_find_line(file, (const char *)pkg_name) != NULL)
++		return 0;
++
++	printf("--> %s\n", pkg_get_name(pkg));
++
++	return 1;
++}
++
++/**
++ * @}
++ */
++
++/**
+  * @defgroup PackageDBFreebsdCallback FreeBSD package database callbacks
+  * @ingroup PackageDBFreebsd
+  * @brief FreeBSD package database callback functions.
+@@ -412,23 +452,17 @@
+ 		return -1;
+ 	}
+ 
+-	/** @todo Remove this package from other packages reverse dependencies */
+-	deps = pkg_get_dependencies(real_pkg);
++
++	/* Remove the reverse dependencies */
++	deps = pkg_db_get_installed_match(db, pkg_db_freebsd_match_rdep,
++	    pkg_get_name(real_pkg));
+ 	if (deps != NULL) {
+ 		unsigned int pos;
+-		for(pos = 0; deps[pos] != NULL; pos++) {
++		for (pos = 0; deps[pos] != NULL; pos++) {
+ 			struct pkgfile *file;
+-			char require[FILENAME_MAX];
+ 
+-			snprintf(require, FILENAME_MAX, "%s" DB_LOCATION
+-			    "/%s/+REQUIRED_BY", db->db_base,
+-			    pkg_get_name(deps[pos]));
+-			pkg_remove_extra_slashes(require);
+-
+-			/* Remove the reverse dependency */
+-			file = pkgfile_new_from_disk(require, 0);
++			file = pkg_get_control_file(deps[pos], "+REQUIRED_BY");
+ 			pkgfile_remove_line(file, pkg_get_name(real_pkg));
+-			pkgfile_free(file);
+ 		}
+ 	}
+ 
+
+
+
+From zxombie at mail.berlios.de  Wed Oct 25 12:57:35 2006
+From: zxombie at mail.berlios.de (zxombie at BerliOS)
+Date: Wed, 25 Oct 2006 12:57:35 +0200
+Subject: [Libpkg-svn] r207 - trunk/src
+Message-ID: <200610251057.k9PAvZWr000371@sheep.berlios.de>
+
+Author: zxombie
+Date: 2006-10-25 12:57:31 +0200 (Wed, 25 Oct 2006)
+New Revision: 207
+
+Modified:
+   trunk/src/pkgfile.c
+Log:
+Fix the name of a paramiter in the documentation for pkgfile_remove_line
+
+
+Modified: trunk/src/pkgfile.c
+===================================================================
+--- trunk/src/pkgfile.c	2006-10-25 10:55:29 UTC (rev 206)
++++ trunk/src/pkgfile.c	2006-10-25 10:57:31 UTC (rev 207)
+@@ -579,7 +579,7 @@
+ /**
+  * @brief Removes the first occurance of line from a file
+  * @param file The file
+- * @param file The line to remove
++ * @param line The line to remove
+  * @return  1 on line not found
+  * @return  0 on success
+  * @return -1 on error
+
+
+
+From zxombie at mail.berlios.de  Thu Oct 26 11:04:45 2006
+From: zxombie at mail.berlios.de (zxombie at BerliOS)
+Date: Thu, 26 Oct 2006 11:04:45 +0200
+Subject: [Libpkg-svn] r208 - trunk/src
+Message-ID: <200610260904.k9Q94jpO017102@sheep.berlios.de>
+
+Author: zxombie
+Date: 2006-10-26 11:04:44 +0200 (Thu, 26 Oct 2006)
+New Revision: 208
+
+Modified:
+   trunk/src/pkg_freebsd.c
+Log:
+Set the dir variable to an empty string in freebsd_run_script
+Set the correct argument on the FreeBSD pkg_script_deinstall script
+Run the pkg_script_pre_deinstall, pkg_script_post_deinstall and pkg_script_deinstall FreeBSD scripts when asked to
+Only call chdir when ew need to
+
+
+Modified: trunk/src/pkg_freebsd.c
+===================================================================
+--- trunk/src/pkg_freebsd.c	2006-10-25 10:57:31 UTC (rev 207)
++++ trunk/src/pkg_freebsd.c	2006-10-26 09:04:44 UTC (rev 208)
+@@ -950,6 +950,7 @@
+ 
+ 	script_file = NULL;
+ 	arg[0] = '\0';
++	dir[0] = '\0';
+ 	switch (script) {
+ 	case pkg_script_pre:
+ 		script_file = pkg_get_control_file(pkg, "+PRE-INSTALL");
+@@ -983,6 +984,7 @@
+ 		break;
+ 	case pkg_script_deinstall:
+ 		script_file = pkg_get_control_file(pkg, "+DEINSTALL");
++		snprintf(arg, FILENAME_MAX, "DEINSTALL");
+ 		break;
+ 	case pkg_script_noop:
+ 		return -1;
+@@ -1019,31 +1021,28 @@
+ 	}
+ 	case pkg_script_pre:
+ 	case pkg_script_post:
+-		pkg_exec("chmod u+x %s", pkgfile_get_name(script_file));
+-
+-		/* Execute the script */
+-		ret = pkg_exec("%s/%s %s %s", dir,
+-		    pkgfile_get_name(script_file), pkg_get_name(pkg), arg);
+-		break;
+ 	case pkg_script_require:
+ 	case pkg_script_require_deinstall:
++	case pkg_script_pre_deinstall:
++	case pkg_script_post_deinstall:
++	case pkg_script_deinstall:
++		/* Check the script has the execute bit set */
+ 		pkg_exec("chmod u+x %s", pkgfile_get_name(script_file));
+ 
++		/* Execute the script */
+ 		ret = pkg_exec("%s/%s %s %s", dir,
+ 		    pkgfile_get_name(script_file), pkg_get_name(pkg), arg);
+ 		break;
+-	case pkg_script_pre_deinstall:
+-	case pkg_script_post_deinstall:
+-	case pkg_script_deinstall:
+-		assert(0);
+ 	case pkg_script_noop:
+ 		break;
+ 	}
+ 	unlink(pkgfile_get_name(script_file));
+-	chdir(cwd);
+-	free(cwd);
+ 
+-	rmdir(dir);
++	if (fpkg->pkg_type == fpkg_from_file) {
++		chdir(cwd);
++		free(cwd);
++		rmdir(dir);
++	}
+ 	return ret;
+ }
+ 
+
+
+
+From zxombie at mail.berlios.de  Thu Oct 26 11:07:54 2006
+From: zxombie at mail.berlios.de (zxombie at BerliOS)
+Date: Thu, 26 Oct 2006 11:07:54 +0200
+Subject: [Libpkg-svn] r209 - trunk/src
+Message-ID: <200610260907.k9Q97shC017736@sheep.berlios.de>
+
+Author: zxombie
+Date: 2006-10-26 11:07:53 +0200 (Thu, 26 Oct 2006)
+New Revision: 209
+
+Modified:
+   trunk/src/pkg_db_freebsd.c
+Log:
+Remove an unneeded printf
+Run the pkg_script_post_deinstall and pkg_script_deinstall scripts when removing FreeBSD packages
+
+
+Modified: trunk/src/pkg_db_freebsd.c
+===================================================================
+--- trunk/src/pkg_db_freebsd.c	2006-10-26 09:04:44 UTC (rev 208)
++++ trunk/src/pkg_db_freebsd.c	2006-10-26 09:07:53 UTC (rev 209)
+@@ -150,8 +150,6 @@
+ 	if (pkgfile_find_line(file, (const char *)pkg_name) != NULL)
+ 		return 0;
+ 
+-	printf("--> %s\n", pkg_get_name(pkg));
+-
+ 	return 1;
+ }
+ 
+@@ -452,6 +450,10 @@
+ 		return -1;
+ 	}
+ 
++	if (pkg_run_script(real_pkg, NULL, pkg_script_deinstall) != 0) {
++		/* XXX */
++		return -1;
++	}
+ 
+ 	/* Remove the reverse dependencies */
+ 	deps = pkg_db_get_installed_match(db, pkg_db_freebsd_match_rdep,
+@@ -478,6 +480,10 @@
+ 	}
+ 
+ 	/** @todo Run +POST-DEINSTALL <pkg-name>/+DEINSTALL <pkg-name> POST-DEINSTALL */
++	if (pkg_run_script(real_pkg, NULL, pkg_script_post_deinstall) != 0) {
++		/* XXX */
++		return -1;
++	}
+ 
+ 	return -1;
+ }
+
+
+
+From zxombie at mail.berlios.de  Thu Oct 26 12:34:38 2006
+From: zxombie at mail.berlios.de (zxombie at BerliOS)
+Date: Thu, 26 Oct 2006 12:34:38 +0200
+Subject: [Libpkg-svn] r210 - in trunk/tools: . pkg_delete
+Message-ID: <200610261034.k9QAYcGf011198@sheep.berlios.de>
+
+Author: zxombie
+Date: 2006-10-26 12:34:37 +0200 (Thu, 26 Oct 2006)
+New Revision: 210
+
+Added:
+   trunk/tools/pkg_delete/
+   trunk/tools/pkg_delete/Makefile
+   trunk/tools/pkg_delete/main.c
+Log:
+Add the start of pkg_delete
+
+
+Added: trunk/tools/pkg_delete/Makefile
+===================================================================
+--- trunk/tools/pkg_delete/Makefile	2006-10-26 09:07:53 UTC (rev 209)
++++ trunk/tools/pkg_delete/Makefile	2006-10-26 10:34:37 UTC (rev 210)
+@@ -0,0 +1,28 @@
++PROG	 = pkg_delete
++
++SRCS	 = main.c
++
++CFLAGS	+= -I${.CURDIR}/../../src
++.if defined(WITH_PROFILE)
++CFLAGS	+= -ggdb -pg -lc
++LDADD	 = ${.CURDIR}/../../src/libpkg_p.a
++LDADD	+= /usr/lib/libmd_p.a /usr/lib/libarchive_p.a /usr/lib/libbz2_p.a
++LDADD	+= /usr/lib/libz_p.a
++.else
++LDADD	 = ${.CURDIR}/../../src/libpkg.a 
++LDADD	+= -lmd -larchive -lbz2 -lz
++.endif
++NOMAN	 = 1
++NO_MAN	 = 1
++
++WARNS	?= 6
++
++.for run in libpkg cvs
++. for type in mtree stdout stderr
++.  for i in 1
++CLEANFILES	+= ${run}.${type}.${i}
++.  endfor
++. endfor
++.endfor
++
++.include <bsd.prog.mk>
+
+Added: trunk/tools/pkg_delete/main.c
+===================================================================
+--- trunk/tools/pkg_delete/main.c	2006-10-26 09:07:53 UTC (rev 209)
++++ trunk/tools/pkg_delete/main.c	2006-10-26 10:34:37 UTC (rev 210)
+@@ -0,0 +1,177 @@
++/*
++ *
++ * FreeBSD install - a package for the installation and maintainance
++ * of non-core utilities.
++ *
++ * Redistribution and use in source and binary forms, with or without
++ * modification, are permitted provided that the following conditions
++ * are met:
++ * 1. Redistributions of source code must retain the above copyright
++ *    notice, this list of conditions and the following disclaimer.
++ * 2. Redistributions in binary form must reproduce the above copyright
++ *    notice, this list of conditions and the following disclaimer in the
++ *    documentation and/or other materials provided with the distribution.
++ *
++ * Jordan K. Hubbard
++ * 18 July 1993
++ *
++ * This is the delete module.
++ */
++
++#include <sys/param.h>
++
++#include <assert.h>
++#include <err.h>
++#include <pkg.h>
++#include <pkg_db.h>
++#include <pkg_repo.h>
++#include <stdarg.h>
++#include <stdio.h>
++#include <stdlib.h>
++#include <string.h>
++#include <unistd.h>
++
++//#define verbosity_flag		(1)
++//#define keep_file_flag		(1<<1)
++//#define no_run_flag		(1<<2)
++//#define force_flag		(1<<3)
++//#define no_run_script_flag	(1<<4)
++//#define no_record_install_flag	(1<<5)
++
++struct pkg_delete {
++	struct pkg_db	 *db;
++	struct pkg	**pkgs;
++//	int		  flags;
++//	char		 *prefix;
++};
++
++static char options[] = "adDfGhinp:rvxX";
++
++static void usage(void);
++static int pkg_delete(struct pkg_delete);
++
++int
++main (int argc, char *argv[])
++{
++	char ch;
++	struct pkg_delete delete;
++	int ret;
++	int i, j;
++
++	delete.db = NULL;
++	delete.pkgs = NULL;
++	//add.flags = 0;
++	//add.chroot[0] = '\0';
++	//add.base_prefix = NULL;
++	//add.prefix = NULL;
++	while ((ch = getopt(argc, argv, options)) != -1) {
++		switch(ch) {
++		case 'a':
++			break;
++		case 'd':
++			break;
++		case 'D':
++			break;
++		case 'f':
++			break;
++		case 'G':
++			break;
++		case 'i':
++			break;
++		case 'n':
++			break;
++		case 'p':
++			break;
++		case 'r':
++			break;
++		case 'v':
++			break;
++		case 'x':
++			break;
++		case 'X':
++			break;
++		case 'h':
++		case '?':
++		default:
++			usage();
++			break;
++		}
++	}
++	argc -= optind;
++	argv += optind;
++
++	if (delete.db == NULL) {
++		delete.db = pkg_db_open_freebsd("/");
++	}
++
++	delete.pkgs = malloc(sizeof(struct pkg*) * (argc + 1));
++	if (delete.pkgs == NULL) {
++		perror("pkg_delete");
++		return 1;
++	}
++
++	/* Create an array of all packages to delete */
++	for (i = 0, j = 0; i < argc; i++) {
++		delete.pkgs[j] = pkg_db_get_package(delete.db, argv[i]);
++		if (delete.pkgs[j] != NULL)
++			j++;
++		else
++			fprintf(stderr,
++			    "pkg_delete: no such package '%s' installed\n",
++			    argv[i]);
++	}
++	if (delete.pkgs[0] == NULL) {
++		ret = 1;
++	} else {
++		/* Perform the deinstallation */
++		ret = pkg_delete(delete);
++		for (i=0; delete.pkgs[i] != NULL; i++)
++			pkg_free(delete.pkgs[i]);
++	}
++	free(delete.pkgs);
++	pkg_db_free(delete.db);
++
++	return ret;
++}
++
++static void
++usage()
++{
++	fprintf(stderr,
++	    "usage: pkg_delete [-dDfGinrvxX] [-p prefix] pkg-name ...\n"
++	    "       pkg_delete -a [flags]");
++	exit(1);
++}
++
++/*
++ * Print the message from fmt
++ * Only used when -v is set
++ */
++static void
++pkg_action(int level __unused, const char *fmt, ...)
++{
++	va_list ap;
++
++	va_start(ap, fmt);
++	vprintf(fmt, ap);
++	putchar('\n');
++	va_end(ap);
++}
++
++/*
++ * Deletes all the matching packages that were found on the system
++ */
++static int
++pkg_delete(struct pkg_delete delete)
++{
++	int i;
++
++	assert(delete.db != NULL);
++	assert(delete.pkgs != NULL);
++
++	for (i = 0; delete.pkgs[i] != NULL; i++) {
++		pkg_db_delete_package_action(delete.db, delete.pkgs[i], 0, 0,
++		    pkg_action);
++	}
++	return 1;
++}
+
+
+
+From zxombie at mail.berlios.de  Fri Oct 27 01:28:45 2006
+From: zxombie at mail.berlios.de (zxombie at BerliOS)
+Date: Fri, 27 Oct 2006 01:28:45 +0200
+Subject: [Libpkg-svn] r211 - in trunk/tools: . pkg_delete
+Message-ID: <200610262328.k9QNSj3N000561@sheep.berlios.de>
+
+Author: zxombie
+Date: 2006-10-27 01:28:44 +0200 (Fri, 27 Oct 2006)
+New Revision: 211
+
+Added:
+   trunk/tools/pkg_delete/run.sh
+   trunk/tools/pkg_delete/test.sh
+   trunk/tools/test.sh
+Log:
+Add the start of functional tests
+
+
+Added: trunk/tools/pkg_delete/run.sh
+===================================================================
+--- trunk/tools/pkg_delete/run.sh	2006-10-26 10:34:37 UTC (rev 210)
++++ trunk/tools/pkg_delete/run.sh	2006-10-26 23:28:44 UTC (rev 211)
+@@ -0,0 +1,15 @@
++#!/bin/sh
++
++PACKAGE=$1
++shift
++TESTNO=$1
++
++if [ ${TESTNO} -eq 1 ] ; then
++	pkg_add ./${PACKAGE}.tbz
++	if [ $? -ne 0 ] ; then
++		exit 1
++	fi
++	pkg_delete ${PACKAGE}
++	exit $?
++elif [ ${TESTNO} -eq 2 ] ; then
++fi
+
+
+Property changes on: trunk/tools/pkg_delete/run.sh
+___________________________________________________________________
+Name: svn:executable
+   + *
+
+Added: trunk/tools/pkg_delete/test.sh
+===================================================================
+--- trunk/tools/pkg_delete/test.sh	2006-10-26 10:34:37 UTC (rev 210)
++++ trunk/tools/pkg_delete/test.sh	2006-10-26 23:28:44 UTC (rev 211)
+@@ -0,0 +1,43 @@
++#!/bin/sh
++
++. `dirname $0`/../test.sh
++
++# Rins the tests for either the libpkg or cvs version of pkg_delete
++do_test() {
++	RUN=$1
++
++	i=1
++	while [ $i -le 1 ] ; do
++		chroot ${BASE_DIR}/base /run.sh ${PACKAGE} ${i} > ${RUN}.stdout.${i} 2> ${RUN}.stderr.${i}
++		# Get the mtree file to use to compare the filesystems
++		mtree -c -p ${BASE_DIR}/base | grep -v "^\#[[:space:]]*date:" | sed "s/time=[^ ]*//" > ${RUN}.mtree.${i}
++		# Create a tarball of the important dir's to compare later
++		rm ${BASE_DIR}/${RUN}-${i}.tar
++		tar -cf ${BASE_DIR}/${RUN}-${i}.tar ${BASE_DIR}/base/var/db/pkg ${BASE_DIR}/base/usr/local
++		# Cleanup the package directories
++		rm -fr ${BASE_DIR}/base/var/db/pkg ${BASE_DIR}/base/usr/local
++
++		i=$((i+1))
++	done
++}
++
++# Runs the test
++run_test() {
++
++	# Get the reference data from the FreeBSD cvs pkg_delete
++	build_chroot
++	do_test cvs
++
++	# Get the test data from out pkg_delete
++	build_chroot
++	build_tool
++	cp pkg_delete ${BASE_DIR}/base/usr/sbin/pkg_delete
++	do_test libpkg
++}
++
++CWD=`pwd`
++cd `dirname $0`
++
++run_test
++
++cd $CWD
+
+
+Property changes on: trunk/tools/pkg_delete/test.sh
+___________________________________________________________________
+Name: svn:executable
+   + *
+
+Added: trunk/tools/test.sh
+===================================================================
+--- trunk/tools/test.sh	2006-10-26 10:34:37 UTC (rev 210)
++++ trunk/tools/test.sh	2006-10-26 23:28:44 UTC (rev 211)
+@@ -0,0 +1,44 @@
++# This is an acceptence test for pkg_delete
++# It will test pkg_delete in various senarios and check if the
++# output is correct and if the filesystem is correct afterwards
++
++# Set this to the parent directory to extract the chroot environment to
++#BASE_DIR=/a
++# The file to extract to create the chroot environment
++# This must extract the the files to base/*
++BASE_TARBALL=${BASE_DIR}/base.tar
++
++# The location of the package files to copy to the chroot
++#PACKAGE_DIR=/some/dir/containing/packages
++# The packages to copy
++#PACKAGES="bash-3.0.16_1.tbz gettext-0.14.5.tbz libiconv-1.9.2_1.tbz"
++#the package to install
++#PACKAGE=bash-3.0.16_1
++
++# All the tools with tests
++ALL_TESTS="pkg_delete"
++
++# Builds the chroot dir for the test
++build_chroot() {
++	# Remove the base dir
++	rm -fr ${BASE_DIR}/base
++	chflags -R noschg ${BASE_DIR}/base
++	rm -fr ${BASE_DIR}/base
++
++	# Extract a clean base dir
++	tar xzf ${BASE_TARBALL} -C ${BASE_DIR}
++	cp ./run.sh ${BASE_DIR}/base/run.sh
++	chmod +x ${BASE_DIR}/base/run.sh
++
++	for p in ${PACKAGES} ; do
++		cp ${PACKAGE_DIR}/${p} ${BASE_DIR}/base/
++	done
++}
++
++# Builds the library and pkg_delete
++build_tool() {
++	wd=`pwd`
++	cd ../../src && make
++	cd $wd && make all
++}
++
+
+
+
+From zxombie at mail.berlios.de  Fri Oct 27 07:32:49 2006
+From: zxombie at mail.berlios.de (zxombie at BerliOS)
+Date: Fri, 27 Oct 2006 07:32:49 +0200
+Subject: [Libpkg-svn] r212 - trunk/src
+Message-ID: <200610270532.k9R5WnsU004216@sheep.berlios.de>
+
+Author: zxombie
+Date: 2006-10-27 07:32:49 +0200 (Fri, 27 Oct 2006)
+New Revision: 212
+
+Modified:
+   trunk/src/pkg.h
+   trunk/src/pkgfile.c
+Log:
+Add pkgfile_get_type_string to get a string with the file type
+
+
+Modified: trunk/src/pkg.h
+===================================================================
+--- trunk/src/pkg.h	2006-10-26 23:28:44 UTC (rev 211)
++++ trunk/src/pkg.h	2006-10-27 05:32:49 UTC (rev 212)
+@@ -55,6 +55,7 @@
+ const char	*pkgfile_get_name(struct pkgfile *);
+ uint64_t	 pkgfile_get_size(struct pkgfile *);
+ const char	*pkgfile_get_data(struct pkgfile *);
++const char	*pkgfile_get_type_string(struct pkgfile*);
+ int		 pkgfile_set_checksum_md5(struct pkgfile *, const char *);
+ int		 pkgfile_compare_checksum_md5(struct pkgfile *);
+ int		 pkgfile_seek(struct pkgfile *, uint64_t, int);
+
+Modified: trunk/src/pkgfile.c
+===================================================================
+--- trunk/src/pkgfile.c	2006-10-26 23:28:44 UTC (rev 211)
++++ trunk/src/pkgfile.c	2006-10-27 05:32:49 UTC (rev 212)
+@@ -48,6 +48,9 @@
+ static int		 pkgfile_open_fd(struct pkgfile *);
+ static int		 pkgfile_get_type(struct pkgfile *);
+ 
++static const char *pkgfile_types[] =
++	{ "none", "file", "hardlink", "symlink", "directory" };
++
+ /**
+  * @defgroup PackageFileInternal Internal file functions
+  * Internal functions in the package module
+@@ -401,6 +404,17 @@
+ }
+ 
+ /**
++ * @brief Gets a string containing a description of the type of the file
++ * @return A null terminated string with the name of the file type
++ */
++const char *
++pkgfile_get_type_string(struct pkgfile *file)
++{
++	pkgfile_get_type(file);
++	return pkgfile_types[file->type];
++}
++
++/**
+  * @brief Sets the expected md5 of a file
+  * @return  0 on success
+  * @return -1 on error
+
+
+
+From zxombie at mail.berlios.de  Fri Oct 27 07:41:59 2006
+From: zxombie at mail.berlios.de (zxombie at BerliOS)
+Date: Fri, 27 Oct 2006 07:41:59 +0200
+Subject: [Libpkg-svn] r213 - trunk/src
+Message-ID: <200610270541.k9R5fxCI005625@sheep.berlios.de>
+
+Author: zxombie
+Date: 2006-10-27 07:41:59 +0200 (Fri, 27 Oct 2006)
+New Revision: 213
+
+Modified:
+   trunk/src/pkg_db_freebsd.c
+Log:
+Call pkg_action in freebsd_deinstall_file
+
+
+Modified: trunk/src/pkg_db_freebsd.c
+===================================================================
+--- trunk/src/pkg_db_freebsd.c	2006-10-27 05:32:49 UTC (rev 212)
++++ trunk/src/pkg_db_freebsd.c	2006-10-27 05:41:59 UTC (rev 213)
+@@ -575,10 +575,25 @@
+  * @return -1 on error
+  */
+ static int
+-freebsd_deinstall_file(struct pkg *pkg __unused, pkg_db_action *pkg_action __unused, void *data __unused,
++freebsd_deinstall_file(struct pkg *pkg __unused, pkg_db_action *pkg_action, void *data __unused,
+ 	struct pkgfile *file)
+ {
++	const char *file_name;
++
+ 	assert(file != NULL);
++
++	file_name = pkgfile_get_name(file);
++	if (file_name[0] == '/') {
++		/* We have an absolute file */
++		pkg_action(PKG_DB_PACKAGE, "Delete %s %s",
++		    pkgfile_get_type_string(file), file_name);
++	} else {
++		char dir[FILENAME_MAX];
++
++		getcwd(dir, FILENAME_MAX);
++		pkg_action(PKG_DB_PACKAGE, "Delete %s %s/%s",
++		    pkgfile_get_type_string(file), dir, file_name);
++	}
+ 	return pkgfile_unlink(file);
+ }
+ /**
+
+
+
+From zxombie at mail.berlios.de  Fri Oct 27 07:51:48 2006
+From: zxombie at mail.berlios.de (zxombie at BerliOS)
+Date: Fri, 27 Oct 2006 07:51:48 +0200
+Subject: [Libpkg-svn] r214 - trunk/src
+Message-ID: <200610270551.k9R5pmgH006398@sheep.berlios.de>
+
+Author: zxombie
+Date: 2006-10-27 07:51:47 +0200 (Fri, 27 Oct 2006)
+New Revision: 214
+
+Modified:
+   trunk/src/pkg_db_freebsd.c
+Log:
+Rename CWD -> Change working directory and execute -> Execute in FreeBSD pkg_action strings
+
+
+Modified: trunk/src/pkg_db_freebsd.c
+===================================================================
+--- trunk/src/pkg_db_freebsd.c	2006-10-27 05:41:59 UTC (rev 213)
++++ trunk/src/pkg_db_freebsd.c	2006-10-27 05:51:47 UTC (rev 214)
+@@ -530,7 +530,8 @@
+ 	}
+ 	pkg_remove_extra_slashes(install_data->directory);
+ 
+-	pkg_action(PKG_DB_PACKAGE, "CWD to %s", install_data->directory);
++	pkg_action(PKG_DB_PACKAGE, "Change working directory to %s",
++	    install_data->directory);
+ 
+ 	if (!install_data->fake) {
+ 		pkg_dir_build(install_data->directory, 0);
+@@ -618,7 +619,7 @@
+ 	freebsd_format_cmd(the_cmd, FILENAME_MAX, cmd, install_data->directory,
+ 	    install_data->last_file);
+ 
+-	pkg_action(PKG_DB_PACKAGE, "execute '%s'", the_cmd);
++	pkg_action(PKG_DB_PACKAGE, "Execute '%s'", the_cmd);
+ 	if (!install_data->fake) {
+ 		return pkg_exec(the_cmd);
+ 	}
+
+
+
+From zxombie at mail.berlios.de  Fri Oct 27 09:15:55 2006
+From: zxombie at mail.berlios.de (zxombie at BerliOS)
+Date: Fri, 27 Oct 2006 09:15:55 +0200
+Subject: [Libpkg-svn] r215 - trunk/tools/pkg_delete
+Message-ID: <200610270715.k9R7FtWs012549@sheep.berlios.de>
+
+Author: zxombie
+Date: 2006-10-27 09:15:54 +0200 (Fri, 27 Oct 2006)
+New Revision: 215
+
+Modified:
+   trunk/tools/pkg_delete/main.c
+   trunk/tools/pkg_delete/run.sh
+   trunk/tools/pkg_delete/test.sh
+Log:
+Support pkg_delete -v
+Add a test for pkg_delete -v
+Change the name of a commented out variable from add to delete
+
+
+Modified: trunk/tools/pkg_delete/main.c
+===================================================================
+--- trunk/tools/pkg_delete/main.c	2006-10-27 05:51:47 UTC (rev 214)
++++ trunk/tools/pkg_delete/main.c	2006-10-27 07:15:54 UTC (rev 215)
+@@ -31,7 +31,7 @@
+ #include <string.h>
+ #include <unistd.h>
+ 
+-//#define verbosity_flag		(1)
++#define verbosity_flag		(1)
+ //#define keep_file_flag		(1<<1)
+ //#define no_run_flag		(1<<2)
+ //#define force_flag		(1<<3)
+@@ -41,7 +41,7 @@
+ struct pkg_delete {
+ 	struct pkg_db	 *db;
+ 	struct pkg	**pkgs;
+-//	int		  flags;
++	int		  flags;
+ //	char		 *prefix;
+ };
+ 
+@@ -60,10 +60,10 @@
+ 
+ 	delete.db = NULL;
+ 	delete.pkgs = NULL;
+-	//add.flags = 0;
+-	//add.chroot[0] = '\0';
+-	//add.base_prefix = NULL;
+-	//add.prefix = NULL;
++	delete.flags = 0;
++	//delete.chroot[0] = '\0';
++	//delete.base_prefix = NULL;
++	//delete.prefix = NULL;
+ 	while ((ch = getopt(argc, argv, options)) != -1) {
+ 		switch(ch) {
+ 		case 'a':
+@@ -85,6 +85,7 @@
+ 		case 'r':
+ 			break;
+ 		case 'v':
++			delete.flags |= verbosity_flag;
+ 			break;
+ 		case 'x':
+ 			break;
+@@ -170,8 +171,13 @@
+ 	assert(delete.pkgs != NULL);
+ 
+ 	for (i = 0; delete.pkgs[i] != NULL; i++) {
+-		pkg_db_delete_package_action(delete.db, delete.pkgs[i], 0, 0,
+-		    pkg_action);
++		if ((delete.flags & verbosity_flag) == verbosity_flag) {
++			pkg_db_delete_package_action(delete.db, delete.pkgs[i],
++			    0, 0, pkg_action);
++		} else {
++			pkg_db_delete_package_action(delete.db, delete.pkgs[i],
++			    0, 0, NULL);
++		}
+ 	}
+ 	return 1;
+ }
+
+Modified: trunk/tools/pkg_delete/run.sh
+===================================================================
+--- trunk/tools/pkg_delete/run.sh	2006-10-27 05:51:47 UTC (rev 214)
++++ trunk/tools/pkg_delete/run.sh	2006-10-27 07:15:54 UTC (rev 215)
+@@ -12,4 +12,10 @@
+ 	pkg_delete ${PACKAGE}
+ 	exit $?
+ elif [ ${TESTNO} -eq 2 ] ; then
++	pkg_add ./${PACKAGE}.tbz
++	if [ $? -ne 0 ] ; then
++		exit 1
++	fi
++	pkg_delete -v ${PACKAGE}
++	exit $?
+ fi
+
+Modified: trunk/tools/pkg_delete/test.sh
+===================================================================
+--- trunk/tools/pkg_delete/test.sh	2006-10-27 05:51:47 UTC (rev 214)
++++ trunk/tools/pkg_delete/test.sh	2006-10-27 07:15:54 UTC (rev 215)
+@@ -7,7 +7,7 @@
+ 	RUN=$1
+ 
+ 	i=1
+-	while [ $i -le 1 ] ; do
++	while [ $i -le 2 ] ; do
+ 		chroot ${BASE_DIR}/base /run.sh ${PACKAGE} ${i} > ${RUN}.stdout.${i} 2> ${RUN}.stderr.${i}
+ 		# Get the mtree file to use to compare the filesystems
+ 		mtree -c -p ${BASE_DIR}/base | grep -v "^\#[[:space:]]*date:" | sed "s/time=[^ ]*//" > ${RUN}.mtree.${i}
+
+
+

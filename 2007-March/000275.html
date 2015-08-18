@@ -1,0 +1,361 @@
+<!DOCTYPE HTML PUBLIC "-//W3C//DTD HTML 4.01 Transitional//EN">
+<HTML>
+ <HEAD>
+   <TITLE> [Libpkg-svn] r291 - trunk/tools/pkg_info
+   </TITLE>
+   <LINK REL="Index" HREF="http://lists.berlios.de/pipermail/libpkg-svn/2007-March/index.html" >
+   <LINK REL="made" HREF="mailto:libpkg-svn%40lists.berlios.de?Subject=Re%3A%20%5BLibpkg-svn%5D%20r291%20-%20trunk/tools/pkg_info&In-Reply-To=%3C200703120623.l2C6NEQv006723%40sheep.berlios.de%3E">
+   <META NAME="robots" CONTENT="index,nofollow">
+   <style type="text/css">
+       pre {
+           white-space: pre-wrap;       /* css-2.1, curent FF, Opera, Safari */
+           }
+   </style>
+   <META http-equiv="Content-Type" content="text/html; charset=us-ascii">
+   <LINK REL="Previous"  HREF="000274.html">
+   <LINK REL="Next"  HREF="000276.html">
+ </HEAD>
+ <BODY BGCOLOR="#ffffff">
+   <H1>[Libpkg-svn] r291 - trunk/tools/pkg_info</H1>
+    <B>zxombie at BerliOS</B> 
+    <A HREF="mailto:libpkg-svn%40lists.berlios.de?Subject=Re%3A%20%5BLibpkg-svn%5D%20r291%20-%20trunk/tools/pkg_info&In-Reply-To=%3C200703120623.l2C6NEQv006723%40sheep.berlios.de%3E"
+       TITLE="[Libpkg-svn] r291 - trunk/tools/pkg_info">zxombie at mail.berlios.de
+       </A><BR>
+    <I>Mon Mar 12 07:23:14 CET 2007</I>
+    <P><UL>
+        <LI>Previous message: <A HREF="000274.html">[Libpkg-svn] r290 - trunk/tools/pkg_info
+</A></li>
+        <LI>Next message: <A HREF="000276.html">[Libpkg-svn] r292 - trunk/src
+</A></li>
+         <LI> <B>Messages sorted by:</B> 
+              <a href="date.html#275">[ date ]</a>
+              <a href="thread.html#275">[ thread ]</a>
+              <a href="subject.html#275">[ subject ]</a>
+              <a href="author.html#275">[ author ]</a>
+         </LI>
+       </UL>
+    <HR>  
+<!--beginarticle-->
+<PRE>Author: zxombie
+Date: 2007-03-12 07:23:14 +0100 (Mon, 12 Mar 2007)
+New Revision: 291
+
+Modified:
+   trunk/tools/pkg_info/show.c
+Log:
+Move to the new pkg_manifest object in pkg_info
+
+
+Modified: trunk/tools/pkg_info/show.c
+===================================================================
+--- trunk/tools/pkg_info/show.c	2007-03-12 06:04:21 UTC (rev 290)
++++ trunk/tools/pkg_info/show.c	2007-03-12 06:23:14 UTC (rev 291)
+@@ -27,21 +27,21 @@
+ #include &lt;err.h&gt;
+ #include &lt;inttypes.h&gt;
+ #include &lt;pkg_db.h&gt;
+-#include &lt;pkg_freebsd.h&gt;
+ #include &lt;stdlib.h&gt;
+ #include &lt;string.h&gt;
+ #include &lt;unistd.h&gt;
+ 
+ 
+ static void	show_cksum(struct pkg *, const char *, const char *, int);
++static void	show_deps(struct pkg *, const char *, const char *, int);
+ static void	show_file(struct pkgfile *, const char *, const char *, int);
+ static void	show_files(struct pkg *, const char *, const char *, int);
+ static void	show_fmtrev(struct pkg *, const char *, const char *, int);
+ static void	show_index(struct pkg *);
+ static void	show_origin(struct pkg *, const char *, const char *, int);
+-static void	show_plist(struct pkg *, const char *, const char *, int, int);
+-static void	show_size(struct pkg *, const char *, const char *, int quiet,
+-			int);
++static void	show_plist(struct pkg *, const char *, const char *, int);
++static void	show_prefix(struct pkg *, const char *, const char *, int);
++static void	show_size(struct pkg *, const char *, const char *, int, int);
+ 
+ void
+ show(struct pkg_db *db, struct pkg *pkg, int flags, int quiet,
+@@ -75,8 +75,7 @@
+ 
+ 	/* XXX Abstract all this out to the appropriate object */
+ 	if (flags &amp; SHOW_DEPEND) {
+-		show_plist(pkg, seperator, &quot;Depends on:\n&quot;, quiet,
+-		    PKG_LINE_PKGDEP);
++		show_deps(pkg, seperator, &quot;Depends on:\n&quot;, quiet);
+ 	}
+ 	if ((flags &amp; SHOW_REQBY)) {
+ 		struct pkgfile *file;
+@@ -99,7 +98,7 @@
+ 		ifexist_show(DISPLAY_FNAME, &quot;Install notice&quot;);
+ 	}
+ 	if (flags &amp; SHOW_PLIST) {
+-		show_plist(pkg, seperator, &quot;Packing list:\n&quot;, quiet, 0);
++		show_plist(pkg, seperator, &quot;Packing list:\n&quot;, quiet);
+ 	}
+ 	if (flags &amp; SHOW_REQUIRE) {
+ 		ifexist_show(REQUIRE_FNAME, &quot;Requirements script&quot;);
+@@ -120,7 +119,7 @@
+ 		ifexist_show(MTREE_FNAME, &quot;mtree file&quot;);
+ 	}
+ 	if (flags &amp; SHOW_PREFIX) {
+-		show_plist(pkg, seperator, &quot;Prefix(s):\n&quot;, quiet, PKG_LINE_CWD);
++		show_prefix(pkg, seperator, &quot;Prefix(s):\n&quot;, quiet);
+ 	}
+ 	if (flags &amp; SHOW_FILES) {
+ 		show_files(pkg, seperator, &quot;Files:\n&quot;, quiet);
+@@ -165,6 +164,24 @@
+ }
+ 
+ static void
++show_deps(struct pkg *pkg, const char *seperator, const char *title, int quiet)
++{
++	struct pkg **deps;
++	unsigned int i;
++
++	if (!quiet)
++		printf(&quot;%s%s&quot;, seperator, title);
++
++	deps = pkg_get_dependencies(pkg);
++	if (deps != NULL) {
++		for (i = 0; deps[i] != NULL; i++) {
++			printf(&quot;Dependency: %s\n&quot;,
++			    pkg_get_name(deps[i]));
++		}
++	}
++}
++
++static void
+ show_file(struct pkgfile *file, const char *seperator, const char *title,
+     int quiet)
+ {
+@@ -267,93 +284,126 @@
+ }
+ 
+ static void
+-show_plist(struct pkg *pkg, const char *seperator, const char *title, int quiet,
+-    int type)
++show_prefix(struct pkg *pkg, const char *seperator, const char *title,
++    int quiet)
+ {
+-	struct pkg_freebsd_contents *contents;
+-	struct pkg_freebsd_contents_line *line;
+-	unsigned int i, ignore = 0;
+-	char *prefix = NULL;
++	if (!quiet)
++		printf(&quot;%s%s&quot;, seperator, title);
+ 
++	printf(&quot;\tCWD %s\n&quot;, pkg_get_prefix(pkg));
++}
++
++static void
++show_plist(struct pkg *pkg, const char *seperator, const char *title, int quiet)
++{
++	struct pkg_manifest *manifest;
++
+ 	if (!quiet)
+ 		printf(&quot;%s%s&quot;, seperator, title);
+-	contents = pkg_freebsd_get_contents(pkg);
++	
++	manifest = pkg_get_manifest(pkg);
++	assert(manifest != NULL);
+ 
+-	i = 0;
+-	while ((line = pkg_freebsd_contents_get_line(contents, i++)) != NULL) {
+-		if (line-&gt;line_type == PKG_LINE_UNKNOWN)
+-			continue;
+-		if (type != 0 &amp;&amp; line-&gt;line_type != type)
+-			continue;
+-		switch(line-&gt;line_type) {
+-		case PKG_LINE_COMMENT:
+-			if (quiet) {
+-				printf(&quot;@comment %s\n&quot;, line-&gt;data);
+-				break;
++	if (quiet) {
++		struct pkgfile *manifest_file;
++		const char *data;
++		size_t len;
++
++		manifest_file = pkg_manifest_get_file(manifest);
++		data = pkgfile_get_data(manifest_file);
++		len = pkgfile_get_size(manifest_file);
++		fwrite(data, len, 1, stdout);
++	} else {
++		const char **conflicts;
++		struct pkg **deps;
++		struct pkg_manifest_item **items;
++		unsigned int i;
++
++		/* TODO: Push the logic to get the packaging instructions to libpkg */
++		/* Print the head of the contents file */
++		printf(&quot;\tComment: PKG_FORMAT_REVISION:1.1\n&quot;);
++		printf(&quot;\tPackage name: %s\n&quot;,pkg_get_name(pkg));
++		printf(&quot;\tPackage origin: %s\n&quot;, pkg_get_origin(pkg));
++		printf(&quot;\tCWD %s\n&quot;, pkg_get_prefix(pkg));
++
++		/* Print the dependencies of the contents file */
++		deps = pkg_get_dependencies(pkg);
++		if (deps != NULL) {
++			for (i = 0; deps[i] != NULL; i++) {
++				printf(&quot;Dependency: %s\n&quot;,
++				    pkg_get_name(deps[i]));
++				printf(&quot;\tdependency origin: %s\n&quot;,
++				    pkg_get_origin(deps[i]));
+ 			}
+-			if (strncmp(&quot;DEPORIGIN:&quot;, line-&gt;data, 10) == 0) {
+-				char *s = strchr(line-&gt;data, ':');
+-				*s++;
+-				printf(&quot;\tdependency origin: %s\n&quot;, s);
+-			} else if (strncmp(&quot;ORIGIN:&quot;, line-&gt;data, 7) == 0) {
+-				char *s = strchr(line-&gt;data, ':');
+-				*s++;
+-				printf(&quot;\tPackage origin: %s\n&quot;, s);
+-			} else {
+-				printf(&quot;\tComment: %s\n&quot;, line-&gt;data);
++		}
++
++		conflicts = pkg_get_conflicts(pkg);
++		if (conflicts != NULL) {
++			for (i = 0; conflicts[i] != NULL; i++) {
++				printf(&quot;Conflicts: %s\n&quot;, conflicts[i]);
+ 			}
+-			break;
+-		case PKG_LINE_NAME:
+-			printf(quiet ? &quot;@name %s\n&quot; : &quot;\tPackage name: %s\n&quot;,
+-			    line-&gt;data);
+-			break;
+-		case PKG_LINE_CWD:
+-			if (prefix == NULL)
+-				prefix = line-&gt;data;
+-			printf(quiet ? &quot;@cwd %s\n&quot; : &quot;\tCWD to %s\n&quot;,
+-			    (line-&gt;data == NULL) ? prefix : line-&gt;data);
+-			break;
+-		case PKG_LINE_PKGDEP:
+-			printf(quiet ? &quot;@pkgdep %s\n&quot; : &quot;Dependency: %s\n&quot;,
+-			    line-&gt;data);
+-			break;
+-		case PKG_LINE_CONFLICTS:
+-			printf(quiet ? &quot;@conflicts %s\n&quot; : &quot;Conflicts: %s\n&quot;,
+-			    line-&gt;data);
+-			break;
+-		case PKG_LINE_EXEC:
+-			printf(quiet ? &quot;@exec %s\n&quot; : &quot;\tEXEC '%s'\n&quot;,
+-			    line-&gt;data);
+-			break;
+-		case PKG_LINE_UNEXEC:
+-			printf(quiet ? &quot;@unexec %s\n&quot; : &quot;\tUNEXEC '%s'\n&quot;,
+-			    line-&gt;data);
+-			break;
+-		case PKG_LINE_IGNORE:
+-			ignore = 1;
+-			break;
+-		case PKG_LINE_DIRRM:
+-			printf(quiet ? &quot;@dirrm %s\n&quot; :
+-			    &quot;\tDeinstall directory remove: %s\n&quot;, line-&gt;data);
+-			break;
+-		case PKG_LINE_MTREE:
+-			printf(quiet ? &quot;@mtree %s\n&quot; :
+-			    &quot;\tPackage mtree file: %s\n&quot;, line-&gt;data);
+-			break;
+-		case PKG_LINE_FILE:
+-			if (ignore == 1)
+-				printf(quiet ? &quot;%s\n&quot; : &quot;File: %s (ignored)\n&quot;,
+-				    line-&gt;line);
+-			else
+-				printf(quiet ? &quot;%s\n&quot; : &quot;File: %s\n&quot;,
+-				    line-&gt;line);
+-			ignore = 0;
+-			break;
+-		default:
+-			errx(2, &quot;%s: unknown command type %d (%s)&quot;,
+-			    __func__, line-&gt;line_type, line-&gt;line);
+-			break;
+ 		}
++
++		items = pkg_manifest_get_items(manifest);
++		for (i = 0; items[i] != NULL; i++) {
++			switch(pkg_manifest_item_get_type(items[i])) {
++			case pmt_file:
++				if (pkg_manifest_item_get_attr(items[i],
++				    pmia_ignore) != NULL) {
++					printf(&quot;File: %s (ignored)\n&quot;,
++					    (const char *)
++					    pkg_manifest_item_get_data
++					    (items[i]));
++				} else {
++					printf(&quot;File: %s\n&quot;, (const char *)
++					    pkg_manifest_item_get_data
++					    (items[i]));
++				}
++				if (pkg_manifest_item_get_attr(items[i],
++				    pmia_md5) != NULL) {
++					printf(&quot;\tComment: MD5:%s\n&quot;,
++					    pkg_manifest_item_get_attr(items[i],
++					    pmia_md5));
++				}
++				break;
++			case pmt_dir:
++				printf(&quot;\tDeinstall directory remove: %s\n&quot;,
++				    (const char *)pkg_manifest_item_get_data
++				    (items[i]));
++				break;
++			case pmt_dirlist:
++				printf(&quot;\tPackage mtree file: %s\n&quot;,
++				    (const char *)pkg_manifest_item_get_data
++				    (items[i]));
++				break;
++			case pmt_chdir:
++				printf(&quot;\tCWD to %s\n&quot;, (const char *)
++				    pkg_manifest_item_get_data(items[i]));
++				break;
++			case pmt_comment:
++				printf(&quot;\tComment: %s\n&quot;, (const char *)
++				    pkg_manifest_item_get_data(items[i]));
++				break;
++			case pmt_execute:
++				if (pkg_manifest_item_get_attr(items[i],
++				    pmia_deinstall) != NULL) {
++					printf(&quot;\tUNEXEC '%s'\n&quot;, (const char *)
++					    pkg_manifest_item_get_data
++					    (items[i]));
++				} else {
++					printf(&quot;\tEXEC '%s'\n&quot;, (const char *)
++					    pkg_manifest_item_get_data
++					    (items[i]));
++				}
++				break;
++			case pmt_other:
++				printf(&quot;?&quot;);
++			case pmt_output:
++				printf(&quot;?\n&quot;);
++			case pmt_error:
++				break;
++			}
++		}
+ 	}
+ }
+ 
+
+
+</PRE>
+
+<!--endarticle-->
+    <HR>
+    <P><UL>
+        <!--threads-->
+	<LI>Previous message: <A HREF="000274.html">[Libpkg-svn] r290 - trunk/tools/pkg_info
+</A></li>
+	<LI>Next message: <A HREF="000276.html">[Libpkg-svn] r292 - trunk/src
+</A></li>
+         <LI> <B>Messages sorted by:</B> 
+              <a href="date.html#275">[ date ]</a>
+              <a href="thread.html#275">[ thread ]</a>
+              <a href="subject.html#275">[ subject ]</a>
+              <a href="author.html#275">[ author ]</a>
+         </LI>
+       </UL>
+
+<hr>
+<a href="https://lists.berlios.de/mailman/listinfo/libpkg-svn">More information about the Libpkg-svn
+mailing list</a><br>
+</body></html>

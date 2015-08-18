@@ -1,0 +1,223 @@
+<!DOCTYPE HTML PUBLIC "-//W3C//DTD HTML 4.01 Transitional//EN">
+<HTML>
+ <HEAD>
+   <TITLE> [Libpkg-svn] r259 - trunk/src
+   </TITLE>
+   <LINK REL="Index" HREF="http://lists.berlios.de/pipermail/libpkg-svn/2007-February/index.html" >
+   <LINK REL="made" HREF="mailto:libpkg-svn%40lists.berlios.de?Subject=Re%3A%20%5BLibpkg-svn%5D%20r259%20-%20trunk/src&In-Reply-To=%3C200702140314.l1E3E4sE030889%40sheep.berlios.de%3E">
+   <META NAME="robots" CONTENT="index,nofollow">
+   <style type="text/css">
+       pre {
+           white-space: pre-wrap;       /* css-2.1, curent FF, Opera, Safari */
+           }
+   </style>
+   <META http-equiv="Content-Type" content="text/html; charset=us-ascii">
+   
+   <LINK REL="Next"  HREF="000244.html">
+ </HEAD>
+ <BODY BGCOLOR="#ffffff">
+   <H1>[Libpkg-svn] r259 - trunk/src</H1>
+    <B>zxombie at BerliOS</B> 
+    <A HREF="mailto:libpkg-svn%40lists.berlios.de?Subject=Re%3A%20%5BLibpkg-svn%5D%20r259%20-%20trunk/src&In-Reply-To=%3C200702140314.l1E3E4sE030889%40sheep.berlios.de%3E"
+       TITLE="[Libpkg-svn] r259 - trunk/src">zxombie at mail.berlios.de
+       </A><BR>
+    <I>Wed Feb 14 04:14:04 CET 2007</I>
+    <P><UL>
+        
+        <LI>Next message: <A HREF="000244.html">[Libpkg-svn] r260 - trunk/src
+</A></li>
+         <LI> <B>Messages sorted by:</B> 
+              <a href="date.html#243">[ date ]</a>
+              <a href="thread.html#243">[ thread ]</a>
+              <a href="subject.html#243">[ subject ]</a>
+              <a href="author.html#243">[ author ]</a>
+         </LI>
+       </UL>
+    <HR>  
+<!--beginarticle-->
+<PRE>Author: zxombie
+Date: 2007-02-14 04:14:04 +0100 (Wed, 14 Feb 2007)
+New Revision: 259
+
+Modified:
+   trunk/src/pkg_freebsd.h
+   trunk/src/pkg_freebsd_contents.c
+   trunk/src/pkg_freebsd_private.h
+Log:
+Add pkg_freebsd_contents_update_prefix and pkg_freebsd_contents_get_file to uchange the prefix in a contents file and get a pkgfile of the contents respectively
+
+
+Modified: trunk/src/pkg_freebsd.h
+===================================================================
+--- trunk/src/pkg_freebsd.h	2007-01-27 02:19:46 UTC (rev 258)
++++ trunk/src/pkg_freebsd.h	2007-02-14 03:14:04 UTC (rev 259)
+@@ -68,6 +68,8 @@
+ struct pkg_freebsd_contents_line *pkg_freebsd_contents_get_line
+ 					(struct pkg_freebsd_contents *,
+ 					 unsigned int);
++int	pkg_freebsd_contents_update_prefix(struct pkg_freebsd_contents *, const char *);
++struct pkgfile *pkg_freebsd_contents_get_file(struct pkg_freebsd_contents *);
+ int	 pkg_freebsd_contents_free(struct pkg_freebsd_contents *);
+ 
+ #endif /* __LIBPKG_PKG_FREEBSD_H__ */
+
+Modified: trunk/src/pkg_freebsd_contents.c
+===================================================================
+--- trunk/src/pkg_freebsd_contents.c	2007-01-27 02:19:46 UTC (rev 258)
++++ trunk/src/pkg_freebsd_contents.c	2007-02-14 03:14:04 UTC (rev 259)
+@@ -1,5 +1,5 @@
+ /*
+- * Copyright (C) 2005, Andrew Turner, All rights reserved.
++ * Copyright (C) 2005, 2007 Andrew Turner, All rights reserved.
+  *
+  * Redistribution and use in source and binary forms, with or without
+  * modification, are permitted provided that the following conditions
+@@ -79,6 +79,9 @@
+ 	if (!cont)
+ 		return NULL;
+ 
++	cont-&gt;cnts_file = NULL;
++	cont-&gt;cnts_prefix = NULL;
++
+ 	if (contents == NULL) {
+ 		cont-&gt;file = NULL;
+ 		cont-&gt;line_count = 0;
+@@ -235,6 +238,10 @@
+ 	}
+ 	contents-&gt;line_count++;
+ 
++	if (contents-&gt;cnts_file != NULL) {
++		pkgfile_free(contents-&gt;cnts_file);
++		contents-&gt;cnts_file = NULL;
++	}
+ 	return 0;
+ }
+ 
+@@ -268,6 +275,10 @@
+ 		free(data);
+ 	}	
+ 
++	if (contents-&gt;cnts_file != NULL) {
++		pkgfile_free(contents-&gt;cnts_file);
++		contents-&gt;cnts_file = NULL;
++	}
+ 	return -1;
+ }
+ 
+@@ -299,6 +310,10 @@
+ 		return -1;
+ 	}
+ 
++	if (contents-&gt;cnts_file != NULL) {
++		pkgfile_free(contents-&gt;cnts_file);
++		contents-&gt;cnts_file = NULL;
++	}
+ 	return 0;
+ }
+ 
+@@ -318,6 +333,67 @@
+ 	return &amp;contents-&gt;lines[line];
+ }
+ 
++int
++pkg_freebsd_contents_update_prefix(struct pkg_freebsd_contents *contents,
++    const char *prefix)
++{
++	unsigned int pos;
++
++	if (contents == NULL)
++		return -1;
++
++	/* Find the package prefix and change it */
++	for (pos = 0; pos &lt; contents-&gt;line_count; pos++) {
++		if (contents-&gt;lines[pos].line_type == PKG_LINE_CWD) {
++			if (contents-&gt;cnts_prefix != NULL) {
++				free(contents-&gt;cnts_prefix);
++			}
++			contents-&gt;cnts_prefix = strdup(prefix);
++			contents-&gt;lines[pos].data = contents-&gt;cnts_prefix;
++			break;
++		}
++	}
++	if (contents-&gt;cnts_file != NULL) {
++		pkgfile_free(contents-&gt;cnts_file);
++		contents-&gt;cnts_file = NULL;
++	}
++	return 0;
++}
++
++struct pkgfile *
++pkg_freebsd_contents_get_file(struct pkg_freebsd_contents *contents)
++{
++	unsigned int pos;
++
++	if (contents == NULL)
++		return NULL;
++
++	if (contents-&gt;cnts_file == NULL) {
++		contents-&gt;cnts_file = pkgfile_new_regular(&quot;+CONTENTS&quot;, &quot;&quot;, 0);
++		if (contents-&gt;cnts_file == NULL)
++			return NULL;
++
++		for (pos = 0; pos &lt; contents-&gt;line_count; pos++) {
++			struct pkg_freebsd_contents_line *line;
++			char *data;
++
++			line = &amp;contents-&gt;lines[pos];
++			if (line-&gt;data == NULL) {
++				pkgfile_append(contents-&gt;cnts_file, line-&gt;line,
++				    strlen(line-&gt;line));
++				pkgfile_append(contents-&gt;cnts_file, &quot;\n&quot;, 1);
++			} else {
++				asprintf(&amp;data, &quot;%s %s\n&quot;,
++				    line-&gt;line,line-&gt;data);
++				pkgfile_append(contents-&gt;cnts_file, data,
++				    strlen(data));
++				free(data);
++			}
++		}
++	}
++	return contents-&gt;cnts_file;
++}
++
+ /**
+  * Frees a contents struct
+  */
+
+Modified: trunk/src/pkg_freebsd_private.h
+===================================================================
+--- trunk/src/pkg_freebsd_private.h	2007-01-27 02:19:46 UTC (rev 258)
++++ trunk/src/pkg_freebsd_private.h	2007-02-14 03:14:04 UTC (rev 259)
+@@ -35,6 +35,9 @@
+ 	unsigned int	 line_count;
+ 	unsigned int	 line_size;
+ 	struct pkg_freebsd_contents_line *lines;
++
++	char		*cnts_prefix;
++	struct pkgfile	*cnts_file;
+ };
+ 
+ #endif /* __LIBPKG_PKG_FREEBSD_PRIVATE_H__ */
+
+
+</PRE>
+
+<!--endarticle-->
+    <HR>
+    <P><UL>
+        <!--threads-->
+	
+	<LI>Next message: <A HREF="000244.html">[Libpkg-svn] r260 - trunk/src
+</A></li>
+         <LI> <B>Messages sorted by:</B> 
+              <a href="date.html#243">[ date ]</a>
+              <a href="thread.html#243">[ thread ]</a>
+              <a href="subject.html#243">[ subject ]</a>
+              <a href="author.html#243">[ author ]</a>
+         </LI>
+       </UL>
+
+<hr>
+<a href="https://lists.berlios.de/mailman/listinfo/libpkg-svn">More information about the Libpkg-svn
+mailing list</a><br>
+</body></html>

@@ -1,0 +1,85 @@
+<!DOCTYPE HTML PUBLIC "-//W3C//DTD HTML 4.01 Transitional//EN">
+<HTML>
+ <HEAD>
+   <TITLE> [Libpkg-svn] r237 - trunk/src
+   </TITLE>
+   <LINK REL="Index" HREF="http://lists.berlios.de/pipermail/libpkg-svn/2006-November/index.html" >
+   <LINK REL="made" HREF="mailto:libpkg-svn%40lists.berlios.de?Subject=Re%3A%20%5BLibpkg-svn%5D%20r237%20-%20trunk/src&In-Reply-To=%3C200611152353.kAFNrdjG004400%40sheep.berlios.de%3E">
+   <META NAME="robots" CONTENT="index,nofollow">
+   <style type="text/css">
+       pre {
+           white-space: pre-wrap;       /* css-2.1, curent FF, Opera, Safari */
+           }
+   </style>
+   <META http-equiv="Content-Type" content="text/html; charset=us-ascii">
+   <LINK REL="Previous"  HREF="000220.html">
+   <LINK REL="Next"  HREF="000222.html">
+ </HEAD>
+ <BODY BGCOLOR="#ffffff">
+   <H1>[Libpkg-svn] r237 - trunk/src</H1>
+    <B>zxombie at BerliOS</B> 
+    <A HREF="mailto:libpkg-svn%40lists.berlios.de?Subject=Re%3A%20%5BLibpkg-svn%5D%20r237%20-%20trunk/src&In-Reply-To=%3C200611152353.kAFNrdjG004400%40sheep.berlios.de%3E"
+       TITLE="[Libpkg-svn] r237 - trunk/src">zxombie at mail.berlios.de
+       </A><BR>
+    <I>Thu Nov 16 00:53:39 CET 2006</I>
+    <P><UL>
+        <LI>Previous message: <A HREF="000220.html">[Libpkg-svn] r236 - in trunk: src tools/pkg_add
+</A></li>
+        <LI>Next message: <A HREF="000222.html">[Libpkg-svn] r238 - trunk/src
+</A></li>
+         <LI> <B>Messages sorted by:</B> 
+              <a href="date.html#221">[ date ]</a>
+              <a href="thread.html#221">[ thread ]</a>
+              <a href="subject.html#221">[ subject ]</a>
+              <a href="author.html#221">[ author ]</a>
+         </LI>
+       </UL>
+    <HR>  
+<!--beginarticle-->
+<PRE>Author: zxombie
+Date: 2006-11-16 00:53:35 +0100 (Thu, 16 Nov 2006)
+New Revision: 237
+
+Modified:
+   trunk/src/pkgfile.c
+Log:
+If a file is empty return NULL in pkgfile_get_data
+
+
+Modified: trunk/src/pkgfile.c
+===================================================================
+--- trunk/src/pkgfile.c	2006-11-15 19:21:36 UTC (rev 236)
++++ trunk/src/pkgfile.c	2006-11-15 23:53:35 UTC (rev 237)
+@@ -405,7 +405,7 @@
+ 	case pkgfile_regular:
+ 		if (file-&gt;loc == pkgfile_loc_disk) {
+ 			/* Load the file to the data pointer */
+-			if (file-&gt;data == NULL) {
++			if (file-&gt;data == NULL &amp;&amp; file-&gt;length &gt; 0) {
+ 				file-&gt;data = malloc(file-&gt;length);
+ 				if (file-&gt;data == NULL)
+ 					return NULL;
+
+
+</PRE>
+
+<!--endarticle-->
+    <HR>
+    <P><UL>
+        <!--threads-->
+	<LI>Previous message: <A HREF="000220.html">[Libpkg-svn] r236 - in trunk: src tools/pkg_add
+</A></li>
+	<LI>Next message: <A HREF="000222.html">[Libpkg-svn] r238 - trunk/src
+</A></li>
+         <LI> <B>Messages sorted by:</B> 
+              <a href="date.html#221">[ date ]</a>
+              <a href="thread.html#221">[ thread ]</a>
+              <a href="subject.html#221">[ subject ]</a>
+              <a href="author.html#221">[ author ]</a>
+         </LI>
+       </UL>
+
+<hr>
+<a href="https://lists.berlios.de/mailman/listinfo/libpkg-svn">More information about the Libpkg-svn
+mailing list</a><br>
+</body></html>

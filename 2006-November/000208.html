@@ -1,0 +1,114 @@
+<!DOCTYPE HTML PUBLIC "-//W3C//DTD HTML 4.01 Transitional//EN">
+<HTML>
+ <HEAD>
+   <TITLE> [Libpkg-svn] r224 - trunk/tools/pkg_delete
+   </TITLE>
+   <LINK REL="Index" HREF="http://lists.berlios.de/pipermail/libpkg-svn/2006-November/index.html" >
+   <LINK REL="made" HREF="mailto:libpkg-svn%40lists.berlios.de?Subject=Re%3A%20%5BLibpkg-svn%5D%20r224%20-%20trunk/tools/pkg_delete&In-Reply-To=%3C200611150840.kAF8eG4D001785%40sheep.berlios.de%3E">
+   <META NAME="robots" CONTENT="index,nofollow">
+   <style type="text/css">
+       pre {
+           white-space: pre-wrap;       /* css-2.1, curent FF, Opera, Safari */
+           }
+   </style>
+   <META http-equiv="Content-Type" content="text/html; charset=us-ascii">
+   <LINK REL="Previous"  HREF="000207.html">
+   <LINK REL="Next"  HREF="000209.html">
+ </HEAD>
+ <BODY BGCOLOR="#ffffff">
+   <H1>[Libpkg-svn] r224 - trunk/tools/pkg_delete</H1>
+    <B>zxombie at BerliOS</B> 
+    <A HREF="mailto:libpkg-svn%40lists.berlios.de?Subject=Re%3A%20%5BLibpkg-svn%5D%20r224%20-%20trunk/tools/pkg_delete&In-Reply-To=%3C200611150840.kAF8eG4D001785%40sheep.berlios.de%3E"
+       TITLE="[Libpkg-svn] r224 - trunk/tools/pkg_delete">zxombie at mail.berlios.de
+       </A><BR>
+    <I>Wed Nov 15 09:40:16 CET 2006</I>
+    <P><UL>
+        <LI>Previous message: <A HREF="000207.html">[Libpkg-svn] r223 - trunk/tools/pkg_delete
+</A></li>
+        <LI>Next message: <A HREF="000209.html">[Libpkg-svn] r225 - trunk/src
+</A></li>
+         <LI> <B>Messages sorted by:</B> 
+              <a href="date.html#208">[ date ]</a>
+              <a href="thread.html#208">[ thread ]</a>
+              <a href="subject.html#208">[ subject ]</a>
+              <a href="author.html#208">[ author ]</a>
+         </LI>
+       </UL>
+    <HR>  
+<!--beginarticle-->
+<PRE>Author: zxombie
+Date: 2006-11-15 09:40:15 +0100 (Wed, 15 Nov 2006)
+New Revision: 224
+
+Modified:
+   trunk/tools/pkg_delete/main.c
+Log:
+Replace assert with errx on the unsupported arguments
+
+
+Modified: trunk/tools/pkg_delete/main.c
+===================================================================
+--- trunk/tools/pkg_delete/main.c	2006-11-15 08:30:38 UTC (rev 223)
++++ trunk/tools/pkg_delete/main.c	2006-11-15 08:40:15 UTC (rev 224)
+@@ -72,32 +72,32 @@
+ 			break;
+ 		case 'd':
+ 			delete.flags |= remove_empty_dirs_flag;
+-			assert(0);
++			errx(1, &quot;Unsupported argument&quot;);
+ 			break;
+ 		case 'D':
+ 			delete.flags |= no_run_script_flag;
+ 			break;
+ 		case 'f':
+ 			delete.flags |= force_flag;
+-			assert(0);
++			errx(1, &quot;Unsupported argument&quot;);
+ 			break;
+ 		case 'G':
+ 			delete.match_type = PKG_DB_MATCH_EXACT;
+ 			break;
+ 		case 'i':
+ 			delete.flags |= interactive_flag;
+-			assert(0);
++			errx(1, &quot;Unsupported argument&quot;);
+ 			break;
+ 		case 'n':
+ 			delete.flags |= no_run_flag;
+ 			break;
+ 		case 'p':
+ 			delete.prefix = optarg;
+-			assert(0);
++			errx(1, &quot;Unsupported argument&quot;);
+ 			break;
+ 		case 'r':
+ 			delete.flags |= recursive_flag;
+-			assert(0);
++			errx(1, &quot;Unsupported argument&quot;);
+ 			break;
+ 		case 'v':
+ 			delete.flags |= verbosity_flag;
+
+
+</PRE>
+
+<!--endarticle-->
+    <HR>
+    <P><UL>
+        <!--threads-->
+	<LI>Previous message: <A HREF="000207.html">[Libpkg-svn] r223 - trunk/tools/pkg_delete
+</A></li>
+	<LI>Next message: <A HREF="000209.html">[Libpkg-svn] r225 - trunk/src
+</A></li>
+         <LI> <B>Messages sorted by:</B> 
+              <a href="date.html#208">[ date ]</a>
+              <a href="thread.html#208">[ thread ]</a>
+              <a href="subject.html#208">[ subject ]</a>
+              <a href="author.html#208">[ author ]</a>
+         </LI>
+       </UL>
+
+<hr>
+<a href="https://lists.berlios.de/mailman/listinfo/libpkg-svn">More information about the Libpkg-svn
+mailing list</a><br>
+</body></html>

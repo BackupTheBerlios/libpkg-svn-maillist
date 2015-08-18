@@ -1,0 +1,1240 @@
+<!DOCTYPE HTML PUBLIC "-//W3C//DTD HTML 4.01 Transitional//EN">
+<HTML>
+ <HEAD>
+   <TITLE> [Libpkg-svn] r10 - trunk/src
+   </TITLE>
+   <LINK REL="Index" HREF="http://lists.berlios.de/pipermail/libpkg-svn/2005-November/index.html" >
+   <LINK REL="made" HREF="mailto:libpkg-svn%40lists.berlios.de?Subject=Re%3A%20%5BLibpkg-svn%5D%20r10%20-%20trunk/src&In-Reply-To=%3C200511101027.jAAARTmc009653%40sheep.berlios.de%3E">
+   <META NAME="robots" CONTENT="index,nofollow">
+   <style type="text/css">
+       pre {
+           white-space: pre-wrap;       /* css-2.1, curent FF, Opera, Safari */
+           }
+   </style>
+   <META http-equiv="Content-Type" content="text/html; charset=us-ascii">
+   <LINK REL="Previous"  HREF="000003.html">
+   <LINK REL="Next"  HREF="000005.html">
+ </HEAD>
+ <BODY BGCOLOR="#ffffff">
+   <H1>[Libpkg-svn] r10 - trunk/src</H1>
+    <B>Andrew Turner at BerliOS</B> 
+    <A HREF="mailto:libpkg-svn%40lists.berlios.de?Subject=Re%3A%20%5BLibpkg-svn%5D%20r10%20-%20trunk/src&In-Reply-To=%3C200511101027.jAAARTmc009653%40sheep.berlios.de%3E"
+       TITLE="[Libpkg-svn] r10 - trunk/src">zxombie at berlios.de
+       </A><BR>
+    <I>Thu Nov 10 11:27:29 CET 2005</I>
+    <P><UL>
+        <LI>Previous message: <A HREF="000003.html">[Libpkg-svn] r9 - trunk/src
+</A></li>
+        <LI>Next message: <A HREF="000005.html">[Libpkg-svn] r11 - trunk/src
+</A></li>
+         <LI> <B>Messages sorted by:</B> 
+              <a href="date.html#4">[ date ]</a>
+              <a href="thread.html#4">[ thread ]</a>
+              <a href="subject.html#4">[ subject ]</a>
+              <a href="author.html#4">[ author ]</a>
+         </LI>
+       </UL>
+    <HR>  
+<!--beginarticle-->
+<PRE>Author: zxombie
+Date: 2005-11-10 11:27:24 +0100 (Thu, 10 Nov 2005)
+New Revision: 10
+
+Removed:
+   trunk/src/pkg_error.c
+Modified:
+   trunk/src/Makefile
+   trunk/src/pkg.c
+   trunk/src/pkg.h
+   trunk/src/pkg_db.c
+   trunk/src/pkg_db_freebsd.c
+   trunk/src/pkg_file.c
+   trunk/src/pkg_freebsd.c
+   trunk/src/pkg_freebsd_contents.c
+   trunk/src/pkg_list.c
+   trunk/src/pkg_private.h
+   trunk/src/pkg_repo.c
+   trunk/src/pkg_repo_files.c
+   trunk/src/pkg_repo_ftp.c
+   trunk/src/pkg_util.c
+Log:
+Remove pkg_error_* [1]
+Move most callbacks to pkg_private.h [1]
+Add skeleton code that will soon retrieve dependencies
+Remove all return codes except PKG_OK and PKG_FAIL [1]
+Remove commented out code in pkf_file
+
+[1] Promped by: Tim Kientzle
+
+
+Modified: trunk/src/Makefile
+===================================================================
+--- trunk/src/Makefile	2005-11-10 05:31:16 UTC (rev 9)
++++ trunk/src/Makefile	2005-11-10 10:27:24 UTC (rev 10)
+@@ -18,7 +18,7 @@
+ SRCS+=	pkg_repo.c pkg_repo_files.c pkg_repo_ftp.c
+ 
+ # Misc functions
+-SRCS+=	pkg_object.c pkg_error.c pkg_util.c pkg_list.c
++SRCS+=	pkg_object.c pkg_util.c pkg_list.c
+ 
+ INC=	pkg.h
+ 
+
+Modified: trunk/src/pkg.c
+===================================================================
+--- trunk/src/pkg.c	2005-11-10 05:31:16 UTC (rev 9)
++++ trunk/src/pkg.c	2005-11-10 10:27:24 UTC (rev 10)
+@@ -33,34 +33,35 @@
+ #include &quot;pkg.h&quot;
+ #include &quot;pkg_private.h&quot;
+ 
++static int package_free(struct pkg_object *);
++
+ struct pkg *
+ pkg_new(const char *name, 
+ 		pkg_get_control_files_callback *control_files,
+ 		pkg_get_next_file_callback *next_file,
++		pkg_get_dependencies_callback *get_deps,
+ 		pkg_free_callback *free_pkg)
+ {
+ 	struct pkg *pkg;
+ 
+ 	pkg = malloc(sizeof(struct pkg));
+ 	if (!pkg) {
+-		pkg_error_set(&amp;pkg_null, &quot;Out of Memory&quot;);
+ 		return NULL;
+ 	}
+ 
+ 	pkg-&gt;pkg_name = strdup(name);
+ 	if (!pkg-&gt;pkg_name) {
+ 		free(pkg);
+-		pkg_error_set(&amp;pkg_null, &quot;Out of Memory&quot;);
+ 		return NULL;
+ 	}
+ 
+ 	pkg-&gt;pkg_get_control_files = control_files;
+ 	pkg-&gt;pkg_get_next_file = next_file;
++	pkg-&gt;pkg_get_deps = get_deps;
+ 	pkg-&gt;pkg_free = free_pkg;
+ 
+ 	pkg-&gt;pkg_object.data = NULL;
+-	pkg-&gt;pkg_object.error_str = NULL;
+-	pkg-&gt;pkg_object.free = NULL;
++	pkg-&gt;pkg_object.free = package_free;
+ 
+ 	return pkg;
+ }
+@@ -69,18 +70,12 @@
+ pkg_get_control_files(struct pkg *pkg)
+ {
+ 	if (!pkg) {
+-		pkg_error_set(&amp;pkg_null, &quot;No package specified&quot;);
+ 		return NULL;
+ 	}
+ 
+ 	if (!pkg-&gt;pkg_get_control_files) {
+-		pkg_error_set((struct pkg_object*)pkg, &quot;Package contains no control files&quot;);
+ 		return NULL;
+ 	}
+-	if (pkg-&gt;pkg_object.error_str) {
+-		free(pkg-&gt;pkg_object.error_str);
+-		pkg-&gt;pkg_object.error_str = NULL;
+-	}
+ 
+ 	return pkg-&gt;pkg_get_control_files(pkg);
+ }
+@@ -89,23 +84,28 @@
+ pkg_get_next_file(struct pkg *pkg)
+ {
+ 	if (!pkg) {
+-		pkg_error_set(&amp;pkg_null, &quot;No package specified&quot;);
+ 		return NULL;
+ 	}
+ 
+ 	if (!pkg-&gt;pkg_get_next_file) {
+-		pkg_error_set((struct pkg_object*)pkg, &quot;No more files in list&quot;);
+ 		return NULL;
+ 	}
+ 
+ 	return pkg-&gt;pkg_get_next_file(pkg);
+ }
+ 
++struct pkg_list *
++pkg_get_dependencies(struct pkg *pkg)
++{
++	if (pkg-&gt;pkg_get_deps)
++		pkg-&gt;pkg_get_deps(pkg);
++	return NULL;
++}
++
+ int
+ pkg_free(struct pkg *pkg)
+ {
+ 	if (!pkg) {
+-		pkg_error_set(&amp;pkg_null, &quot;No package specified&quot;);
+ 		return PKG_FAIL;
+ 	}
+ 
+@@ -119,3 +119,9 @@
+ 
+ 	return PKG_OK;
+ }
++
++static int
++package_free(struct pkg_object *obj)
++{
++	return pkg_free((struct pkg *)obj);
++}
+
+Modified: trunk/src/pkg.h
+===================================================================
+--- trunk/src/pkg.h	2005-11-10 05:31:16 UTC (rev 9)
++++ trunk/src/pkg.h	2005-11-10 10:27:24 UTC (rev 10)
+@@ -33,14 +33,10 @@
+ #include &lt;sys/types.h&gt;	/* uint64_t */
+ #include &lt;sys/stat.h&gt;	/* struct stat */
+ 
+-#include &lt;stdio.h&gt;	/* FILE * */
++#include &lt;stdio.h&gt;	/* FILE */
+ 
+-#define PKG_OK		0 /* Success */
+-#define PKG_YESNO	3
+-#define PKG_NO		2 /* PKG_NO &amp; PKG_YESNO == FALSE */
+-#define PKG_YES		3 /* PKG_YES &amp; PKG_YESNO == TRUE */
+-#define PKG_NOTSUP	4 /* Unsupported function */
+-#define PKG_FAIL	5 /* Failed */
++#define PKG_OK		0    /* Success */
++#define PKG_FAIL	(-1) /* Failed */
+ 
+ /*
+  * Generic object for all other objects.
+@@ -53,8 +49,6 @@
+ 
+ /* This must be the first item in child structs so we know where it is. */
+ struct pkg_object {
+-	/* The Error string for the user */
+-	char				*error_str;
+ 	/* Object internal data */
+ 	void				*data;
+ 	pkg_object_free_callback	*free;
+@@ -62,12 +56,6 @@
+ 
+ int	pkg_object_free(struct pkg_object *);
+ 
+-/* This is the struct to read the error from when NULL is returned */
+-extern struct pkg_object pkg_null;
+-
+-int	 pkg_error_set(struct pkg_object *, const char *, ...);
+-char	*pkg_error_string(struct pkg_object *);
+-
+ /*
+  * Object to hold files in
+  */
+@@ -83,21 +71,6 @@
+ 				const char *);
+ 
+ /*
+- * The package handling functions
+- */
+-struct pkg;
+-
+-typedef struct pkg_list	*pkg_get_control_files_callback(struct pkg *);
+-typedef struct pkg_file	*pkg_get_next_file_callback(struct pkg *);
+-typedef int		 pkg_free_callback(struct pkg *);
+-
+-struct pkg		*pkg_new(const char *,
+-				pkg_get_control_files_callback *,
+-				pkg_get_next_file_callback *,
+-				pkg_free_callback *);
+-struct pkg		*pkg_new_freebsd(FILE *);
+-
+-/*
+  * Object to hold a collection of packages in
+  */
+ struct pkg_list;
+@@ -106,24 +79,26 @@
+ int		 pkg_list_free(struct pkg_list *);
+ 
+ /*
++ * The package handling functions
++ */
++struct pkg;
++
++struct pkg		*pkg_new_freebsd(FILE *);
++struct pkg_list		*pkg_get_dependencies(struct pkg *);
++/*
+  * Returns all control files from the package
+  * Eg. +CONTENTS from FreeBSD Packages
+  */
+-struct pkg_list	*pkg_get_control_files(struct pkg *);
++struct pkg_list		*pkg_get_control_files(struct pkg *);
+ /* Returns the next non-control file */
+-struct pkg_file	*pkg_get_next_file(struct pkg *);
+-int		 pkg_free(struct pkg *);
++struct pkg_file		*pkg_get_next_file(struct pkg *);
++int			 pkg_free(struct pkg *);
+ 
+ /*
+  * A place to install packages to and uninstall packages from
+  */
+ struct pkg_db;
+ 
+-typedef int	 pkg_db_install_pkg_callback(struct pkg_db *, struct pkg *);
+-typedef int 	 pkg_db_is_installed_callback(struct pkg_db *, const char *);
+-
+-struct pkg_db	*pkg_db_open(const char *, pkg_db_install_pkg_callback *,
+-			pkg_db_is_installed_callback *);
+ struct pkg_db	*pkg_db_open_freebsd(const char *);
+ int		 pkg_db_install_pkg(struct pkg_db *, struct pkg *);
+ int		 pkg_db_is_installed(struct pkg_db *, const char *);
+@@ -135,14 +110,6 @@
+  */
+ struct pkg_repo;
+ 
+-typedef int	 pkg_repo_mark_callback(struct pkg_repo *, const char *);
+-typedef int	 pkg_repo_unmark_callback(struct pkg_repo *, const char *);
+-typedef int	 pkg_repo_install_callback(struct pkg_repo *, struct pkg_db *);
+-typedef struct pkg *pkg_repo_get_pkg_callback(struct pkg_repo *, const char *);
+-typedef int	 pkg_repo_free_callback(struct pkg_repo *);
+-
+-struct pkg_repo	*pkg_repo_new(pkg_repo_get_pkg_callback *,
+-			pkg_repo_free_callback *);
+ struct pkg_repo	*pkg_repo_new_files(void);
+ struct pkg_repo	*pkg_repo_new_ftp(const char *, const char *);
+ struct pkg	*pkg_repo_get_pkg(struct pkg_repo *, const char *);
+
+Modified: trunk/src/pkg_db.c
+===================================================================
+--- trunk/src/pkg_db.c	2005-11-10 05:31:16 UTC (rev 9)
++++ trunk/src/pkg_db.c	2005-11-10 10:27:24 UTC (rev 10)
+@@ -44,7 +44,6 @@
+ 
+ 	db = malloc(sizeof(struct pkg_db));
+ 	if (!db) {
+-		pkg_error_set(&amp;pkg_null, &quot;Out of Memory&quot;);
+ 		return NULL;
+ 	}
+ 
+@@ -61,7 +60,6 @@
+ 
+ 	if (!db-&gt;db_base) {
+ 		free(db);
+-		pkg_error_set(&amp;pkg_null, &quot;Out of Memory&quot;);
+ 		return NULL;
+ 	}
+ 
+@@ -69,7 +67,6 @@
+ 	db-&gt;pkg_is_installed = is_installed;
+ 
+ 	db-&gt;pkg_object.data = NULL;
+-	db-&gt;pkg_object.error_str = NULL;
+ 	db-&gt;pkg_object.free = NULL;
+ 
+ 	return db;
+@@ -79,23 +76,16 @@
+ pkg_db_install_pkg(struct pkg_db *db, struct pkg *pkg)
+ {
+ 	if (!db) {
+-		pkg_error_set(&amp;pkg_null, &quot;No package database specified&quot;);
+ 		return PKG_FAIL;
+ 	}
+ 
+ 	if (!pkg) {
+-		pkg_error_set((struct pkg_object *)db, &quot;No package specified&quot;);
+ 		return PKG_FAIL;
+ 	}
+ 
+ 	if (!db-&gt;pkg_install) {
+-		pkg_error_set((struct pkg_object *)db, &quot;No package install callback&quot;);
+-		return PKG_NOTSUP;
++		return PKG_FAIL;
+ 	}
+-	if (db-&gt;pkg_object.error_str) {
+-		free(db-&gt;pkg_object.error_str);
+-		db-&gt;pkg_object.error_str = NULL;
+-	}
+ 
+ 	return db-&gt;pkg_install(db, pkg);
+ }
+@@ -104,13 +94,11 @@
+ pkg_db_is_installed(struct pkg_db *db, const char *package)
+ {
+ 	if (!db) {
+-		pkg_error_set(&amp;pkg_null, &quot;No package database specified&quot;);
+ 		return PKG_FAIL;
+ 	}
+ 
+ 	if (!db-&gt;pkg_is_installed) {
+-		pkg_error_set((struct pkg_object *)db, &quot;No is installed callback&quot;);
+-		return PKG_NOTSUP;
++		return PKG_FAIL;
+ 	}
+ 
+ 	return db-&gt;pkg_is_installed(db, package);
+@@ -120,7 +108,6 @@
+ pkg_db_free(struct pkg_db *db)
+ {
+ 	if (!db) {
+-		pkg_error_set(&amp;pkg_null, &quot;No package database specified&quot;);
+ 		return PKG_FAIL;
+ 	}
+ 
+
+Modified: trunk/src/pkg_db_freebsd.c
+===================================================================
+--- trunk/src/pkg_db_freebsd.c	2005-11-10 05:31:16 UTC (rev 9)
++++ trunk/src/pkg_db_freebsd.c	2005-11-10 10:27:24 UTC (rev 10)
+@@ -98,28 +98,19 @@
+ 
+ 	control = pkg_get_control_files(pkg);
+ 	if (!control) {
+-		char *str;
+-		str = pkg_error_string(&amp;pkg_null);
+-		pkg_error_set((struct pkg_object *)db, str);
+ 		return PKG_FAIL;
+ 	}
+ 
+ 	/* Find the contents file in the control files */
+ 	contents_file = pkg_file_list_get_file(control, &quot;+CONTENTS&quot;);
+ 	if (!contents_file) {
+-		char *str;
+ 		pkg_list_free(control);
+-		str = pkg_error_string(&amp;pkg_null);
+-		pkg_error_set((struct pkg_object *)db, str);
+ 		return PKG_FAIL;
+ 	}
+ 
+ 	contents = pkg_freebsd_contents_new(contents_file-&gt;contents);
+ 	if (!contents) {
+-		char *str;
+ 		pkg_list_free(control);
+-		str = pkg_error_string(&amp;pkg_null);
+-		pkg_error_set((struct pkg_object *)db, str);
+ 		return PKG_FAIL;
+ 	}
+ 
+@@ -127,7 +118,6 @@
+ 	if (!cwd) {
+ 		pkg_list_free(control);
+ 		pkg_freebsd_contents_free(contents);
+-		pkg_error_set((struct pkg_object *)db, &quot;Get the current working directory&quot;);
+ 		return PKG_FAIL;
+ 	}
+ 
+@@ -184,16 +174,11 @@
+ 			if (contents-&gt;lines[i+1].line_type != PKG_LINE_COMMENT) {
+ 				chdir(cwd);
+ 				free(cwd);
+-				pkg_error_set((struct pkg_object *)db,
+-				    &quot;Incorrect line in +CONTENTS file&quot;);
+ 				pkg_freebsd_contents_free(contents);
+ 				return PKG_FAIL;
+ 			} else if (strncmp(&quot;MD5:&quot;, contents-&gt;lines[i+1].data, 4)) {
+ 				chdir(cwd);
+ 				free(cwd);
+-				pkg_error_set((struct pkg_object *)db,
+-				    &quot;Incorrect line in +CONTENTS file: &quot;
+-				    &quot;Checksum is incorrect&quot;);
+ 				pkg_freebsd_contents_free(contents);
+ 				return PKG_FAIL;
+ 			}
+@@ -212,31 +197,19 @@
+ 				free(cwd);
+ 				pkg_file_free(file);
+ 				pkg_freebsd_contents_free(contents);
+-				pkg_error_set((struct pkg_object *)file,
+-				    &quot;File name incorrect&quot;);
+ 				return PKG_FAIL;
+ 			}
+ 
+ 			contents_sum = strchr(contents-&gt;lines[i+1].data, ':');
+ 			contents_sum++;
+ 			if (pkg_checksum_md5(file, contents_sum) == PKG_FAIL) {
+-				char *str;
+ 				pkg_list_free(control);
+-
+-				str = pkg_error_string(
+-				    (struct pkg_object *)file);
+-				pkg_error_set((struct pkg_object *)db, str);
+ 				return PKG_FAIL;
+ 			}
+ 
+ 			/* Install the file */
+ 			ret = pkg_file_write(file);
+ 			if (ret == PKG_FAIL) {
+-				char *str;
+-
+-				str = pkg_error_string(
+-				    (struct pkg_object *)file);
+-				pkg_error_set((struct pkg_object *)db, str);
+ 				pkg_list_free(control);
+ 				pkg_file_free(file);
+ 				pkg_freebsd_contents_free(contents);
+@@ -276,7 +249,7 @@
+ 
+ 	pkg_freebsd_contents_free(contents);
+ 
+-	return PKG_NOTSUP;
++	return PKG_FAIL;
+ }
+ 
+ /*
+@@ -295,26 +268,17 @@
+ 
+ 	asprintf(&amp;dir, &quot;%s&quot; DB_LOCATION &quot;/%s&quot;, db-&gt;db_base, package);
+ 	if (!dir) {
+-		pkg_error_set((struct pkg_object *)db, &quot;Out of Memory&quot;);
+ 		return PKG_FAIL;
+ 	}
+ 
++	/* Does the package repo directory exist */
+ 	errno = 0;
+ 	if (stat(dir, &amp;sb)) {
+-		if (errno == ENOENT || errno == ENOTDIR) {
+-			free(dir);
+-			return PKG_NO;
+-		} else {
+-			pkg_error_set((struct pkg_object *)db,
+-			    &quot;Error with directory %s&quot;, dir);
+-			free(dir);
+-			return PKG_FAIL;
+-		}
++		free(dir);
++		return PKG_FAIL;
+ 	}
+ 
+ 	if (!S_ISDIR(sb.st_mode)) {
+-		pkg_error_set((struct pkg_object *)db,
+-		    &quot;The file %s exists but it is not a directory&quot;, dir);
+ 		free(dir);
+ 		return PKG_FAIL;
+ 	}
+@@ -323,7 +287,7 @@
+ 
+ 	/* XXX Check the correct files are there */
+ 
+-	return PKG_NO;
++	return PKG_OK;
+ }
+ 
+ static int
+@@ -342,8 +306,6 @@
+ 		assert(pkg != NULL); /* pkg is only needed to chdir to . */
+ 		asprintf(&amp;dir, &quot;%s/var/db/pkg/%s&quot;, db-&gt;db_base, pkg-&gt;pkg_name);
+ 		if (!dir) {
+-			pkg_error_set((struct pkg_object *)db,
+-			    &quot;Out of Memory&quot;);
+ 			return PKG_FAIL;
+ 		}
+ 		pkg_dir_build(dir);
+@@ -351,14 +313,10 @@
+ 		/* Set dir to the correct location */
+ 		asprintf(&amp;dir, &quot;%s/%s&quot;, db-&gt;db_base, ndir);
+ 		if (!dir) {
+-			pkg_error_set((struct pkg_object *)db,
+-			    &quot;Out of Memory&quot;);
+ 			return PKG_FAIL;
+ 		}
+ 	}
+ 	if (chdir(dir) == -1) {
+-		pkg_error_set((struct pkg_object *)db,
+-		    &quot;Could not chdir to %s&quot;, dir);
+ 		free(dir);
+ 		return PKG_FAIL;
+ 	}
+@@ -461,10 +419,8 @@
+ 	state = 0;
+ 
+ 	if (contents-&gt;lines[0].line_type != PKG_LINE_COMMENT) {
+-		pkg_error_set((struct pkg_object *)db, &quot;Contents file is malformed&quot;);
+ 		return -1;
+ 	} else if (strcmp(contents-&gt;lines[0].data, &quot;PKG_FORMAT_REVISION:1.1&quot;)) {
+-		pkg_error_set((struct pkg_object *)db, &quot;Contents file is malformed&quot;);
+ 		return -1;
+ 	}
+ 
+@@ -485,7 +441,6 @@
+ 		state = new_state;
+ 	}
+ 	if (state != 4 &amp;&amp; state != 6) {
+-		pkg_error_set((struct pkg_object *)db, &quot;Contents file is malformed&quot;);
+ 		return -1;
+ 	}
+ 	return i;
+
+Deleted: trunk/src/pkg_error.c
+===================================================================
+--- trunk/src/pkg_error.c	2005-11-10 05:31:16 UTC (rev 9)
++++ trunk/src/pkg_error.c	2005-11-10 10:27:24 UTC (rev 10)
+@@ -1,64 +0,0 @@
+-/*
+- * Copyright (C) 2005, Andrew Turner, All rights reserved.
+- *
+- * Redistribution and use in source and binary forms, with or without
+- * modification, are permitted provided that the following conditions
+- * are met:
+- * 1. Redistributions of source code must retain the above copyright
+- *    notice, this list of conditions and the following disclaimer
+- *    in this position and unchanged.
+- * 2. Redistributions in binary form must reproduce the above copyright
+- *    notice, this list of conditions and the following disclaimer in the
+- *    documentation and/or other materials provided with the distribution.
+- * 3. The name(s) of the author(s) may not be used to endorse or promote
+- *    products derived from this software without specific prior written
+- *    permission.
+- *
+- * THIS SOFTWARE IS PROVIDED BY THE AUTHOR(S) ``AS IS'' AND ANY EXPRESS OR
+- * IMPLIED WARRANTIES, INCLUDING, BUT NOT LIMITED TO, THE IMPLIED WARRANTIES
+- * OF MERCHANTABILITY AND FITNESS FOR A PARTICULAR PURPOSE ARE DISCLAIMED.
+- * IN NO EVENT SHALL THE AUTHOR(S) BE LIABLE FOR ANY DIRECT, INDIRECT,
+- * INCIDENTAL, SPECIAL, EXEMPLARY, OR CONSEQUENTIAL DAMAGES (INCLUDING, BUT
+- * NOT LIMITED TO, PROCUREMENT OF SUBSTITUTE GOODS OR SERVICES; LOSS OF USE,
+- * DATA, OR PROFITS; OR BUSINESS INTERRUPTION) HOWEVER CAUSED AND ON ANY
+- * THEORY OF LIABILITY, WHETHER IN CONTRACT, STRICT LIABILITY, OR TORT
+- * (INCLUDING NEGLIGENCE OR OTHERWISE) ARISING IN ANY WAY OUT OF THE USE OF
+- * THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
+- *
+- */
+-
+-#include &lt;stdarg.h&gt;
+-#include &lt;stdlib.h&gt;
+-#include &lt;string.h&gt;
+-
+-#include &quot;pkg.h&quot;
+-#include &quot;pkg_private.h&quot;
+-
+-/* XXX This is not thread safe */
+-struct pkg_object pkg_null;
+-
+-int
+-pkg_error_set(struct pkg_object *obj, const char *fmt, ...)
+-{
+-	va_list ap;
+-
+-	if (obj-&gt;error_str != NULL)
+-		free(obj-&gt;error_str);
+-
+-	va_start(ap, fmt);
+-	vasprintf(&amp;obj-&gt;error_str, fmt, ap);
+-	va_end(ap);
+-	//obj-&gt;error_str = strdup(error_str);
+-	if (!obj-&gt;error_str) {
+-		/* An attempt at not using any more memory */
+-		return PKG_FAIL;
+-	}
+-
+-	return PKG_OK;
+-}
+-
+-char *
+-pkg_error_string(struct pkg_object *obj)
+-{
+-	return obj-&gt;error_str;
+-}
+
+Modified: trunk/src/pkg_file.c
+===================================================================
+--- trunk/src/pkg_file.c	2005-11-10 05:31:16 UTC (rev 9)
++++ trunk/src/pkg_file.c	2005-11-10 10:27:24 UTC (rev 10)
+@@ -47,14 +47,12 @@
+ 
+ 	file = malloc(sizeof(struct pkg_file));
+ 	if (!file) {
+-		pkg_error_set(&amp;pkg_null, &quot;Out of Memory&quot;);
+ 		return NULL;
+ 	}
+ 
+ 	file-&gt;filename = strdup(filename);
+ 	if (!file-&gt;filename) {
+ 		free(file);
+-		pkg_error_set(&amp;pkg_null, &quot;Out of Memory&quot;);
+ 		return NULL;
+ 	}
+ 	if (sb == NULL) {
+@@ -64,7 +62,6 @@
+ 		if (!file-&gt;stat) {
+ 			free(file-&gt;filename);
+ 			free(file);
+-			pkg_error_set(&amp;pkg_null, &quot;Out of Memory&quot;);
+ 			return NULL;
+ 		}
+ 		memcpy(file-&gt;stat, sb, sizeof(struct stat));
+@@ -73,7 +70,6 @@
+ 	file-&gt;contents = buffer;
+ 
+ 	file-&gt;pkg_object.data = NULL;
+-	file-&gt;pkg_object.error_str = NULL;
+ 	file-&gt;pkg_object.free = file_free;
+ 
+ 	return file;
+@@ -86,7 +82,6 @@
+ pkg_file_free(struct pkg_file *file)
+ {
+ 	if (!file) {
+-		pkg_error_set(&amp;pkg_null, &quot;No file specified&quot;);
+ 		return PKG_FAIL;
+ 	}
+ 
+@@ -120,15 +115,12 @@
+ 	struct stat sb;
+ 
+ 	if (!file) {
+-		pkg_error_set(&amp;pkg_null, &quot;No file specified&quot;);
+ 		return PKG_FAIL;
+ 	}
+ 
+ 	if (file-&gt;stat) {
+ 		/* Check the file to be written is regular */
+ 		if (!S_ISREG(file-&gt;stat-&gt;st_mode)) {
+-			pkg_error_set((struct pkg_object *)file,
+-				    &quot;Can't write a non-regular file&quot;);
+ 			return PKG_FAIL;
+ 		}
+ 	}
+@@ -146,8 +138,6 @@
+ 		pkg_dir_build(dir_name);
+ 		fd = fopen(file-&gt;filename, &quot;a&quot;);
+ 		if (fd == NULL) {
+-			pkg_error_set((struct pkg_object *)file,
+-			    &quot;Could not create file %s&quot;, file-&gt;filename);
+ 			return PKG_FAIL;
+ 		}
+ 	}
+@@ -155,12 +145,10 @@
+ 	fstat(fileno(fd), &amp;sb);
+ 	if (!S_ISREG(sb.st_mode)) {
+ 		fclose(fd);
+-		pkg_error_set((struct pkg_object *)file, &quot;Not a regular file&quot;);
+ 		return PKG_FAIL;
+ 	} else if (sb.st_size &gt; 0) {
+ 		/* And the file is empty */
+ 		fclose(fd);
+-		pkg_error_set((struct pkg_object *)file, &quot;File already exists&quot;);
+ 		return PKG_FAIL;
+ 	}
+ 
+@@ -184,22 +172,6 @@
+ pkg_file_list_add(struct pkg_list *list, struct pkg_file *file)
+ {
+ 	return pkg_list_add(list, (struct pkg_object *)file);
+-	/*
+-	struct pkg_file_list *new;
+-
+-	new = malloc(sizeof(struct pkg_file_list));
+-	if (!new) {
+-		pkg_error_set(&amp;pkg_null, &quot;Out of Memory&quot;);
+-		return NULL;
+-	}
+-
+-	new-&gt;next = list;
+-	new-&gt;file = file;
+-
+-	new-&gt;pkg_object.error_str = NULL;
+-
+-	return new;
+-	*/
+ }
+ 
+ /*
+@@ -211,12 +183,10 @@
+ 	struct pkg_list *cur;
+ 
+ 	if (!list) {
+-		pkg_error_set(&amp;pkg_null, &quot;No file list specified&quot;);
+ 		return NULL;
+ 	}
+ 
+ 	if (!name) {
+-		pkg_error_set((struct pkg_object *)list, &quot;No name specified&quot;);
+ 		return NULL;
+ 	}
+ 
+
+Modified: trunk/src/pkg_freebsd.c
+===================================================================
+--- trunk/src/pkg_freebsd.c	2005-11-10 05:31:16 UTC (rev 9)
++++ trunk/src/pkg_freebsd.c	2005-11-10 10:27:24 UTC (rev 10)
+@@ -49,8 +49,9 @@
+ };
+ 
+ /* Callbacks */
+-static struct pkg_list	*freebsd_get_control_files(struct pkg *);
++static struct pkg_list		*freebsd_get_control_files(struct pkg *);
+ static struct pkg_file		*freebsd_get_next_file(struct pkg *);
++static struct pkg_list		*freebsd_get_deps(struct pkg *pkg);
+ static int			 freebsd_free(struct pkg *);
+ 
+ /* Internal functions */
+@@ -68,7 +69,6 @@
+ 
+ 	f_pkg = malloc(sizeof(struct freebsd_package));
+ 	if (!f_pkg) {
+-		pkg_error_set(&amp;pkg_null, &quot;Out of Memory&quot;);
+ 		return NULL;
+ 	}
+ 
+@@ -84,7 +84,6 @@
+ 	if (archive_read_open_stream(f_pkg-&gt;archive, fd, 10240)
+ 	    != ARCHIVE_OK) {
+ 		freebsd_free_package(f_pkg);
+-		pkg_error_set(&amp;pkg_null, &quot;Could not open archive&quot;);
+ 		return NULL;
+ 	}
+ 
+@@ -98,7 +97,6 @@
+ 		/* Package error */
+ 		pkg_file_free(file);
+ 		freebsd_free_package(f_pkg);
+-		pkg_error_set(&amp;pkg_null, &quot;Package does not start with a +CONTENTS file&quot;);
+ 		return NULL;
+ 	}
+ 	f_pkg-&gt;control = pkg_file_list_add(f_pkg-&gt;control, file);
+@@ -120,7 +118,7 @@
+ 	}
+ 
+ 	pkg = pkg_new(pkg_name, freebsd_get_control_files,
+-		freebsd_get_next_file, freebsd_free);
++		freebsd_get_next_file, freebsd_get_deps, freebsd_free);
+ 
+ 	free(pkg_name);
+ 
+@@ -163,6 +161,12 @@
+ 	return freebsd_get_next_entry(f_pkg-&gt;archive);
+ }
+ 
++static struct pkg_list *
++freebsd_get_deps(struct pkg *pkg __unused)
++{
++	return NULL;
++}
++
+ static int
+ freebsd_free(struct pkg *pkg)
+ {
+@@ -185,14 +189,12 @@
+ 
+ 	/* Read the next entry to a buffer. */
+ 	if (archive_read_next_header(a, &amp;entry) != ARCHIVE_OK) {
+-		pkg_error_set(&amp;pkg_null, &quot;Could not read next header&quot;);
+ 		return NULL;
+ 	}
+ 
+ 	length = archive_entry_size(entry);
+ 	str = malloc(length+1);
+ 	if (!str) {
+-		pkg_error_set(&amp;pkg_null, &quot;Out of Memory&quot;);
+ 		return NULL;
+ 	}
+ 	archive_read_data_into_buffer(a, str, length);
+@@ -215,31 +217,26 @@
+ 	/* Find the character after the first space on the second line */
+ 	str = strchr(buffer, '\n');
+ 	if (!str) {
+-		pkg_error_set(&amp;pkg_null, &quot;Malformed +CONTROL file&quot;);
+ 		return NULL;
+ 	}
+ 	str = strchr((const char *)str, ' ');
+ 	if (!str) {
+-		pkg_error_set(&amp;pkg_null, &quot;Malformed +CONTROL file&quot;);
+ 		return NULL;
+ 	}
+ 	str++;
+ 	if (str[0] == '\0') {
+-		pkg_error_set(&amp;pkg_null, &quot;Malformed +CONTROL file&quot;);
+ 		return NULL;
+ 	}
+ 
+ 	/* Copy the rest of the line to pkg_name */
+ 	ptr = strchr((const char *)str, '\n');
+ 	if (!ptr) {
+-		pkg_error_set(&amp;pkg_null, &quot;Malformed +CONTROL file&quot;);
+ 		return NULL;
+ 	}
+ 
+ 	len = ptr-str;
+ 	pkg_name = malloc(len+1);
+ 	if (!pkg_name) {
+-		pkg_error_set(&amp;pkg_null, &quot;Out of Memory&quot;);
+ 		return NULL;
+ 	}
+ 
+
+Modified: trunk/src/pkg_freebsd_contents.c
+===================================================================
+--- trunk/src/pkg_freebsd_contents.c	2005-11-10 05:31:16 UTC (rev 9)
++++ trunk/src/pkg_freebsd_contents.c	2005-11-10 10:27:24 UTC (rev 10)
+@@ -46,14 +46,12 @@
+ 
+ 	cont = malloc(sizeof(struct pkg_freebsd_contents));
+ 	if (!cont) {
+-		pkg_error_set(&amp;pkg_null, &quot;Out of Memory&quot;);
+ 		return NULL;
+ 	}
+ 
+ 	cont-&gt;file = strdup(contents);
+ 	if (!cont-&gt;file) {
+ 		free(cont);
+-		pkg_error_set(&amp;pkg_null, &quot;Out of Memory&quot;);
+ 		return NULL;
+ 	}
+ 	cont-&gt;lines = NULL;
+@@ -73,7 +71,6 @@
+ 	    cont-&gt;line_count);
+ 	if (!cont-&gt;lines) {
+ 		pkg_freebsd_contents_free(cont);
+-		pkg_error_set(&amp;pkg_null, &quot;Out of Memory&quot;);
+ 		return NULL;
+ 	}
+ 
+@@ -152,7 +149,6 @@
+ pkg_freebsd_contents_free(struct pkg_freebsd_contents *contents)
+ {
+ 	if (!contents) {
+-		pkg_error_set(&amp;pkg_null, &quot;No contents file specified&quot;);
+ 		return PKG_FAIL;
+ 	}
+ 
+
+Modified: trunk/src/pkg_list.c
+===================================================================
+--- trunk/src/pkg_list.c	2005-11-10 05:31:16 UTC (rev 9)
++++ trunk/src/pkg_list.c	2005-11-10 10:27:24 UTC (rev 10)
+@@ -46,7 +46,6 @@
+ 	assert(obj-&gt;free != NULL);
+ 	new = malloc(sizeof(struct pkg_list));
+ 	if (!new) {
+-		pkg_error_set(&amp;pkg_null, &quot;Out of Memory&quot;);
+ 		return NULL;
+ 	}
+ 
+@@ -54,7 +53,6 @@
+ 	new-&gt;obj = obj;
+ 
+ 	new-&gt;pkg_object.data = NULL;
+-	new-&gt;pkg_object.error_str = NULL;
+ 	new-&gt;pkg_object.free = NULL;
+ 
+ 	return new;
+
+Modified: trunk/src/pkg_private.h
+===================================================================
+--- trunk/src/pkg_private.h	2005-11-10 05:31:16 UTC (rev 9)
++++ trunk/src/pkg_private.h	2005-11-10 10:27:24 UTC (rev 10)
+@@ -50,6 +50,18 @@
+ 	struct pkg_object	*obj;
+ };
+ 
++/* Package Object */
++typedef struct pkg_list *pkg_get_dependencies_callback(struct pkg *);
++typedef struct pkg_list	*pkg_get_control_files_callback(struct pkg *);
++typedef struct pkg_file	*pkg_get_next_file_callback(struct pkg *);
++typedef int		 pkg_free_callback(struct pkg *);
++
++struct pkg		*pkg_new(const char *,
++				pkg_get_control_files_callback *,
++				pkg_get_next_file_callback *,
++				pkg_get_dependencies_callback *,
++				pkg_free_callback *);
++
+ struct pkg {
+ 	struct pkg_object	 pkg_object;
+ 
+@@ -57,8 +69,14 @@
+ 	pkg_get_control_files_callback	*pkg_get_control_files;
+ 	pkg_get_next_file_callback	*pkg_get_next_file;
+ 	pkg_free_callback		*pkg_free;
++	pkg_get_dependencies_callback	*pkg_get_deps;
+ };
+ 
++typedef int	 pkg_db_install_pkg_callback(struct pkg_db *, struct pkg *);
++typedef int 	 pkg_db_is_installed_callback(struct pkg_db *, const char *);
++
++struct pkg_db	*pkg_db_open(const char *, pkg_db_install_pkg_callback *,
++			pkg_db_is_installed_callback *);
+ struct pkg_db {
+ 	struct pkg_object	 pkg_object;
+ 
+@@ -68,6 +86,15 @@
+ 	pkg_db_is_installed_callback	*pkg_is_installed;
+ };
+ 
++typedef int	 pkg_repo_mark_callback(struct pkg_repo *, const char *);
++typedef int	 pkg_repo_unmark_callback(struct pkg_repo *, const char *);
++typedef int	 pkg_repo_install_callback(struct pkg_repo *, struct pkg_db *);
++typedef struct pkg *pkg_repo_get_pkg_callback(struct pkg_repo *, const char *);
++typedef int	 pkg_repo_free_callback(struct pkg_repo *);
++
++struct pkg_repo	*pkg_repo_new(pkg_repo_get_pkg_callback *,
++			pkg_repo_free_callback *);
++
+ struct pkg_repo {
+ 	struct pkg_object	 pkg_object;
+ 
+
+Modified: trunk/src/pkg_repo.c
+===================================================================
+--- trunk/src/pkg_repo.c	2005-11-10 05:31:16 UTC (rev 9)
++++ trunk/src/pkg_repo.c	2005-11-10 10:27:24 UTC (rev 10)
+@@ -43,7 +43,6 @@
+ 
+ 	repo = malloc(sizeof(struct pkg_repo));
+ 	if (!repo) {
+-		pkg_error_set(&amp;pkg_null, &quot;Out of Memory&quot;);
+ 		return NULL;
+ 	}
+ 
+@@ -51,7 +50,6 @@
+ 	repo-&gt;pkg_free = pfree;
+ 
+ 	repo-&gt;pkg_object.data = NULL;
+-	repo-&gt;pkg_object.error_str = NULL;
+ 	repo-&gt;pkg_object.free = NULL;
+ 
+ 	return repo;
+@@ -61,17 +59,14 @@
+ pkg_repo_get_pkg(struct pkg_repo *repo, const char *pkg_name)
+ {
+ 	if (!repo) {
+-		pkg_error_set(&amp;pkg_null, &quot;No package repo specified&quot;);
+ 		return NULL;
+ 	}
+ 
+ 	if (!pkg_name) {
+-		pkg_error_set((struct pkg_object *)repo, &quot;No package name specified&quot;);
+ 		return NULL;
+ 	}
+ 
+ 	if (!repo-&gt;pkg_get) {
+-		pkg_error_set(&amp;pkg_null, &quot;No get package callback&quot;);
+ 		return NULL;
+ 	}
+ 
+@@ -85,18 +80,12 @@
+ pkg_repo_free(struct pkg_repo *repo)
+ {
+ 	if (!repo) {
+-		pkg_error_set(&amp;pkg_null, &quot;No package repo specified&quot;);
+ 		return PKG_FAIL;
+ 	}
+ 
+ 	if (repo-&gt;pkg_free)
+ 		repo-&gt;pkg_free(repo);
+ 
+-	if (repo-&gt;pkg_object.error_str) {
+-		free(repo-&gt;pkg_object.error_str);
+-		repo-&gt;pkg_object.error_str = NULL;
+-	}
+-
+ 	free(repo);
+ 
+ 	return PKG_OK;
+
+Modified: trunk/src/pkg_repo_files.c
+===================================================================
+--- trunk/src/pkg_repo_files.c	2005-11-10 05:31:16 UTC (rev 9)
++++ trunk/src/pkg_repo_files.c	2005-11-10 10:27:24 UTC (rev 10)
+@@ -59,7 +59,6 @@
+ 	/* Open the package file */
+ 	fd = fopen(pkg_name, &quot;r&quot;);
+ 	if (!fd) {
+-		pkg_error_set(&amp;pkg_null, &quot;Could not open %s&quot;, pkg_name);
+ 		return NULL;
+ 	}
+ 
+@@ -67,10 +66,7 @@
+ 	/* XXX auto detect package type */
+ 	pkg = pkg_new_freebsd(fd);
+ 	if (!pkg) {
+-		char *str;
+ 		fclose(fd);
+-		str = pkg_error_string(&amp;pkg_null);
+-		pkg_error_set((struct pkg_object *)repo, str);
+ 		return NULL;
+ 	}
+ 
+
+Modified: trunk/src/pkg_repo_ftp.c
+===================================================================
+--- trunk/src/pkg_repo_ftp.c	2005-11-10 05:31:16 UTC (rev 9)
++++ trunk/src/pkg_repo_ftp.c	2005-11-10 10:27:24 UTC (rev 10)
+@@ -110,7 +110,6 @@
+ 	f_repo = malloc(sizeof(struct ftp_repo));
+ 	if (!f_repo) {
+ 		pkg_repo_free(pkg);
+-		pkg_error_set(&amp;pkg_null, &quot;Out of Memory&quot;);
+ 		return NULL;
+ 	}
+ 
+@@ -124,7 +123,6 @@
+ 
+ 	if (!f_repo-&gt;site) {
+ 		pkg_repo_free(pkg);
+-		pkg_error_set(&amp;pkg_null, &quot;Out of Memory&quot;);
+ 		return NULL;
+ 	}
+ 
+@@ -136,12 +134,6 @@
+ 
+ 		reldate = getosreldate();
+ 		if(reldate &gt; MAX_VERSION) {  /* bogus osreldate?? */
+-			pkg_error_set(&amp;pkg_null,
+-			    &quot;Warning: getosreldate() value (%d) too large.\n&quot;
+-			    &quot;This is either a bug in libpkg or you are using\n&quot;
+-			    &quot;a very old version of the package tools with a\n&quot;
+-			    &quot;new OS.\n&quot;,
+-			    reldate);
+ 			pkg_repo_free(pkg);
+ 			return NULL;
+ 		}
+@@ -163,7 +155,6 @@
+ 
+ 	if (!f_repo-&gt;path) {
+ 		pkg_repo_free(pkg);
+-		pkg_error_set(&amp;pkg_null, &quot;Out of Memory&quot;);
+ 		return NULL;
+ 	}
+ 
+@@ -182,18 +173,15 @@
+ 	const char	*fallback_subdir;
+ 
+ 	if (!repo) {
+-		pkg_error_set(&amp;pkg_null, &quot;No package repo specified&quot;);
+ 		return NULL;
+ 	}
+ 
+ 	if (!pkg_name) {
+-		pkg_error_set((struct pkg_object *)repo, &quot;No package anme specified&quot;);
+ 		return NULL;
+ 	}
+ 
+ 	f_repo = repo-&gt;pkg_object.data;
+ 	if (!f_repo) {
+-		pkg_error_set((struct pkg_object *)repo, &quot;Bad package sata&quot;);
+ 		return NULL;
+ 	}
+ 
+@@ -217,7 +205,6 @@
+ 	asprintf(&amp;ftpname, &quot;<A HREF="ftp://%s/%s/%s/%s%s">ftp://%s/%s/%s/%s%s</A>&quot;, f_repo-&gt;site, f_repo-&gt;path,
+ 	    subdir, pkg_name, ext);
+ 	if (!ftpname) {
+-		pkg_error_set((struct pkg_object *)repo, &quot;Out of memory&quot;);
+ 		return NULL;
+ 	}
+ 
+@@ -229,14 +216,10 @@
+ 		asprintf(&amp;ftpname, &quot;<A HREF="ftp://%s/%s/%s/%s%s">ftp://%s/%s/%s/%s%s</A>&quot;, f_repo-&gt;site,
+ 		    f_repo-&gt;path, fallback_subdir, pkg_name, ext);
+ 		if (!ftpname) {
+-			pkg_error_set((struct pkg_object *)repo,
+-			    &quot;Out of Memory&quot;);
+ 			return NULL;
+ 		}
+ 		fd = fetchGetURL(ftpname, &quot;p&quot;);
+ 		if (fd == NULL) {
+-			pkg_error_set((struct pkg_object *)repo,
+-			    &quot;Could not connect to %s&quot;, ftpname);
+ 			free(ftpname);
+ 			return NULL;
+ 		}
+@@ -246,10 +229,7 @@
+ 
+ 	pkg = pkg_new_freebsd(fd);
+ 	if (!pkg) {
+-		char *str;
+ 		fclose(fd);
+-		str = pkg_error_string(&amp;pkg_null);
+-		pkg_error_set((struct pkg_object *)repo, str);
+ 		return NULL;
+ 	}
+ 
+@@ -265,7 +245,6 @@
+ 	struct ftp_repo *f_repo;
+ 
+ 	if (!repo) {
+-		pkg_error_set(&amp;pkg_null, &quot;No package repo specified&quot;);
+ 		return PKG_FAIL;
+ 	}
+ 
+
+Modified: trunk/src/pkg_util.c
+===================================================================
+--- trunk/src/pkg_util.c	2005-11-10 05:31:16 UTC (rev 9)
++++ trunk/src/pkg_util.c	2005-11-10 10:27:24 UTC (rev 10)
+@@ -55,7 +55,6 @@
+ 
+ 	str = strdup(path);
+ 	if (!str) {
+-		pkg_error_set(&amp;pkg_null, &quot;Out of Memory&quot;);
+ 		return PKG_FAIL;
+ 	}
+ 	p = str;
+@@ -74,8 +73,6 @@
+ 			if (errno == EEXIST || errno == EISDIR) {
+ 				if (stat(str, &amp;sb) &lt; 0) {
+ 					retval = PKG_FAIL;
+-					pkg_error_set(&amp;pkg_null,
+-					    &quot;Could not stat %s&quot;, str);
+ 					break;
+ 				} else if (!S_ISDIR(sb.st_mode)) {
+ 					if (last)
+@@ -83,14 +80,10 @@
+ 					else
+ 						errno = ENOTDIR;
+ 					retval = PKG_FAIL;
+-					pkg_error_set(&amp;pkg_null,
+-					    &quot;%s is not a directory&quot;, str);
+ 					break;
+ 				}
+ 			} else {
+ 				retval = PKG_FAIL;
+-				pkg_error_set(&amp;pkg_null, &quot;Could not create %s&quot;,
+-				    str);
+ 				break;
+ 			}
+ 		}
+@@ -108,20 +101,16 @@
+ 	char sum[33];
+ 
+ 	if (!file) {
+-		pkg_error_set(&amp;pkg_null, &quot;No file specified&quot;);
+ 		return PKG_FAIL;
+ 	}
+ 
+ 	if (!sum) {
+-		pkg_error_set((struct pkg_object *)file, &quot;No checksum specified&quot;);
+ 		return PKG_FAIL;
+ 	}
+ 
+ 	/* Perform a checksum on the file to install */
+ 	MD5Data(file-&gt;contents, file-&gt;len, sum);
+ 	if (strcmp(sum, chk_sum)) {
+-		pkg_error_set((struct pkg_object *)file,
+-		    &quot;File checksum incorrect&quot;);
+ 		return PKG_FAIL;
+ 	}
+ 	return PKG_OK;
+
+
+</PRE>
+
+<!--endarticle-->
+    <HR>
+    <P><UL>
+        <!--threads-->
+	<LI>Previous message: <A HREF="000003.html">[Libpkg-svn] r9 - trunk/src
+</A></li>
+	<LI>Next message: <A HREF="000005.html">[Libpkg-svn] r11 - trunk/src
+</A></li>
+         <LI> <B>Messages sorted by:</B> 
+              <a href="date.html#4">[ date ]</a>
+              <a href="thread.html#4">[ thread ]</a>
+              <a href="subject.html#4">[ subject ]</a>
+              <a href="author.html#4">[ author ]</a>
+         </LI>
+       </UL>
+
+<hr>
+<a href="https://lists.berlios.de/mailman/listinfo/libpkg-svn">More information about the Libpkg-svn
+mailing list</a><br>
+</body></html>

@@ -1,0 +1,261 @@
+<!DOCTYPE HTML PUBLIC "-//W3C//DTD HTML 4.01 Transitional//EN">
+<HTML>
+ <HEAD>
+   <TITLE> [Libpkg-svn] r281 - trunk/src
+   </TITLE>
+   <LINK REL="Index" HREF="http://lists.berlios.de/pipermail/libpkg-svn/2007-March/index.html" >
+   <LINK REL="made" HREF="mailto:libpkg-svn%40lists.berlios.de?Subject=Re%3A%20%5BLibpkg-svn%5D%20r281%20-%20trunk/src&In-Reply-To=%3C200703100525.l2A5Psdx024514%40sheep.berlios.de%3E">
+   <META NAME="robots" CONTENT="index,nofollow">
+   <style type="text/css">
+       pre {
+           white-space: pre-wrap;       /* css-2.1, curent FF, Opera, Safari */
+           }
+   </style>
+   <META http-equiv="Content-Type" content="text/html; charset=us-ascii">
+   <LINK REL="Previous"  HREF="000264.html">
+   <LINK REL="Next"  HREF="000266.html">
+ </HEAD>
+ <BODY BGCOLOR="#ffffff">
+   <H1>[Libpkg-svn] r281 - trunk/src</H1>
+    <B>zxombie at BerliOS</B> 
+    <A HREF="mailto:libpkg-svn%40lists.berlios.de?Subject=Re%3A%20%5BLibpkg-svn%5D%20r281%20-%20trunk/src&In-Reply-To=%3C200703100525.l2A5Psdx024514%40sheep.berlios.de%3E"
+       TITLE="[Libpkg-svn] r281 - trunk/src">zxombie at mail.berlios.de
+       </A><BR>
+    <I>Sat Mar 10 06:25:54 CET 2007</I>
+    <P><UL>
+        <LI>Previous message: <A HREF="000264.html">[Libpkg-svn] r280 - trunk/src
+</A></li>
+        <LI>Next message: <A HREF="000266.html">[Libpkg-svn] r282 - trunk/src
+</A></li>
+         <LI> <B>Messages sorted by:</B> 
+              <a href="date.html#265">[ date ]</a>
+              <a href="thread.html#265">[ thread ]</a>
+              <a href="subject.html#265">[ subject ]</a>
+              <a href="author.html#265">[ author ]</a>
+         </LI>
+       </UL>
+    <HR>  
+<!--beginarticle-->
+<PRE>Author: zxombie
+Date: 2007-03-10 06:25:53 +0100 (Sat, 10 Mar 2007)
+New Revision: 281
+
+Added:
+   trunk/src/pkg_manifest_freebsd.c
+Log:
+Add the missing pkg_manifest_freebasd.c
+
+
+Added: trunk/src/pkg_manifest_freebsd.c
+===================================================================
+--- trunk/src/pkg_manifest_freebsd.c	2007-03-09 22:05:33 UTC (rev 280)
++++ trunk/src/pkg_manifest_freebsd.c	2007-03-10 05:25:53 UTC (rev 281)
+@@ -0,0 +1,184 @@
++/*
++ * Copyright (C) 2007, Andrew Turner, All rights reserved.
++ *
++ * Redistribution and use in source and binary forms, with or without
++ * modification, are permitted provided that the following conditions
++ * are met:
++ * 1. Redistributions of source code must retain the above copyright
++ *    notice, this list of conditions and the following disclaimer
++ *    in this position and unchanged.
++ * 2. Redistributions in binary form must reproduce the above copyright
++ *    notice, this list of conditions and the following disclaimer in the
++ *    documentation and/or other materials provided with the distribution.
++ * 3. The name(s) of the author(s) may not be used to endorse or promote
++ *    products derived from this software without specific prior written
++ *    permission.
++ *
++ * THIS SOFTWARE IS PROVIDED BY THE AUTHOR(S) ``AS IS'' AND ANY EXPRESS OR
++ * IMPLIED WARRANTIES, INCLUDING, BUT NOT LIMITED TO, THE IMPLIED WARRANTIES
++ * OF MERCHANTABILITY AND FITNESS FOR A PARTICULAR PURPOSE ARE DISCLAIMED.
++ * IN NO EVENT SHALL THE AUTHOR(S) BE LIABLE FOR ANY DIRECT, INDIRECT,
++ * INCIDENTAL, SPECIAL, EXEMPLARY, OR CONSEQUENTIAL DAMAGES (INCLUDING, BUT
++ * NOT LIMITED TO, PROCUREMENT OF SUBSTITUTE GOODS OR SERVICES; LOSS OF USE,
++ * DATA, OR PROFITS; OR BUSINESS INTERRUPTION) HOWEVER CAUSED AND ON ANY
++ * THEORY OF LIABILITY, WHETHER IN CONTRACT, STRICT LIABILITY, OR TORT
++ * (INCLUDING NEGLIGENCE OR OTHERWISE) ARISING IN ANY WAY OUT OF THE USE OF
++ * THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
++ *
++ */
++
++#include &quot;pkg.h&quot;
++#include &quot;pkg_private.h&quot;
++
++#include &lt;assert.h&gt;
++#include &lt;string.h&gt;
++
++/* These are used by the FreeBSD parser */
++extern FILE *pkg_freebsd_in;
++int pkg_freebsd_parse(struct pkg_manifest **);
++
++static struct pkgfile *freebsd_manifest_get_file(struct pkg_manifest *);
++
++/**
++ * @defgroup FreeBSDManifest FreeBSD Package Manifest
++ * @ingroup PackageManifest
++ *
++ * @{
++ */
++
++/**
++ * @brief Creates a new FreeBSD package manifest from a struct pkgfile
++ * @param file The file to create the manifest from
++ * @return A new package manifest
++ * @return NULL on error
++ * @todo Check if pkg_freebsd_parse is thread safe
++ */
++struct pkg_manifest *
++pkg_manifest_new_freebsd_pkgfile(struct pkgfile *file)
++{
++	struct pkg_manifest *manifest;
++
++	pkgfile_seek(file, 0, SEEK_SET);
++	pkg_freebsd_in = pkgfile_get_fileptr(file);
++	pkg_freebsd_parse(&amp;manifest);
++
++	manifest-&gt;manifest_get_file = freebsd_manifest_get_file;
++
++	return manifest;
++}
++
++/**
++ * @}
++ */
++
++/**
++ * @defgroup FreeBSDManifestCallbacks FreeBSD Manifest callbacks
++ * @ingroup FreeBSDManifest
++ *
++ * @{
++ */
++
++/**
++ * @brief Callback for pkg_manifest_get_file
++ * @param manifest The manifest to get the file for
++ * @return The pkgfile containinf the Manifest
++ * @return NULL on error including incomplete manifest data
++ */
++static struct pkgfile *
++freebsd_manifest_get_file(struct pkg_manifest *manifest)
++{
++	struct pkgm_deps *dep;
++	struct pkgm_conflicts *conflict;
++	struct pkgm_items *item;
++	const char *data = &quot;@comment PKG_FORMAT_REVISION:1.1\n&quot;;
++
++	assert(manifest != NULL);
++	assert(manifest-&gt;file == NULL);
++
++	manifest-&gt;file = pkgfile_new_regular(&quot;+CONTENTS&quot;, data, strlen(data));
++	pkgfile_append_string(manifest-&gt;file, &quot;@name %s\n&quot;, manifest-&gt;name);
++
++	/* Set the package's origin */
++	if (manifest-&gt;attrs[pkgm_origin] != NULL) {
++		pkgfile_append_string(manifest-&gt;file, &quot;@comment ORIGIN:%s\n&quot;,
++		    manifest-&gt;attrs[pkgm_origin]);
++	}
++
++	/* Set the package's prefix */
++	if (manifest-&gt;attrs[pkgm_prefix] != NULL) {
++		pkgfile_append_string(manifest-&gt;file, &quot;@cwd %s\n&quot;,
++		    manifest-&gt;attrs[pkgm_prefix]);
++	}
++
++	/* Add the package's dependency's */
++	STAILQ_FOREACH(dep, &amp;manifest-&gt;deps, list) {
++		pkgfile_append_string(manifest-&gt;file, &quot;@pkgdep %s\n&quot;,
++		    pkg_get_name(dep-&gt;pkg));
++		pkgfile_append_string(manifest-&gt;file, &quot;@comment DEPORIGIN:%s\n&quot;,
++		    pkg_get_origin(dep-&gt;pkg));
++	}
++
++	/* Add the package's conflicts */
++	STAILQ_FOREACH(conflict, &amp;manifest-&gt;conflicts, list) {
++		pkgfile_append_string(manifest-&gt;file, &quot;@conflicts %s\n&quot;,
++		    conflict-&gt;conflict);
++	}
++
++	/* Add the package's (de)install items */
++	STAILQ_FOREACH(item, &amp;manifest-&gt;items, list) {
++		switch(item-&gt;item-&gt;type) {
++		case pmt_file:
++			pkgfile_append_string(manifest-&gt;file, &quot;%s\n&quot;,
++			    (char *)item-&gt;item-&gt;data);
++			if (item-&gt;item-&gt;attrs != NULL &amp;&amp;
++			    item-&gt;item-&gt;attrs[pmia_md5] != NULL) {
++				pkgfile_append_string(manifest-&gt;file,
++				    &quot;@comment MD5:%s\n&quot;,
++				    item-&gt;item-&gt;attrs[pmia_md5]);
++			}
++			break;
++		case pmt_dir:
++			pkgfile_append_string(manifest-&gt;file, &quot;@dirrm %s\n&quot;,
++			    (char *)item-&gt;item-&gt;data);
++			break;
++		case pmt_dirlist:
++			pkgfile_append_string(manifest-&gt;file, &quot;@mtree %s\n&quot;,
++			    (char *)item-&gt;item-&gt;data);
++			break;
++		case pmt_chdir:
++			pkgfile_append_string(manifest-&gt;file, &quot;@cwd %s\n&quot;,
++			    (char *)item-&gt;item-&gt;data);
++			break;
++		case pmt_output:
++			pkgfile_append_string(manifest-&gt;file, &quot;@display %s\n&quot;,
++			    (char *)item-&gt;item-&gt;data);
++			break;
++		case pmt_comment:
++			pkgfile_append_string(manifest-&gt;file, &quot;@comment %s\n&quot;,
++			    (char *)item-&gt;item-&gt;data);
++			break;
++		case pmt_execute:
++		{
++			const char *cmd;
++
++			if (item-&gt;item-&gt;attrs != NULL &amp;&amp;
++			    item-&gt;item-&gt;attrs[pmia_deinstall] != NULL) {
++				cmd = &quot;@unexec&quot;;
++			} else {
++				cmd = &quot;@exec&quot;;
++			}
++			pkgfile_append_string(manifest-&gt;file, &quot;%s %s\n&quot;, cmd,
++			    (char *)item-&gt;item-&gt;data);
++			break;
++		}
++		case pmt_other:
++			break;
++		}
++	}
++
++	return manifest-&gt;file;
++}
++
++/**
++ * @}
++ */
+
+
+</PRE>
+
+<!--endarticle-->
+    <HR>
+    <P><UL>
+        <!--threads-->
+	<LI>Previous message: <A HREF="000264.html">[Libpkg-svn] r280 - trunk/src
+</A></li>
+	<LI>Next message: <A HREF="000266.html">[Libpkg-svn] r282 - trunk/src
+</A></li>
+         <LI> <B>Messages sorted by:</B> 
+              <a href="date.html#265">[ date ]</a>
+              <a href="thread.html#265">[ thread ]</a>
+              <a href="subject.html#265">[ subject ]</a>
+              <a href="author.html#265">[ author ]</a>
+         </LI>
+       </UL>
+
+<hr>
+<a href="https://lists.berlios.de/mailman/listinfo/libpkg-svn">More information about the Libpkg-svn
+mailing list</a><br>
+</body></html>

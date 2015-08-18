@@ -1,0 +1,127 @@
+<!DOCTYPE HTML PUBLIC "-//W3C//DTD HTML 4.01 Transitional//EN">
+<HTML>
+ <HEAD>
+   <TITLE> [Libpkg-svn] r151 - www
+   </TITLE>
+   <LINK REL="Index" HREF="http://lists.berlios.de/pipermail/libpkg-svn/2006-July/index.html" >
+   <LINK REL="made" HREF="mailto:libpkg-svn%40lists.berlios.de?Subject=Re%3A%20%5BLibpkg-svn%5D%20r151%20-%20www&In-Reply-To=%3C200607140338.k6E3cASe017661%40sheep.berlios.de%3E">
+   <META NAME="robots" CONTENT="index,nofollow">
+   <style type="text/css">
+       pre {
+           white-space: pre-wrap;       /* css-2.1, curent FF, Opera, Safari */
+           }
+   </style>
+   <META http-equiv="Content-Type" content="text/html; charset=us-ascii">
+   <LINK REL="Previous"  HREF="000133.html">
+   <LINK REL="Next"  HREF="000132.html">
+ </HEAD>
+ <BODY BGCOLOR="#ffffff">
+   <H1>[Libpkg-svn] r151 - www</H1>
+    <B>zxombie at BerliOS</B> 
+    <A HREF="mailto:libpkg-svn%40lists.berlios.de?Subject=Re%3A%20%5BLibpkg-svn%5D%20r151%20-%20www&In-Reply-To=%3C200607140338.k6E3cASe017661%40sheep.berlios.de%3E"
+       TITLE="[Libpkg-svn] r151 - www">zxombie at mail.berlios.de
+       </A><BR>
+    <I>Fri Jul 14 05:38:10 CEST 2006</I>
+    <P><UL>
+        <LI>Previous message: <A HREF="000133.html">[Libpkg-svn] r150 - tags
+</A></li>
+        <LI>Next message: <A HREF="000132.html">[Libpkg-svn] r152 - trunk/src
+</A></li>
+         <LI> <B>Messages sorted by:</B> 
+              <a href="date.html#131">[ date ]</a>
+              <a href="thread.html#131">[ thread ]</a>
+              <a href="subject.html#131">[ subject ]</a>
+              <a href="author.html#131">[ author ]</a>
+         </LI>
+       </UL>
+    <HR>  
+<!--beginarticle-->
+<PRE>Author: zxombie
+Date: 2006-07-14 05:38:07 +0200 (Fri, 14 Jul 2006)
+New Revision: 151
+
+Added:
+   www/docs.xml
+Modified:
+   www/Makefile
+   www/nav.xml
+Log:
+Add a page with links to the documentation on it
+Update the navigation to include the doc page
+
+
+Modified: www/Makefile
+===================================================================
+--- www/Makefile	2006-07-14 02:43:38 UTC (rev 150)
++++ www/Makefile	2006-07-14 03:38:07 UTC (rev 151)
+@@ -1,4 +1,4 @@
+-FILES=index.html downloads.html index.css
++FILES=index.html downloads.html docs.html index.css
+ 
+ FILESDIR?=/home/groups/libpkg/htdocs/
+ 
+@@ -16,4 +16,7 @@
+ downloads.html: downloads.xml page.xsl nav.xml
+ 	xsltproc downloads.xml &gt; downloads.html
+ 
++docs.html: docs.xml page.xsl nav.xml
++	xsltproc docs.xml &gt; docs.html
++
+ page.xsl: nav.xml
+
+Added: www/docs.xml
+===================================================================
+--- www/docs.xml	2006-07-14 02:43:38 UTC (rev 150)
++++ www/docs.xml	2006-07-14 03:38:07 UTC (rev 151)
+@@ -0,0 +1,15 @@
++&lt;?xml version='1.0'?&gt;
++&lt;?xml-stylesheet href=&quot;page.xsl&quot; type=&quot;text/xsl&quot;?&gt;
++&lt;page name=&quot;downloads&quot;&gt;
++ &lt;title&gt;libpkg Documentation&lt;/title&gt;
++ &lt;body&gt;
++  &lt;div&gt;
++   &lt;h2&gt;Trunk&lt;/h2&gt;
++   &lt;p&gt;&lt;a href=&quot;doc/trunk/html/index.html&quot;&gt;API documentation&lt;/a&gt;&lt;/p&gt;
++  &lt;/div&gt;
++  &lt;div&gt;
++   &lt;h2&gt;0.1.20060714&lt;/h2&gt;
++   &lt;p&gt;&lt;a href=&quot;doc/0.1.20060714/html/index.html&quot;&gt;API documentation&lt;/a&gt;&lt;/p&gt;
++  &lt;/div&gt;
++ &lt;/body&gt;
++&lt;/page&gt;
+
+Modified: www/nav.xml
+===================================================================
+--- www/nav.xml	2006-07-14 02:43:38 UTC (rev 150)
++++ www/nav.xml	2006-07-14 03:38:07 UTC (rev 151)
+@@ -2,5 +2,5 @@
+ &lt;nav&gt;
+  &lt;page&gt;&lt;title&gt;Home&lt;/title&gt;&lt;file&gt;index&lt;/file&gt;&lt;/page&gt;
+  &lt;page&gt;&lt;title&gt;Downloads&lt;/title&gt;&lt;file&gt;downloads&lt;/file&gt;&lt;/page&gt;
+- &lt;page&gt;&lt;title&gt;Documentation&lt;/title&gt;&lt;file&gt;doc/trunk/html/index&lt;/file&gt;&lt;/page&gt;
++ &lt;page&gt;&lt;title&gt;Documentation&lt;/title&gt;&lt;file&gt;docs&lt;/file&gt;&lt;/page&gt;
+ &lt;/nav&gt;
+
+
+</PRE>
+
+<!--endarticle-->
+    <HR>
+    <P><UL>
+        <!--threads-->
+	<LI>Previous message: <A HREF="000133.html">[Libpkg-svn] r150 - tags
+</A></li>
+	<LI>Next message: <A HREF="000132.html">[Libpkg-svn] r152 - trunk/src
+</A></li>
+         <LI> <B>Messages sorted by:</B> 
+              <a href="date.html#131">[ date ]</a>
+              <a href="thread.html#131">[ thread ]</a>
+              <a href="subject.html#131">[ subject ]</a>
+              <a href="author.html#131">[ author ]</a>
+         </LI>
+       </UL>
+
+<hr>
+<a href="https://lists.berlios.de/mailman/listinfo/libpkg-svn">More information about the Libpkg-svn
+mailing list</a><br>
+</body></html>

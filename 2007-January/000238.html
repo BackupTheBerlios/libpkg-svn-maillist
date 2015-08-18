@@ -1,0 +1,159 @@
+<!DOCTYPE HTML PUBLIC "-//W3C//DTD HTML 4.01 Transitional//EN">
+<HTML>
+ <HEAD>
+   <TITLE> [Libpkg-svn] r254 - trunk/tools/pkg_add
+   </TITLE>
+   <LINK REL="Index" HREF="http://lists.berlios.de/pipermail/libpkg-svn/2007-January/index.html" >
+   <LINK REL="made" HREF="mailto:libpkg-svn%40lists.berlios.de?Subject=Re%3A%20%5BLibpkg-svn%5D%20r254%20-%20trunk/tools/pkg_add&In-Reply-To=%3C200701261018.l0QAI2Vw025707%40sheep.berlios.de%3E">
+   <META NAME="robots" CONTENT="index,nofollow">
+   <style type="text/css">
+       pre {
+           white-space: pre-wrap;       /* css-2.1, curent FF, Opera, Safari */
+           }
+   </style>
+   <META http-equiv="Content-Type" content="text/html; charset=us-ascii">
+   <LINK REL="Previous"  HREF="000237.html">
+   <LINK REL="Next"  HREF="000239.html">
+ </HEAD>
+ <BODY BGCOLOR="#ffffff">
+   <H1>[Libpkg-svn] r254 - trunk/tools/pkg_add</H1>
+    <B>zxombie at BerliOS</B> 
+    <A HREF="mailto:libpkg-svn%40lists.berlios.de?Subject=Re%3A%20%5BLibpkg-svn%5D%20r254%20-%20trunk/tools/pkg_add&In-Reply-To=%3C200701261018.l0QAI2Vw025707%40sheep.berlios.de%3E"
+       TITLE="[Libpkg-svn] r254 - trunk/tools/pkg_add">zxombie at mail.berlios.de
+       </A><BR>
+    <I>Fri Jan 26 11:18:02 CET 2007</I>
+    <P><UL>
+        <LI>Previous message: <A HREF="000237.html">[Libpkg-svn] r253 - trunk/src
+</A></li>
+        <LI>Next message: <A HREF="000239.html">[Libpkg-svn] r255 - trunk/tools/pkg_add
+</A></li>
+         <LI> <B>Messages sorted by:</B> 
+              <a href="date.html#238">[ date ]</a>
+              <a href="thread.html#238">[ thread ]</a>
+              <a href="subject.html#238">[ subject ]</a>
+              <a href="author.html#238">[ author ]</a>
+         </LI>
+       </UL>
+    <HR>  
+<!--beginarticle-->
+<PRE>Author: zxombie
+Date: 2007-01-26 11:18:01 +0100 (Fri, 26 Jan 2007)
+New Revision: 254
+
+Modified:
+   trunk/tools/pkg_add/main.c
+Log:
+Read the force pkg_add flag
+If a package is already installed don't attempt to install it again
+Don't recurse in install_package if we won't run the install
+Fix the strings being output when not installing
+When verbose and some dependencies are not installed complain
+Add some white space to improve the style
+
+
+Modified: trunk/tools/pkg_add/main.c
+===================================================================
+--- trunk/tools/pkg_add/main.c	2007-01-26 06:20:57 UTC (rev 253)
++++ trunk/tools/pkg_add/main.c	2007-01-26 10:18:01 UTC (rev 254)
+@@ -252,7 +252,7 @@
+ 		const char *base_prefix, const char *prefix, int flags)
+ {
+ 	unsigned int i;
+-	int ret, run, scripts, record, verbose;
++	int extras, force, record, ret, run, scripts, verbose;
+ 	pkg_db_action *action;
+ 	struct pkg **deps;
+ 	struct pkg_list *cur;
+@@ -278,9 +278,10 @@
+ 		return 0;
+ 	}
+ 
++	force = ((flags &amp; force_flag) == force_flag);
+ 	record = ((flags &amp; no_record_install_flag) != no_record_install_flag);
++	run = ((flags &amp; no_run_flag) != no_run_flag);
+ 	scripts = ((flags &amp; no_run_script_flag) != no_run_script_flag);
+-	run = ((flags &amp; no_run_flag) != no_run_flag);
+ 	verbose = (flags &amp; verbosity_flag) == verbosity_flag;
+ 
+ 	/* Use the no output pkg_action by default */
+@@ -292,7 +293,7 @@
+ 
+ 	/* Get the package's dependencies */
+ 	deps = pkg_get_dependencies(pkg);
+-	for (i=0; deps[i] != NULL; i++) {
++	for (i = 0, extras = 0; deps[i] != NULL; i++) {
+ 		struct pkg *new_pkg;
+ 
+ 		/* Replace the empty package with one from disk */
+@@ -311,21 +312,41 @@
+ 		    pkg_get_name(pkg), pkg_get_name(deps[i]),
+ 		    pkg_get_origin(deps[i]));
+ 
+-		/* Install the dependency */
+-		if (install_package(deps[i], repo, db, prefix, prefix, flags)
+-		    != 0 &amp;&amp; (flags &amp; force_flag) != force_flag) {
+-			pkg_list_free(deps);
+-			return -1;
++		/* Skip installed packages */
++		if (pkg_db_is_installed(db, deps[i]) == 0)
++			continue;
++
++		if (run) {
++			/* Install the dependency */
++			if (install_package(deps[i], repo, db, prefix, prefix,
++			    flags) != 0 &amp;&amp; (flags &amp; force_flag) != force_flag) {
++				pkg_list_free(deps);
++				return -1;
++			}
++		} else {
++			extras++;
++			if (verbose) {
++				action(PKG_DB_INFO, &quot;and was not found.&quot;);
++			} else {
++				printf(&quot;Package dependency %s for %s &quot;
++				    &quot;not found%s\n&quot;, pkg_get_name(deps[i]),
++				    pkg_get_name(pkg),
++				    force ? &quot; (proceeding anyway)&quot; : &quot;!&quot;);
++			}
+ 		}
+ 	}
+ 	pkg_list_free(deps);
+ 
+ 	ret = -1;
++
+ 	/* Install the package */
+-	if (action != NULL) {
++	if (run) {
+ 		ret = pkg_db_install_pkg_action(db, pkg, base_prefix, record,
+ 		    scripts, !run, action);
++	} else if (verbose &amp;&amp; extras != 0) {
++		warnx(&quot;%u package addition(s) failed&quot;, extras);
+ 	}
++
+ 	/*
+ 	 * Insert the installed package in a linked
+ 	 * list to stop it being installed again.
+
+
+</PRE>
+
+<!--endarticle-->
+    <HR>
+    <P><UL>
+        <!--threads-->
+	<LI>Previous message: <A HREF="000237.html">[Libpkg-svn] r253 - trunk/src
+</A></li>
+	<LI>Next message: <A HREF="000239.html">[Libpkg-svn] r255 - trunk/tools/pkg_add
+</A></li>
+         <LI> <B>Messages sorted by:</B> 
+              <a href="date.html#238">[ date ]</a>
+              <a href="thread.html#238">[ thread ]</a>
+              <a href="subject.html#238">[ subject ]</a>
+              <a href="author.html#238">[ author ]</a>
+         </LI>
+       </UL>
+
+<hr>
+<a href="https://lists.berlios.de/mailman/listinfo/libpkg-svn">More information about the Libpkg-svn
+mailing list</a><br>
+</body></html>

@@ -1,0 +1,782 @@
+<!DOCTYPE HTML PUBLIC "-//W3C//DTD HTML 4.01 Transitional//EN">
+<HTML>
+ <HEAD>
+   <TITLE> [Libpkg-svn] r272 - trunk/src
+   </TITLE>
+   <LINK REL="Index" HREF="http://lists.berlios.de/pipermail/libpkg-svn/2007-March/index.html" >
+   <LINK REL="made" HREF="mailto:libpkg-svn%40lists.berlios.de?Subject=Re%3A%20%5BLibpkg-svn%5D%20r272%20-%20trunk/src&In-Reply-To=%3C200703030953.l239rqGp014059%40sheep.berlios.de%3E">
+   <META NAME="robots" CONTENT="index,nofollow">
+   <style type="text/css">
+       pre {
+           white-space: pre-wrap;       /* css-2.1, curent FF, Opera, Safari */
+           }
+   </style>
+   <META http-equiv="Content-Type" content="text/html; charset=us-ascii">
+   
+   <LINK REL="Next"  HREF="000257.html">
+ </HEAD>
+ <BODY BGCOLOR="#ffffff">
+   <H1>[Libpkg-svn] r272 - trunk/src</H1>
+    <B>zxombie at BerliOS</B> 
+    <A HREF="mailto:libpkg-svn%40lists.berlios.de?Subject=Re%3A%20%5BLibpkg-svn%5D%20r272%20-%20trunk/src&In-Reply-To=%3C200703030953.l239rqGp014059%40sheep.berlios.de%3E"
+       TITLE="[Libpkg-svn] r272 - trunk/src">zxombie at mail.berlios.de
+       </A><BR>
+    <I>Sat Mar  3 10:53:52 CET 2007</I>
+    <P><UL>
+        
+        <LI>Next message: <A HREF="000257.html">[Libpkg-svn] r273 - trunk/tests
+</A></li>
+         <LI> <B>Messages sorted by:</B> 
+              <a href="date.html#256">[ date ]</a>
+              <a href="thread.html#256">[ thread ]</a>
+              <a href="subject.html#256">[ subject ]</a>
+              <a href="author.html#256">[ author ]</a>
+         </LI>
+       </UL>
+    <HR>  
+<!--beginarticle-->
+<PRE>Author: zxombie
+Date: 2007-03-03 10:53:52 +0100 (Sat, 03 Mar 2007)
+New Revision: 272
+
+Added:
+   trunk/src/pkg_freebsd_lexer.l
+   trunk/src/pkg_freebsd_parser.y
+   trunk/src/pkg_manifest.c
+Modified:
+   trunk/src/Makefile
+   trunk/src/pkg.h
+Log:
+Add the start of a new generic way to describe package (de)installation
+Add the start of a new FreeBSD package lexer and parser
+
+
+Modified: trunk/src/Makefile
+===================================================================
+--- trunk/src/Makefile	2007-02-15 00:08:22 UTC (rev 271)
++++ trunk/src/Makefile	2007-03-03 09:53:52 UTC (rev 272)
+@@ -2,11 +2,14 @@
+ 
+ SRCS		 = archive_read_open_stream.c
+ 
+-# Package handling
++# Package handeling
+ SRCS		+= pkg.c pkg_freebsd.c
+ 
++# Package Manifest handeling
++SRCS		+= pkg_manifest.c
++
+ # Handle FreeBSD +CONTENTS files
+-SRCS		+= pkg_freebsd_contents.c
++SRCS		+= pkg_freebsd_contents.c pkg_freebsd_parser.c pkg_freebsd_lexer.c
+ 
+ # Package files
+ SRCS		+= pkgfile.c
+@@ -23,6 +26,16 @@
+ 
+ INC		 = pkg.h
+ 
++pkg_freebsd_lexer.c: pkg_freebsd_lexer.l pkg_freebsd_parser.h
++	${LEX} -t ${LFLAGS} -Ppkg_freebsd_ pkg_freebsd_lexer.l &gt; ${.TARGET}
++
++pkg_freebsd_parser.c pkg_freebsd_parser.h: pkg_freebsd_parser.y
++	${YACC} -v -d -p pkg_freebsd_ -o pkg_freebsd_parser.c ${.ALLSRC}
++
++
++CLEANFILES	+= pkg_freebsd_lexer.c pkg_freebsd_lexer.h
++CLEANFILES	+= pkg_freebsd_parser.c pkg_freebsd_parser.h
++
+ CFLAGS		+= -O0
+ DEBUG_FLAGS	= -ggdb
+ WARNS		?= 6
+
+Modified: trunk/src/pkg.h
+===================================================================
+--- trunk/src/pkg.h	2007-02-15 00:08:22 UTC (rev 271)
++++ trunk/src/pkg.h	2007-03-03 09:53:52 UTC (rev 272)
+@@ -83,7 +83,7 @@
+  */
+ 
+ /**
+- * @brief The basic struct to use when interacting with a Package
++ * @brief The basic struct to use when interacting with a package
+  * @struct pkg pkg.h &lt;pkg.h&gt;
+  */
+ struct pkg;
+@@ -91,16 +91,16 @@
+ /**
+  * @brief An enum of all possible scripts that can be run by pkg_run_script()
+  */
+-typedef enum {
+-	pkg_script_noop, /**&lt; Noop */
+-	pkg_script_pre, /**&lt; Pre-install */
+-	pkg_script_post, /**&lt; Post-install */
+-	pkg_script_mtree, /**&lt; Mtree */
+-	pkg_script_require, /**&lt; Requirement check */
+-	pkg_script_require_deinstall, /**&lt; Removal Requirement check */
+-	pkg_script_deinstall, /**&lt; Deinstall check */
+-	pkg_script_pre_deinstall, /**&lt; Pre-removal */
+-	pkg_script_post_deinstall /**&lt; Post-removal */
++typedef enum _pkg_script {
++	pkg_script_noop,		/**&lt; Noop */
++	pkg_script_pre,			/**&lt; Pre-install */
++	pkg_script_post,		/**&lt; Post-install */
++	pkg_script_mtree,		/**&lt; Mtree */
++	pkg_script_require,		/**&lt; Requirement check */
++	pkg_script_require_deinstall,	/**&lt; Removal Requirement check */
++	pkg_script_deinstall,		/**&lt; Deinstall check */
++	pkg_script_pre_deinstall,	/**&lt; Pre-removal */
++	pkg_script_post_deinstall	/**&lt; Post-removal */
+ } pkg_script;
+ 
+ struct pkg		 *pkg_new_empty(const char *);
+@@ -129,6 +129,77 @@
+ /**
+  * @}
+  */
++
++/**
++ * @addtogroup PackageManifestItem
++ *
++ * @{
++ */
++
++/**
++ * @brief The basic struct to use when describing an item within a package manifest
++ * @struct pkg_manifest_item pkg.h &lt;pkg.h&gt;
++ */
++struct pkg_manifest_item;
++
++/**
++ * @brief The type of manifest item this is
++ */
++typedef enum _pkg_manifest_item_type {
++	pmt_other = 0,	/**&lt; The item is package format dependent */
++	pmt_file,	/**&lt; The item is a file */
++	pmt_dir,	/**&lt; The item is a directory */
++	pmt_dirlist,	/**&lt; The item is a list of directories and files, eg. mtree */
++	pmt_chdir,	/**&lt; The item indicates a new directory to change to */
++	pmt_output,	/**&lt; The item indicates some message to display to the user */
++	pmt_comment,	/**&lt; The item is a comment */
++	pmt_pkgname,	/**&lt; The item is the name of the package */
++	pmt_conflict,	/**&lt; The item is a name of a conflicting package */
++	pmt_dependency,	/**&lt; The item is the name of a dependent package */
++	pmt_execute	/**&lt; The item is a program to execute */
++} pkg_manifest_item_type;
++
++/**
++ * @brief Possible attributes that can be set on an item
++ */
++typedef enum _pkg_manifest_item_attr {
++	pmia_other = 0,		/**&lt; Package dependent item */
++	pmia_ignore,		/**&lt; Ignore the current item */
++	pmia_deinstall,		/**&lt; The item is for deinstall rather than install */
++	pmia_md5,		/**&lt; Set the MD5 checksum of an item */
++} pkg_manifest_item_attr;
++
++struct pkg_manifest_item *pkg_manifest_item_new(pkg_manifest_item_type,
++	    const char *);
++int	pkg_manifest_item_free(struct pkg_manifest_item *);
++int	pkg_manifest_item_set_attr(struct pkg_manifest_item *,
++	    pkg_manifest_item_attr, char *);
++
++/**
++ * @}
++ */
++
++/**
++ * @addtogroup PackageManifest
++ *
++ * @{
++ */
++
++/**
++ * @brief The basic struct to use when describing with a package manifest
++ * @struct pkg_manifest pkg.h &lt;pkg.h&gt;
++ */
++struct pkg_manifest;
++
++struct pkg_manifest	*pkg_manifest_new(void);
++int			 pkg_manifest_free(struct pkg_manifest *);
++int			 pkg_manifest_append_item(struct pkg_manifest *,
++			    struct pkg_manifest_item *);
++
++/**
++ * @}
++ */
++
+ char	*pkg_abspath(const char *);
+ 
+ #endif /* __LIBPKG_PKG_H__ */
+
+Added: trunk/src/pkg_freebsd_lexer.l
+===================================================================
+--- trunk/src/pkg_freebsd_lexer.l	2007-02-15 00:08:22 UTC (rev 271)
++++ trunk/src/pkg_freebsd_lexer.l	2007-03-03 09:53:52 UTC (rev 272)
+@@ -0,0 +1,126 @@
++%{
++/*
++ * Copyright (C) 2006, Andrew Turner, All rights reserved.
++ *
++ * Redistribution and use in source and binary forms, with or without
++ * modification, are permitted provided that the following conditions
++ * are met:
++ * 1. Redistributions of source code must retain the above copyright
++ *    notice, this list of conditions and the following disclaimer
++ *    in this position and unchanged.
++ * 2. Redistributions in binary form must reproduce the above copyright
++ *    notice, this list of conditions and the following disclaimer in the
++ *    documentation and/or other materials provided with the distribution.
++ * 3. The name(s) of the author(s) may not be used to endorse or promote
++ *    products derived from this software without specific prior written
++ *    permission.
++ *
++ * THIS SOFTWARE IS PROVIDED BY THE AUTHOR(S) ``AS IS'' AND ANY EXPRESS OR
++ * IMPLIED WARRANTIES, INCLUDING, BUT NOT LIMITED TO, THE IMPLIED WARRANTIES
++ * OF MERCHANTABILITY AND FITNESS FOR A PARTICULAR PURPOSE ARE DISCLAIMED.
++ * IN NO EVENT SHALL THE AUTHOR(S) BE LIABLE FOR ANY DIRECT, INDIRECT,
++ * INCIDENTAL, SPECIAL, EXEMPLARY, OR CONSEQUENTIAL DAMAGES (INCLUDING, BUT
++ * NOT LIMITED TO, PROCUREMENT OF SUBSTITUTE GOODS OR SERVICES; LOSS OF USE,
++ * DATA, OR PROFITS; OR BUSINESS INTERRUPTION) HOWEVER CAUSED AND ON ANY
++ * THEORY OF LIABILITY, WHETHER IN CONTRACT, STRICT LIABILITY, OR TORT
++ * (INCLUDING NEGLIGENCE OR OTHERWISE) ARISING IN ANY WAY OUT OF THE USE OF
++ * THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
++ *
++ */
++
++#include &quot;pkg_freebsd_parser.h&quot;
++
++#include &lt;errno.h&gt;
++#include &lt;string.h&gt;
++
++int pkg_freebsd_lex(void);
++void pkg_freebsd_error(const char *);
++
++static unsigned int pkg_line = 1;
++
++#define YY_NO_UNPUT
++%}
++
++%x IN_COMMENT
++
++%%
++^@comment[ ]		{ BEGIN IN_COMMENT; return COMMENT; }
++^@name\ ([^\n])*$	{
++	pkg_freebsd_lval.str_val = strdup(yytext + 6);
++	return NAME;
++			}
++^@cwd\ [^\n]*$		{
++	pkg_freebsd_lval.str_val = strdup(yytext + 5);
++	return CWD;
++			}
++^@pkgdep\ ([^\n]*)$	{
++	pkg_freebsd_lval.str_val = strdup(yytext + 8);
++	return PKGDEP;
++			}
++^@conflicts\ .*$	{
++	pkg_freebsd_lval.str_val = strdup(yytext + 11);
++	return CONFLICTS;
++			}
++^@exec\ .*$		{
++	pkg_freebsd_lval.str_val = strdup(yytext + 6);
++	return EXEC;
++			}
++^@unexec\ .*$		{
++	pkg_freebsd_lval.str_val = strdup(yytext + 8);
++	return UNEXEC;
++			}
++^@ignore		{ return IGNORE; }
++^@dirrm\ .*$		{
++	pkg_freebsd_lval.str_val = strdup(yytext + 7);
++	return DIRRM;
++			}
++^@mtree\ .*$		{
++	pkg_freebsd_lval.str_val = strdup(yytext + 7);
++	return MTREE;
++			}
++^@display\ .*$		{
++	pkg_freebsd_lval.str_val = strdup(yytext + 9);
++	return DISPLAY;
++			}
++&lt;IN_COMMENT&gt;DELETED:.*$ {
++	pkg_freebsd_lval.str_val = strdup(yytext);
++	return DATA;
++			}
++&lt;IN_COMMENT&gt;DEPORIGIN:.*$ {
++	pkg_freebsd_lval.str_val = strdup(yytext + 10);
++	return DEPORIGIN;
++			}
++&lt;IN_COMMENT&gt;ORIGIN:.*$	{
++	pkg_freebsd_lval.str_val = strdup(yytext + 7);
++	return ORIGIN;
++			}
++&lt;IN_COMMENT&gt;MD5:[0-9a-f]{32}$ {
++	pkg_freebsd_lval.str_val = strdup(yytext + 4);
++	return MD5;
++			}
++&lt;IN_COMMENT&gt;PKG_FORMAT_REVISION:1.1.*$ {
++	return FORMAT_1_1;
++			}
++&lt;IN_COMMENT&gt;.+$		{
++	pkg_freebsd_lval.str_val = strdup(yytext);
++	return DATA;
++			}
++&lt;IN_COMMENT&gt;\n		{ BEGIN 0; pkg_line++; return NL; }
++^[^@].*$		{
++	pkg_freebsd_lval.str_val = strdup(yytext);
++	return PKGFILE;
++			}
++\n			{ pkg_line++; return NL; }
++%%
++int
++pkg_freebsd_wrap()
++{
++	pkg_line = 1;
++	return 1;
++}
++
++void
++pkg_freebsd_error(const char *msg __unused)
++{
++	printf(&quot;ERROR line %d: %s\n&quot;, pkg_line, msg);
++}
+
+Added: trunk/src/pkg_freebsd_parser.y
+===================================================================
+--- trunk/src/pkg_freebsd_parser.y	2007-02-15 00:08:22 UTC (rev 271)
++++ trunk/src/pkg_freebsd_parser.y	2007-03-03 09:53:52 UTC (rev 272)
+@@ -0,0 +1,118 @@
++%{
++#include &quot;pkg.h&quot;
++
++#include &lt;errno.h&gt;
++#include &lt;stdio.h&gt;
++
++#define YYPARSE_PARAM param
++#define YYPARSE_PARAM_TYPE struct pkg_manifest **
++
++int pkg_freebsd_lex(void);
++int pkg_freebsd_parse(YYPARSE_PARAM_TYPE);
++void pkg_freebsd_error(const char *);
++
++struct pkg_manifest_item *curitem = NULL;
++struct pkg_manifest *pkg_manifest = NULL;
++%}
++
++%union {
++	char *str_val;
++	struct pkg_manifest_item *item;
++};
++
++%token COMMENT FORMAT_1_1 IGNORE NL
++%token &lt;str_val&gt; CONFLICTS CWD DATA DEPORIGIN DIRRM DISPLAY EXEC MD5 MTREE
++%token &lt;str_val&gt; NAME ORIGIN PKGDEP PKGFILE UNEXEC
++
++%type &lt;item&gt; contents_line
++
++%%
++contents_file:
++	COMMENT FORMAT_1_1 NL data_1_1 { (*YYPARSE_PARAM) = pkg_manifest; }
++
++data_1_1:
++	| data_1_1 contents_line NL {
++		if (pkg_manifest == NULL)
++			pkg_manifest = pkg_manifest_new();
++		pkg_manifest_append_item(pkg_manifest, $2);
++	}
++	| data_1_1 COMMENT comment_value NL
++
++contents_line
++	: PKGFILE {
++		$$ = pkg_manifest_item_new(pmt_file, $1);
++		free($1);
++		curitem = $$;
++	}
++	| CWD {
++		$$ = pkg_manifest_item_new(pmt_chdir, $1);
++		free($1);
++		curitem = $$;
++	}
++	| NAME {
++		$$ = pkg_manifest_item_new(pmt_pkgname, $1);
++		free($1);
++		curitem = $$;
++	}
++	| PKGDEP {
++		$$ = pkg_manifest_item_new(pmt_dependency, $1);
++		free($1);
++		curitem = $$;
++	}
++	| CONFLICTS {
++		$$ = pkg_manifest_item_new(pmt_conflict, $1);
++		free($1);
++		curitem = $$;
++	}
++	| EXEC {
++		$$ = pkg_manifest_item_new(pmt_execute, $1);
++		free($1);
++		curitem = $$;
++	}
++	| UNEXEC {
++		$$ = pkg_manifest_item_new(pmt_execute, $1);
++		free($1);
++		curitem = $$;
++	}
++	| DIRRM {
++		$$ = pkg_manifest_item_new(pmt_dir, $1);
++		free($1);
++		curitem = $$;
++	}
++	| MTREE {
++		$$ = pkg_manifest_item_new(pmt_dirlist, $1);
++		free($1);
++		curitem = $$;
++	}
++	| DISPLAY {
++		$$ = pkg_manifest_item_new(pmt_output, $1);
++		free($1);
++		curitem = $$;
++	}
++	| IGNORE NL PKGFILE {
++		$$ = pkg_manifest_item_new(pmt_file, $3);
++		free($3);
++		pkg_manifest_item_set_attr(curitem, pmia_ignore, NULL);
++		curitem = $$;
++	}
++	;
++
++comment_value
++	: DATA {
++		pkg_manifest_item_set_attr(curitem, pmia_other, $1);
++		free($1);
++	}
++	| DEPORIGIN {
++		pkg_manifest_item_set_attr(curitem, pmia_other, $1);
++		free($1);
++	}
++	| ORIGIN {
++		pkg_manifest_item_set_attr(curitem, pmia_other, $1);
++		free($1);
++	}
++	| MD5 {
++		pkg_manifest_item_set_attr(curitem, pmia_md5, $1);
++		free($1);
++	}
++	;
++%%
+
+Added: trunk/src/pkg_manifest.c
+===================================================================
+--- trunk/src/pkg_manifest.c	2007-02-15 00:08:22 UTC (rev 271)
++++ trunk/src/pkg_manifest.c	2007-03-03 09:53:52 UTC (rev 272)
+@@ -0,0 +1,287 @@
++/*
++ * Copyright (C) 2007, Andrew Turner, All rights reserved.
++ *
++ * Redistribution and use in source and binary forms, with or without
++ * modification, are permitted provided that the following conditions
++ * are met:
++ * 1. Redistributions of source code must retain the above copyright
++ *    notice, this list of conditions and the following disclaimer
++ *    in this position and unchanged.
++ * 2. Redistributions in binary form must reproduce the above copyright
++ *    notice, this list of conditions and the following disclaimer in the
++ *    documentation and/or other materials provided with the distribution.
++ * 3. The name(s) of the author(s) may not be used to endorse or promote
++ *    products derived from this software without specific prior written
++ *    permission.
++ *
++ * THIS SOFTWARE IS PROVIDED BY THE AUTHOR(S) ``AS IS'' AND ANY EXPRESS OR
++ * IMPLIED WARRANTIES, INCLUDING, BUT NOT LIMITED TO, THE IMPLIED WARRANTIES
++ * OF MERCHANTABILITY AND FITNESS FOR A PARTICULAR PURPOSE ARE DISCLAIMED.
++ * IN NO EVENT SHALL THE AUTHOR(S) BE LIABLE FOR ANY DIRECT, INDIRECT,
++ * INCIDENTAL, SPECIAL, EXEMPLARY, OR CONSEQUENTIAL DAMAGES (INCLUDING, BUT
++ * NOT LIMITED TO, PROCUREMENT OF SUBSTITUTE GOODS OR SERVICES; LOSS OF USE,
++ * DATA, OR PROFITS; OR BUSINESS INTERRUPTION) HOWEVER CAUSED AND ON ANY
++ * THEORY OF LIABILITY, WHETHER IN CONTRACT, STRICT LIABILITY, OR TORT
++ * (INCLUDING NEGLIGENCE OR OTHERWISE) ARISING IN ANY WAY OUT OF THE USE OF
++ * THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
++ *
++ */
++
++#include &quot;pkg.h&quot;
++
++#include &lt;assert.h&gt;
++#include &lt;stdlib.h&gt;
++#include &lt;string.h&gt;
++#include &lt;unistd.h&gt;
++
++struct pkg_manifest_item_attr {
++	pkg_manifest_item_attr attr;
++	char *data;
++};
++
++struct pkg_manifest_item {
++	pkg_manifest_item_type type;
++	void		*data;
++
++	struct pkg_manifest_item_attr *attrs;
++	unsigned int	 attr_count;
++	size_t		 attr_size;
++};
++
++struct pkg_manifest {
++	void		*data;
++
++	struct pkg_manifest_item **items;
++	unsigned int	 item_count;
++	size_t		 item_size;
++};
++
++/**
++ * @defgroup PackageManifest Package manifest functions
++ * 
++ * These are the package manifest manipulation functions.
++ *
++ * A package manifest is a desctiption of how to install
++ * and deinstall a given package.
++ * @{
++ */
++
++/**
++ * @brief Creates a new package manifest to describe a (de)install process
++ * @return A new package manifest
++ * @return NULL on error
++ */
++struct pkg_manifest *
++pkg_manifest_new()
++{
++	struct pkg_manifest *manifest;
++
++	manifest = malloc(sizeof(struct pkg_manifest));
++	if (manifest == NULL)
++		return NULL;
++
++	manifest-&gt;data = NULL;
++	manifest-&gt;items = NULL;
++	manifest-&gt;item_count = 0;
++	manifest-&gt;item_size = 0;
++
++	return manifest;
++}
++
++/**
++ * @brief Cleans up a package manifest
++ * @param manifest The manifest to free
++ * @return  0 on success
++ * @return -1 on failure
++ */
++int
++pkg_manifest_free(struct pkg_manifest *manifest)
++{
++	unsigned int pos;
++
++	if (manifest == NULL)
++		return -1;
++
++	for (pos = 0; pos &lt; manifest-&gt;item_count; pos++) {
++		assert(manifest-&gt;items[pos] != NULL);
++		pkg_manifest_item_free(manifest-&gt;items[pos]);
++	}
++
++	free(manifest-&gt;items);
++	free(manifest);
++	return 0;
++}
++
++/**
++ * @brief Adds a manifest item to a package manifest
++ * @param manifest The manifest to append the item to
++ * @param item The item to append to the manifest
++ * @return  0 on success
++ * @return -1 on failure
++ */
++int
++pkg_manifest_append_item(struct pkg_manifest *manifest,
++    struct pkg_manifest_item *item)
++{
++	struct pkg_manifest_item **new_items;
++
++	if (manifest == NULL)
++		return -1;
++	if (manifest-&gt;items == NULL) {
++		manifest-&gt;item_size = sizeof(struct pkg_manifest_item *) * 2;
++		manifest-&gt;items = malloc(manifest-&gt;item_size);
++		if (manifest-&gt;items == NULL) {
++			manifest-&gt;item_size = 0;
++			return -1;
++		}
++	} else {
++		manifest-&gt;item_size += sizeof(struct pkg_manifest_item *);
++		new_items = realloc(manifest-&gt;items, manifest-&gt;item_size);
++		if (new_items == NULL) {
++			manifest-&gt;item_size -=
++			    sizeof(struct pkg_manifest_item *);
++			return -1;
++		}
++		manifest-&gt;items = new_items;
++	}
++	manifest-&gt;items[manifest-&gt;item_count] = item;
++	manifest-&gt;item_count++;
++	manifest-&gt;items[manifest-&gt;item_count] = NULL;
++
++	return 0;
++}
++
++/**
++ * @}
++ */
++
++/**
++ * @defgroup PackageManifestItem Package manifest item functions
++ * @ingroup PackageManifest
++ * 
++ * These are the manifest item functions.
++ *
++ * A manifest item it the smallest part of a manifest.
++ * @{
++ */
++
++/**
++ * @brief Creates a new package manifest object
++ * @param type The type of package manifest item to create
++ * @param data The data to associate with this item
++ * @return A new package manifest item object
++ * @return NULL on error
++ */
++struct pkg_manifest_item *
++pkg_manifest_item_new(pkg_manifest_item_type type, const char *data)
++{
++	struct pkg_manifest_item *item;
++
++	item = malloc(sizeof(struct pkg_manifest_item));
++	if (item == NULL)
++		return NULL;
++
++	item-&gt;type = type;
++	item-&gt;attrs = NULL;
++	item-&gt;attr_count = 0;
++	item-&gt;attr_size = 0;
++
++	if (data == NULL) {
++		item-&gt;data = NULL;
++	} else {
++		item-&gt;data = strdup(data);
++	}
++
++	return item;
++}
++
++/**
++ * @brief Cleans up a package manifest object
++ * @param item The package manifest item to free
++ * @return  0 on success
++ * @return -1 on error
++ */
++int
++pkg_manifest_item_free(struct pkg_manifest_item *item)
++{
++	if (item == NULL)
++		return -1;
++
++	if (item-&gt;data != NULL)
++		free(item-&gt;data);
++
++	if (item-&gt;attrs != NULL) {
++		unsigned int pos;
++		for (pos = 0; pos &lt; item-&gt;attr_count; pos++) {
++			if (item-&gt;attrs[pos].data != NULL)
++				free(item-&gt;attrs[pos].data);
++		}
++		free(item-&gt;attrs);
++	}
++
++	free(item);
++
++	return 0;
++}
++
++/**
++ * @brief Sets the given attribute on the item
++ * @param item The package item
++ * @param attr The attribute to set
++ * @param data The value to set the attribute to
++ * @return  0 on success
++ * @return -1 on error
++ */
++int
++pkg_manifest_item_set_attr(struct pkg_manifest_item *item,
++    pkg_manifest_item_attr attr, char *data)
++{
++	unsigned int pos;
++
++	if (item == NULL)
++		return -1;
++
++	/*
++	 * If there are attr's already check if the one
++	 * we are setting is there. If it is replace the
++	 * old data with the new data.
++	 */
++	if (item-&gt;attrs != NULL) {
++		for (pos = 0; pos &lt; item-&gt;attr_count; pos++) {
++			if (item-&gt;attrs[pos].attr == attr) {
++				if (item-&gt;attrs[pos].data != NULL)
++					free(item-&gt;attrs[pos].data);
++				item-&gt;attrs[pos].data = strdup(data);
++				return 0;
++			}
++		}
++	}
++
++	if (item-&gt;attrs == NULL) {
++		/* Create the attribute array */
++		item-&gt;attr_size = sizeof(struct pkg_manifest_item_attr);
++		item-&gt;attrs = malloc(item-&gt;attr_size);
++		if (item-&gt;attrs == NULL)
++			return -1;
++	} else {
++		/* Increase the size of the attribute array */
++		struct pkg_manifest_item_attr *new_attr;
++		item-&gt;attr_size += sizeof(struct pkg_manifest_item_attr);
++		new_attr = realloc(item-&gt;attrs, item-&gt;attr_size);
++		if (new_attr == NULL) {
++			item-&gt;attr_size -=sizeof(struct pkg_manifest_item_attr);
++			return -1;
++		}
++		item-&gt;attrs = new_attr;
++	}
++	/* Set the new attribute */
++	item-&gt;attrs[item-&gt;attr_count].attr = attr;
++	item-&gt;attrs[item-&gt;attr_count].data = strdup(data);
++	item-&gt;attr_count++;
++
++	return 0;
++}
++
++/**
++ * @}
++ */
+
+
+</PRE>
+
+<!--endarticle-->
+    <HR>
+    <P><UL>
+        <!--threads-->
+	
+	<LI>Next message: <A HREF="000257.html">[Libpkg-svn] r273 - trunk/tests
+</A></li>
+         <LI> <B>Messages sorted by:</B> 
+              <a href="date.html#256">[ date ]</a>
+              <a href="thread.html#256">[ thread ]</a>
+              <a href="subject.html#256">[ subject ]</a>
+              <a href="author.html#256">[ author ]</a>
+         </LI>
+       </UL>
+
+<hr>
+<a href="https://lists.berlios.de/mailman/listinfo/libpkg-svn">More information about the Libpkg-svn
+mailing list</a><br>
+</body></html>

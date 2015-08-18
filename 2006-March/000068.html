@@ -1,0 +1,130 @@
+<!DOCTYPE HTML PUBLIC "-//W3C//DTD HTML 4.01 Transitional//EN">
+<HTML>
+ <HEAD>
+   <TITLE> [Libpkg-svn] r84 - trunk/src
+   </TITLE>
+   <LINK REL="Index" HREF="http://lists.berlios.de/pipermail/libpkg-svn/2006-March/index.html" >
+   <LINK REL="made" HREF="mailto:libpkg-svn%40lists.berlios.de?Subject=Re%3A%20%5BLibpkg-svn%5D%20r84%20-%20trunk/src&In-Reply-To=%3C200603281037.k2SAbVGk018263%40sheep.berlios.de%3E">
+   <META NAME="robots" CONTENT="index,nofollow">
+   <style type="text/css">
+       pre {
+           white-space: pre-wrap;       /* css-2.1, curent FF, Opera, Safari */
+           }
+   </style>
+   <META http-equiv="Content-Type" content="text/html; charset=us-ascii">
+   <LINK REL="Previous"  HREF="000067.html">
+   
+ </HEAD>
+ <BODY BGCOLOR="#ffffff">
+   <H1>[Libpkg-svn] r84 - trunk/src</H1>
+    <B>zxombie at BerliOS</B> 
+    <A HREF="mailto:libpkg-svn%40lists.berlios.de?Subject=Re%3A%20%5BLibpkg-svn%5D%20r84%20-%20trunk/src&In-Reply-To=%3C200603281037.k2SAbVGk018263%40sheep.berlios.de%3E"
+       TITLE="[Libpkg-svn] r84 - trunk/src">zxombie at berlios.de
+       </A><BR>
+    <I>Tue Mar 28 12:37:31 CEST 2006</I>
+    <P><UL>
+        <LI>Previous message: <A HREF="000067.html">[Libpkg-svn] r83 - trunk/src
+</A></li>
+        
+         <LI> <B>Messages sorted by:</B> 
+              <a href="date.html#68">[ date ]</a>
+              <a href="thread.html#68">[ thread ]</a>
+              <a href="subject.html#68">[ subject ]</a>
+              <a href="author.html#68">[ author ]</a>
+         </LI>
+       </UL>
+    <HR>  
+<!--beginarticle-->
+<PRE>Author: zxombie
+Date: 2006-03-28 12:37:26 +0200 (Tue, 28 Mar 2006)
+New Revision: 84
+
+Modified:
+   trunk/src/pkg_util.c
+Log:
+Document the util finctions
+
+
+Modified: trunk/src/pkg_util.c
+===================================================================
+--- trunk/src/pkg_util.c	2006-03-28 10:21:19 UTC (rev 83)
++++ trunk/src/pkg_util.c	2006-03-28 10:37:26 UTC (rev 84)
+@@ -42,10 +42,16 @@
+ #include &quot;pkg.h&quot;
+ #include &quot;pkg_private.h&quot;
+ 
+-/*
+- * This is a simplified version of `mkdir -p path'
+- * Is has been simplified to just take in a path to create
++/**
++ * @defgroup PackageUtil Miscellaneous utilities
++ *
++ * @{
+  */
++
++/**
++ * @brief A simplified version of `mkdir -p path'
++ * @return 0 on success, -1 on error
++ */
+ /* Based off src/bin/mkdir/mkdir.c 1.32 */
+ int
+ pkg_dir_build(const char *path)
+@@ -95,8 +101,9 @@
+ 	return (retval);
+ }
+ 
+-/*
+- * Checks a file against a given md5 checksum
++/**
++ * @brief Checks a file against a given md5 checksum
++ * @return 0 if the file matches the checksum, or -1 otherwise
+  */
+ int
+ pkg_checksum_md5(struct pkg_file *file, char *chk_sum)
+@@ -119,9 +126,12 @@
+ 	return 0;
+ }
+ 
+-/*
+- * Executes a program. It will use fmt as the
+- * format to generate the execv string
++/**
++ * @brief Executes a program
++ * 
++ * It will use fmt as the format to generate the execv string.
++ * @todo Write
++ * @return the return value from the child process
+  */
+ int
+ pkg_exec(const char *fmt, ...)
+@@ -138,3 +148,7 @@
+ 
+ 	return 0;
+ }
++
++/**
++ * @}
++ */
+
+
+</PRE>
+
+<!--endarticle-->
+    <HR>
+    <P><UL>
+        <!--threads-->
+	<LI>Previous message: <A HREF="000067.html">[Libpkg-svn] r83 - trunk/src
+</A></li>
+	
+         <LI> <B>Messages sorted by:</B> 
+              <a href="date.html#68">[ date ]</a>
+              <a href="thread.html#68">[ thread ]</a>
+              <a href="subject.html#68">[ subject ]</a>
+              <a href="author.html#68">[ author ]</a>
+         </LI>
+       </UL>
+
+<hr>
+<a href="https://lists.berlios.de/mailman/listinfo/libpkg-svn">More information about the Libpkg-svn
+mailing list</a><br>
+</body></html>
